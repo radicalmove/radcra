@@ -13,7 +13,7 @@ from app.models import Course, CourseMembership, MembershipState, User, UserRole
 from app.routers.auth import _form_with_csrf
 from app.security import generate_token
 from app.schemas import RoleChangeRequest
-from app.services.accounts import AuthorizationError, approve_account, change_role
+from app.services.accounts import AuthorizationError, approve_account, archive_account, change_role, restore_account
 from app.services.access import AccessDenied, create_invitation
 
 router = APIRouter(prefix="/admin")
@@ -47,8 +47,8 @@ def users_page(request: Request, course_id: uuid.UUID | None = None, user: User 
         selected_course = db.get(Course, course_id)
         if selected_course is None or not selected_course.is_confirmed:
             raise HTTPException(status_code=404, detail="Course not found")
-        memberships = db.execute(select(CourseMembership, User).join(User, User.id == CourseMembership.user_id).where(CourseMembership.course_id == course_id).order_by(User.display_name)).all()
-    response = templates.TemplateResponse(request, "admin/users.html", {"users": db.scalars(select(User).order_by(User.created_at)).all(), "courses": courses, "selected_course": selected_course, "memberships": memberships, "csrf_token": token, "roles": list(UserRole)})
+        memberships = db.execute(select(CourseMembership, User).join(User, User.id == CourseMembership.user_id).where(CourseMembership.course_id == course_id, User.deleted_at.is_(None)).order_by(User.display_name)).all()
+    response = templates.TemplateResponse(request, "admin/users.html", {"users": db.scalars(select(User).where(User.deleted_at.is_(None)).order_by(User.created_at)).all(), "deleted_users": db.scalars(select(User).where(User.deleted_at.is_not(None)).order_by(User.deleted_at.desc())).all(), "courses": courses, "selected_course": selected_course, "memberships": memberships, "csrf_token": token, "roles": list(UserRole)})
     if request.cookies.get("csrf_token") != token:
         response.set_cookie("csrf_token", token, secure=True, samesite="lax")
     return response
@@ -95,6 +95,38 @@ async def set_role(request: Request, user_id: str, user: User = Depends(current_
         raise HTTPException(status_code=403, detail="Administrator access required") from exc
     if is_json:
         return {"id": str(target.id), "role": target.role.value}
+    return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/users/{user_id}/archive")
+async def archive_user(request: Request, user_id: str, user: User = Depends(current_dashboard_user), db: DbSession = Depends(get_session)):
+    _admin(user)
+    is_json = request.headers.get("content-type", "").startswith("application/json")
+    if not is_json:
+        await _form_with_csrf(request)
+    target = _target(db, user_id)
+    try:
+        archive_account(db, user, target)
+    except AuthorizationError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if is_json:
+        return {"id": str(target.id), "status": "archived"}
+    return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/users/{user_id}/restore")
+async def restore_user(request: Request, user_id: str, user: User = Depends(current_dashboard_user), db: DbSession = Depends(get_session)):
+    _admin(user)
+    is_json = request.headers.get("content-type", "").startswith("application/json")
+    if not is_json:
+        await _form_with_csrf(request)
+    target = _target(db, user_id)
+    try:
+        restore_account(db, user, target)
+    except AuthorizationError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if is_json:
+        return {"id": str(target.id), "status": "restored"}
     return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
 
 

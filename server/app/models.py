@@ -57,12 +57,14 @@ class User(Base):
         default=UserRole.BETA_TESTER,
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
         CheckConstraint("length(trim(display_name)) BETWEEN 1 AND 100", name="ck_users_display_name_length"),
         Index("ix_users_email", "email"),
         Index("ix_users_role", "role"),
+        Index("ix_users_deleted_at", "deleted_at"),
     )
 
 

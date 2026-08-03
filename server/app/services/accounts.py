@@ -1,12 +1,13 @@
+import hashlib
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
-from app.models import AuditEvent, CourseMembership, ExtensionLoginCode, MembershipState, Session, User, UserRole
+from app.models import AuditEvent, CourseMembership, DeviceCredential, ExtensionLoginCode, MembershipState, ReconnectCredential, ReviewerInvitation, Session, User, UserRole
 from app.security import generate_token, hash_password, token_hash, utc_now, verify_password
 
 
@@ -24,6 +25,9 @@ class AuthorizationError(Exception):
 
 class AccountAlreadyExistsError(Exception):
     pass
+
+
+_ADMIN_SAFETY_LOCK_ID = 791_426_031
 
 
 @dataclass(frozen=True)
@@ -52,6 +56,26 @@ def register_account(db: DbSession, *, email: str, password: str, display_name: 
     return user
 
 
+def _lock_administrator_safety(db: DbSession) -> None:
+    if db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": _ADMIN_SAFETY_LOCK_ID})
+    elif db.bind.dialect.name == "sqlite" and not db.in_transaction():
+        db.execute(text("BEGIN IMMEDIATE"))
+
+
+def _active_administrator_count(db: DbSession) -> int:
+    return int(db.scalar(select(func.count()).select_from(User).where(User.role == UserRole.ADMIN, User.approved_at.is_not(None), User.deleted_at.is_(None))) or 0)
+
+
+def _active_admin(actor: User) -> None:
+    if actor.role is not UserRole.ADMIN or actor.approved_at is None or actor.deleted_at is not None:
+        raise AuthorizationError("Only approved administrators can manage accounts")
+
+
+def _account_email_hash(email: str) -> str:
+    return hashlib.sha256(email.strip().lower().encode()).hexdigest()
+
+
 def authenticate_account(db: DbSession, *, email: str, password: str) -> User:
     user = db.scalar(select(User).where(User.email == email.strip().lower()))
     if user is None or not verify_password(user.password_hash, password):
@@ -61,8 +85,11 @@ def authenticate_account(db: DbSession, *, email: str, password: str) -> User:
 
 
 def approve_account(db: DbSession, actor: User, user: User) -> User:
-    if actor.role is not UserRole.ADMIN or actor.approved_at is None:
-        raise AuthorizationError("Only approved administrators can approve accounts")
+    _active_admin(actor)
+    _lock_administrator_safety(db)
+    user = db.get(User, user.id)
+    if user is None or user.deleted_at is not None:
+        raise AuthorizationError("Archived accounts cannot be approved")
     if user.approved_at is None:
         user.approved_at = utc_now()
         db.add(AuditEvent(actor_user_id=actor.id, action="user.approved", entity_type="user", entity_id=str(user.id), details=None, created_at=utc_now()))
@@ -110,7 +137,7 @@ def _is_expired(expires_at: datetime, instant: datetime) -> bool:
 
 
 def _approved(user: User) -> None:
-    if user.approved_at is None:
+    if user.approved_at is None or user.deleted_at is not None:
         raise AccountNotApprovedError("Account approval is required")
 
 
@@ -214,11 +241,66 @@ def exchange_extension_login_code(db: DbSession, code: str, redirect_uri: str, *
 
 
 def change_role(db: DbSession, actor: User, user: User, role: UserRole) -> User:
-    if actor.role is not UserRole.ADMIN or actor.approved_at is None:
-        raise AuthorizationError("Only approved administrators can change roles")
+    _active_admin(actor)
+    _lock_administrator_safety(db)
+    user = db.get(User, user.id)
+    if user is None or user.deleted_at is not None:
+        raise AuthorizationError("Archived accounts cannot change roles")
     old_role = user.role
+    if old_role is UserRole.ADMIN and role is not UserRole.ADMIN and _active_administrator_count(db) <= 1:
+        raise AuthorizationError("Cannot remove the last active administrator")
     user.role = role
     db.add(AuditEvent(actor_user_id=actor.id, action="user.role_changed", entity_type="user", entity_id=str(user.id), details=f"{old_role.value}->{role.value}", created_at=utc_now()))
     db.commit()
     db.refresh(user)
     return user
+
+
+def archive_account(db: DbSession, actor: User, user: User) -> User:
+    _active_admin(actor)
+    _lock_administrator_safety(db)
+    target = db.scalar(select(User).where(User.id == user.id).with_for_update())
+    if target is None:
+        raise AuthorizationError("Account not found")
+    if target.id == actor.id:
+        raise AuthorizationError("Administrators cannot archive themselves")
+    if target.deleted_at is not None:
+        raise AuthorizationError("Account is already archived")
+    if target.role is UserRole.ADMIN and _active_administrator_count(db) <= 1:
+        raise AuthorizationError("Cannot archive the last active administrator")
+    instant = utc_now()
+    target.deleted_at = instant
+    db.execute(update(Session).where(Session.user_id == target.id, Session.revoked_at.is_(None)).values(revoked_at=instant))
+    db.execute(update(ExtensionLoginCode).where(ExtensionLoginCode.user_id == target.id, ExtensionLoginCode.revoked_at.is_(None), ExtensionLoginCode.used_at.is_(None)).values(revoked_at=instant))
+    membership_ids = select(CourseMembership.id).where(CourseMembership.user_id == target.id)
+    db.execute(update(DeviceCredential).where(DeviceCredential.membership_id.in_(membership_ids), DeviceCredential.revoked_at.is_(None)).values(revoked_at=instant))
+    db.execute(update(ReconnectCredential).where(ReconnectCredential.membership_id.in_(membership_ids), ReconnectCredential.revoked_at.is_(None)).values(revoked_at=instant))
+    db.execute(update(ReviewerInvitation).where(ReviewerInvitation.email_hash == _account_email_hash(target.email), ReviewerInvitation.revoked_at.is_(None), ReviewerInvitation.redeemed_at.is_(None)).values(revoked_at=instant))
+    db.add(AuditEvent(actor_user_id=actor.id, action="user.archived", entity_type="user", entity_id=str(target.id), details=None, created_at=instant))
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(target)
+    return target
+
+
+def restore_account(db: DbSession, actor: User, user: User) -> User:
+    _active_admin(actor)
+    _lock_administrator_safety(db)
+    target = db.scalar(select(User).where(User.id == user.id).with_for_update())
+    if target is None:
+        raise AuthorizationError("Account not found")
+    if target.deleted_at is None:
+        raise AuthorizationError("Account is not archived")
+    instant = utc_now()
+    target.deleted_at = None
+    db.add(AuditEvent(actor_user_id=actor.id, action="user.restored", entity_type="user", entity_id=str(target.id), details=None, created_at=instant))
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(target)
+    return target

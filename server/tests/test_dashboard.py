@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base, get_session
 from app.main import create_app
 from app.models import Comment, CommentReadState, CommentStatus, Course, PageLocation, User, UserRole
-from app.services.accounts import register_account
+from app.services.accounts import archive_account, register_account
 from app.services.comments import create_comment, create_reply
 
 
@@ -219,6 +219,30 @@ def test_share_form_rejects_unapproved_sme_selected_by_crafted_request(dashboard
     assert response.status_code == 303
     error_page = dashboard_client.get(response.headers["location"])
     assert 'role="alert"' in error_page.text and "valid SME" in error_page.text
+
+
+def test_share_form_excludes_archived_sme_from_selector_and_server_validation(dashboard_client):
+    comment_id, _ = seed(dashboard_client)
+    login(dashboard_client, "lead-archived-share@example.test", UserRole.LD_DCD)
+    db = dashboard_client.db_factory()
+    archiver = register_account(db, email="archiver@example.test", password="long enough password")
+    archiver.role, archiver.approved_at = UserRole.ADMIN, datetime.now(UTC)
+    archived_sme = register_account(db, email="archived-sme@example.test", password="long enough password")
+    archived_sme.role, archived_sme.approved_at = UserRole.SME, datetime.now(UTC)
+    db.commit()
+    archive_account(db, archiver, archived_sme)
+    archived_id = archived_sme.id
+    db.close()
+
+    page = dashboard_client.get(f"/dashboard/threads/{comment_id}")
+    assert "archived-sme@example.test" not in page.text
+    response = dashboard_client.post(
+        f"/dashboard/threads/{comment_id}/share",
+        data={"user_id": str(archived_id), "csrf_token": dashboard_client.cookies["csrf_token"]},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert 'role="alert"' in dashboard_client.get(response.headers["location"]).text
 
 
 def test_thread_user_query_projects_only_referenced_actor_identity(dashboard_client):

@@ -42,10 +42,11 @@ done
 
 (cd "$ROOT" && python3 - <<'PY'
 import json
+import os
 from pathlib import Path
 from tests.test_deployment_package import assert_classic_self_contained_script, assert_production_manifest
 dist = Path("extension/dist")
-assert_production_manifest(json.loads((dist / "manifest.json").read_text()))
+assert_production_manifest(json.loads((dist / "manifest.json").read_text()), os.environ["REVIEW_SERVICE_ORIGIN"])
 assert_classic_self_contained_script((dist / "content.js").read_text())
 print("Fresh production manifest hosts and classic content.js verified")
 PY

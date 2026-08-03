@@ -24,11 +24,11 @@ def assert_classic_self_contained_script(source: str) -> None:
             raise AssertionError(f"classic extension script contains {label}")
 
 
-def assert_production_manifest(manifest: dict) -> None:
+def assert_production_manifest(manifest: dict, service_origin: str = "https://fld-mini.tail4ccaba.ts.net") -> None:
     moodle = "https://my.uconline.ac.nz/*"
-    service = "https://fld-mini.tail4ccaba.ts.net/*"
+    service = f"{service_origin.rstrip('/')}/*"
     if manifest.get("host_permissions") != [moodle, service]:
-        raise AssertionError("production host_permissions must contain only the real UC Online and Tailscale hosts")
+        raise AssertionError("production host_permissions must contain only the real UC Online and configured service hosts")
     scripts = manifest.get("content_scripts")
     if not isinstance(scripts, list) or len(scripts) != 1:
         raise AssertionError("production manifest must define exactly one content script")

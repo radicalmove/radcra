@@ -144,6 +144,26 @@ class DeploymentPackageTests(unittest.TestCase):
             self.assertIn(token, script)
         self.assertIn('OPTIONAL_FRAME_PATTERNS="${OPTIONAL_FRAME_PATTERNS-}"', script)
 
+    def test_z_pilot_build_script_accepts_https_quick_tunnel_origin(self):
+        build_directory = tempfile.TemporaryDirectory()
+        try:
+            private_key = Path(build_directory.name) / "pilot-test.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", str(private_key)], check=True, capture_output=True)
+            commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+            environment = {
+                **os.environ,
+                "PRIVATE_KEY_PATH": str(private_key),
+                "REVIEW_SERVICE_ORIGIN": "https://satin-childrens-ellen-jaguar.trycloudflare.com",
+                "OPTIONAL_FRAME_PATTERNS": "",
+                "BUILD_COMMIT": commit,
+            }
+            result = subprocess.run([str(ROOT / "deploy/scripts/build-pilot-extension.sh")], cwd=ROOT, env=environment, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            manifest = json.loads((ROOT / "extension/dist/manifest.json").read_text())
+            self.assertIn("https://satin-childrens-ellen-jaguar.trycloudflare.com/*", manifest["host_permissions"])
+        finally:
+            build_directory.cleanup()
+
     def test_release_script_orders_verification_build_delivery_and_checksums(self):
         script = (ROOT / "deploy/scripts/release-pilot-extension.sh").read_text()
         ordered = (

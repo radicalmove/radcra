@@ -2,7 +2,7 @@
 set -euo pipefail
 
 : "${PRIVATE_KEY_PATH:?Set PRIVATE_KEY_PATH to an RSA private key outside the repository}"
-: "${REVIEW_SERVICE_ORIGIN:?Set REVIEW_SERVICE_ORIGIN=https://host.tailnet.ts.net}"
+: "${REVIEW_SERVICE_ORIGIN:?Set REVIEW_SERVICE_ORIGIN=https://host.tailnet.ts.net or https://host.trycloudflare.com}"
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 OPTIONAL_PATTERN_FILE="$ROOT/deploy/config/pilot-optional-frame-patterns.txt"

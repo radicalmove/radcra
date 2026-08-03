@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 : "${PRIVATE_KEY_PATH:?Set PRIVATE_KEY_PATH to an RSA private key outside the repository}"
-: "${REVIEW_SERVICE_ORIGIN:?Set REVIEW_SERVICE_ORIGIN=https://host.tailnet.ts.net}"
+: "${REVIEW_SERVICE_ORIGIN:?Set REVIEW_SERVICE_ORIGIN=https://host.tailnet.ts.net or https://host.trycloudflare.com}"
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 key_real=$(cd "$(dirname "$PRIVATE_KEY_PATH")" && pwd)/$(basename "$PRIVATE_KEY_PATH")
 case "$key_real" in "$ROOT"|"$ROOT"/*) echo "private key must be outside repository" >&2; exit 1;; esac
-[[ $REVIEW_SERVICE_ORIGIN == https://*.ts.net ]] || { echo "origin must be Tailscale HTTPS" >&2; exit 1; }
+[[ $REVIEW_SERVICE_ORIGIN == https://*.ts.net || $REVIEW_SERVICE_ORIGIN == https://*.trycloudflare.com ]] || { echo "origin must be Tailscale or Cloudflare HTTPS" >&2; exit 1; }
 public_der=$(mktemp)
 trap 'rm -f "$public_der"' EXIT
 openssl rsa -in "$PRIVATE_KEY_PATH" -pubout -outform DER -out "$public_der"

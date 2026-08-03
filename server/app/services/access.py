@@ -46,7 +46,7 @@ def _normalize_code(value: str) -> str:
 
 
 def create_invitation(db: DbSession, actor: User, course: Course, email: str, role: UserRole, *, ttl=timedelta(days=30)) -> tuple[ReviewerInvitation, str]:
-    if actor.role not in {UserRole.LD_DCD, UserRole.ADMIN} or actor.approved_at is None:
+    if actor.role not in {UserRole.LD_DCD, UserRole.ADMIN} or actor.approved_at is None or actor.deleted_at is not None:
         raise AccessDenied("Invitation access denied")
     if role is UserRole.ADMIN or (role is UserRole.LD_DCD and actor.role is not UserRole.ADMIN):
         raise AccessDenied("Invitation role denied")
@@ -61,6 +61,9 @@ def create_invitation(db: DbSession, actor: User, course: Course, email: str, ro
 
 
 def _issue_access(db: DbSession, membership: CourseMembership) -> tuple[str, str]:
+    user = db.get(User, membership.user_id)
+    if user is None or user.approved_at is None or user.deleted_at is not None:
+        raise AccessDenied("Unable to verify reviewer access")
     session_token = generate_token()
     device = generate_token()
     now = utc_now()
@@ -84,6 +87,8 @@ def redeem_invitation(db: DbSession, *, course_id: uuid.UUID, display_name: str,
         user = User(email=normalized_email, display_name=name, password_hash=hash_password(generate_token()), role=UserRole.BETA_TESTER, approved_at=now, created_at=now)
         db.add(user)
         db.flush()
+    if user.deleted_at is not None:
+        raise AccessDenied("Unable to verify reviewer access")
     if db.scalar(select(CourseMembership).where(CourseMembership.user_id == user.id, CourseMembership.course_id == course_id)) is not None:
         raise AccessDenied("Unable to verify reviewer access")
     state = MembershipState.APPROVED if role is UserRole.BETA_TESTER else MembershipState.PENDING
@@ -122,7 +127,7 @@ def list_approved_reviewers(db: DbSession, *, course_id: uuid.UUID) -> list[tupl
     return db.execute(
         select(CourseMembership, User)
         .join(User, User.id == CourseMembership.user_id)
-        .where(CourseMembership.course_id == course_id, CourseMembership.state == MembershipState.APPROVED)
+        .where(CourseMembership.course_id == course_id, CourseMembership.state == MembershipState.APPROVED, User.deleted_at.is_(None))
         .order_by(User.display_name, User.email)
     ).all()
 
@@ -137,6 +142,7 @@ def find_approved_reviewer(db: DbSession, *, course_id: uuid.UUID, email: str) -
         .where(
             CourseMembership.course_id == course_id,
             CourseMembership.state == MembershipState.APPROVED,
+            User.deleted_at.is_(None),
             User.email == _email(email),
         )
     ).first()
@@ -155,7 +161,8 @@ def renew_device(db: DbSession, *, course_id: uuid.UUID, device_credential: str)
     now = utc_now()
     current = db.scalar(select(DeviceCredential).where(DeviceCredential.credential_hash == token_hash(device_credential), DeviceCredential.rotated_at.is_(None), DeviceCredential.revoked_at.is_(None), DeviceCredential.expires_at > now))
     membership = None if current is None else db.get(CourseMembership, current.membership_id)
-    if current is None or membership is None or membership.course_id != course_id or membership.state is not MembershipState.APPROVED:
+    user = None if membership is None else db.get(User, membership.user_id)
+    if current is None or membership is None or user is None or user.approved_at is None or user.deleted_at is not None or membership.course_id != course_id or membership.state is not MembershipState.APPROVED:
         raise AccessDenied("Unable to verify reviewer access")
     current.rotated_at = now
     session_token = generate_token()

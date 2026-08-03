@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+import re
 import uuid
 
 import pytest
@@ -127,3 +128,48 @@ def test_admin_role_changes_reject_malformed_json_with_validation_response(clien
     response = client.post(f"/admin/users/{member_id}/role", json=payload)
 
     assert response.status_code == 422
+
+
+def _logged_in_admin(client):
+    session = client.db_factory()
+    admin = register_account(session, email="archive-admin@example.test", password="long enough password")
+    admin.role, admin.approved_at = UserRole.ADMIN, datetime.now(UTC)
+    target = register_account(session, email="archive-target@example.test", password="long enough password", display_name="Archive Target")
+    session.commit()
+    target_id = str(target.id)
+    session.close()
+    assert client.post("/auth/login", json={"email": "archive-admin@example.test", "password": "long enough password"}).status_code == 200
+    page = client.get("/admin/users")
+    csrf = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
+    assert csrf is not None
+    return target_id, csrf.group(1)
+
+
+def test_admin_can_archive_and_restore_account_from_separate_sections(client):
+    target_id, csrf = _logged_in_admin(client)
+
+    active = client.get("/admin/users")
+    assert "Archive Target" in active.text
+    assert "Delete account" in active.text
+    assert "Comments and review history will be retained" in active.text
+
+    archived = client.post(f"/admin/users/{target_id}/archive", data={"csrf_token": csrf}, follow_redirects=False)
+    assert archived.status_code == 303
+
+    deleted = client.get("/admin/users")
+    assert "Archive Target" not in deleted.text.split("Deleted accounts", 1)[0]
+    assert "Deleted accounts" in deleted.text
+    assert "Restore account" in deleted.text
+
+    csrf = re.search(r'name="csrf_token" value="([^"]+)"', deleted.text).group(1)
+    restored = client.post(f"/admin/users/{target_id}/restore", data={"csrf_token": csrf}, follow_redirects=False)
+    assert restored.status_code == 303
+    assert "Archive Target" in client.get("/admin/users").text
+
+
+def test_admin_archive_requires_csrf(client):
+    target_id, _ = _logged_in_admin(client)
+
+    response = client.post(f"/admin/users/{target_id}/archive", data={})
+
+    assert response.status_code == 403

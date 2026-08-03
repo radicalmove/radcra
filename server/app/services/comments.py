@@ -268,6 +268,7 @@ def sme_recipient_state(db: DbSession, comment: Comment) -> tuple[list[User], li
             CourseMembership.course_id == comment.course_id,
             CourseMembership.role == UserRole.SME,
             CourseMembership.state == MembershipState.APPROVED,
+            User.deleted_at.is_(None),
         ).order_by(User.display_name, User.email, User.id)
     ))
     selected = list(db.scalars(select(CommentShare.shared_with_user_id).where(CommentShare.comment_id == comment.id).order_by(CommentShare.created_at, CommentShare.id)))
@@ -286,6 +287,7 @@ def replace_sme_recipients(db: DbSession, actor: User, comment_id: uuid.UUID, us
         CourseMembership.course_id == comment.course_id,
         CourseMembership.role == UserRole.SME,
         CourseMembership.state == MembershipState.APPROVED,
+        CourseMembership.user_id.in_(select(User.id).where(User.deleted_at.is_(None))),
         CourseMembership.user_id.in_(user_ids),
     ))) if user_ids else set()
     if valid != set(user_ids):

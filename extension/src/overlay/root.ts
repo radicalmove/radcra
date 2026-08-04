@@ -28,24 +28,27 @@ export const creationComposerSpacingStyles = `.preview+.comment-composer{margin-
 export const commentComposerStyles = `.comment-composer-field-row{display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:8px;align-items:start}.comment-composer-field-row textarea{min-width:0;width:100%;min-height:110px}.comment-composer-save{box-sizing:border-box;width:34px;height:34px;min-height:34px!important;padding:2px;border:2px solid #176b43;border-radius:5px;background:#176b43;color:#fff}.comment-composer-save svg{display:block;width:100%;height:100%}.comment-composer-save:hover{background:#fff;color:#176b43}.comment-composer-actions{display:flex;justify-content:flex-end;margin-top:8px}.comment-composer-cancel{box-sizing:border-box;width:calc((100% - 16px)/3);height:34px;min-height:34px!important;padding:3px 9px;border:2px solid #d73b3d;border-radius:5px;background:#d73b3d;color:#fff;font:inherit;font-weight:650;line-height:1}.comment-composer-cancel:hover{background:#fff;color:#d73b3d}@media(max-width:420px){.comment-composer-actions button{flex:0 0 auto}}`;
 export const stabilisationUxStyles = `.help-dialog{width:min(860px,calc(100vw - 32px))}.comment-index-link{white-space:normal;overflow:hidden;text-overflow:ellipsis;display:-webkit-box!important;-webkit-line-clamp:2;-webkit-box-orient:vertical}.comment-interaction-label{display:block;white-space:normal;margin-top:2px;font-size:11px;line-height:1.3;font-weight:500;color:#0b6261}.comment-group-heading{display:flex;align-items:center;gap:4px;margin:5px 0 0}.comment-group-link{min-width:0;flex:1;margin-left:-5px;padding:0;border:0;background:transparent;color:inherit;text-align:left;font:inherit;font-weight:inherit;letter-spacing:inherit;text-transform:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.comment-group-link:hover,.comment-group-link:focus-visible{text-decoration:underline}.comment-group-toggle{box-sizing:border-box;order:-1;align-self:center;margin-left:-5px;translate:-5px -3px;width:28px;height:28px;min-height:28px!important;padding:0;border:0;background:transparent;color:var(--review-teal-dark);font-size:20px;line-height:1}.comment-group-toggle[aria-expanded="false"]{transform:rotate(-90deg)}.comment-collapse-groups{width:104px!important;height:38px!important;min-height:38px!important;padding:0 5px!important;font-size:13px}.comment-collapse-groups:hover,.comment-collapse-groups:focus-visible{background:var(--review-jump);border-color:var(--review-jump);color:#fff}`;
 
-export type ConnectionStatus = "connecting" | "connected" | "pending" | "signed-out" | "offline";
-const statusLabels: Record<ConnectionStatus, string> = { connecting: "Connecting", connected: "Connected", pending: "Waiting for approval — you can leave this page open or return later.", "signed-out": "Signed out", offline: "Service unavailable—retry" };
+export type ConnectionStatus = "connecting" | "connected" | "unregistered" | "pending" | "signed-out" | "offline";
+export type AccessLookupReadiness = "checking" | "ready";
+const statusLabels: Record<ConnectionStatus, string> = { connecting: "Connecting", connected: "Connected", unregistered: "Course not registered for review", pending: "Waiting for approval — you can leave this page open or return later.", "signed-out": "Signed out", offline: "Service unavailable—retry" };
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 export const isTransientInteractionNavigationError = (error: unknown) => error instanceof Error && error.message === "INTERACTION_NOT_READY";
 const authActionLabels: Partial<Record<ConnectionStatus, string>> = { "signed-out": "Sign in", pending: "Check approval", offline: "Retry" };
 
-function createStateActions(status: ConnectionStatus): string {
+function createStateActions(status: ConnectionStatus, readiness: AccessLookupReadiness = "ready", canRegister = false): string {
   const action = authActionLabels[status];
+  const checking = readiness === "checking" && Boolean(action);
+  const registration = status === "unregistered" && canRegister ? `<button type="button" data-action="register-course">Register this course for review</button>` : "";
   const reviewControls = status === "connected" || status === "connecting" ? `<span class="toolbar-actions" data-review-controls><button type="button" data-action="add-comment" aria-pressed="false">Add comment marker</button><button type="button" data-action="panel" aria-expanded="false"><span class="comments-wide">Comments (<span data-comment-count>0</span>)</span><span class="comments-short"><span data-comment-count-short>0</span> comments</span></button><button type="button" data-action="help" aria-label="Help and instructions" title="Help and instructions" aria-expanded="false">${reviewIconMarkup("help")}</button></span>` : "";
-  return `<span data-auth-action>${action ? `<button type="button" data-action="authenticate">${action}</button>` : ""}</span>${reviewControls}`;
+  return `<span data-auth-action>${action ? `<button type="button" data-action="authenticate"${checking ? ` disabled aria-busy="true" aria-label="Checking course access…"` : ""}>${checking ? "Checking course access…" : action}</button>` : registration}</span>${reviewControls}`;
 }
 
 export type BuildDiagnostics = { version: string; buildCommit: string };
 const defaultBuildDiagnostics: BuildDiagnostics = { version: "0.0.0", buildCommit: "0000000000000000000000000000000000000000" };
 
-export function createOverlayMarkup(input: { courseTitle: string; pageTitle: string; status: ConnectionStatus } & Partial<BuildDiagnostics>): string {
+export function createOverlayMarkup(input: { courseTitle: string; pageTitle: string; status: ConnectionStatus; accessLookupReadiness?: AccessLookupReadiness; canRegister?: boolean } & Partial<BuildDiagnostics>): string {
   const { version, buildCommit } = { ...defaultBuildDiagnostics, ...input };
-  return `<section class="shell" tabindex="-1"><div class="toolbar" role="toolbar" aria-label="Course review tools"><div class="identity"><span class="course" title="${escapeHtml(input.courseTitle)}">${escapeHtml(input.courseTitle)}</span><span class="viewer-line" data-viewer-line hidden><span class="viewer" data-viewer></span><button type="button" class="sign-out" data-action="sign-out">Sign out</button></span><span class="status ${input.status}" data-auth-status aria-live="polite" aria-atomic="true"><span class="dot" aria-hidden="true"></span><span data-status-message>${statusLabels[input.status]}</span></span></div>${createStateActions(input.status)}</div><div class="panel" hidden><div data-panel-content>No comments on this page yet.</div></div><span data-build-info hidden>${escapeHtml(version)}|${escapeHtml(buildCommit.slice(0, 7))}</span></section>`;
+  return `<section class="shell" tabindex="-1"><div class="toolbar" role="toolbar" aria-label="Course review tools"><div class="identity"><span class="course" title="${escapeHtml(input.courseTitle)}">${escapeHtml(input.courseTitle)}</span><span class="viewer-line" data-viewer-line hidden><span class="viewer" data-viewer></span><button type="button" class="sign-out" data-action="sign-out">Sign out</button></span><span class="status ${input.status}" data-auth-status aria-live="polite" aria-atomic="true"><span class="dot" aria-hidden="true"></span><span data-status-message>${statusLabels[input.status]}</span></span></div>${createStateActions(input.status, input.accessLookupReadiness, input.canRegister)}</div><div class="panel" hidden><div data-panel-content>No comments on this page yet.</div></div><span data-build-info hidden>${escapeHtml(version)}|${escapeHtml(buildCommit.slice(0, 7))}</span></section>`;
 }
 
 export function handleDialogKey(input: { key: string; shiftKey: boolean; activeIndex: number; focusableCount: number }): { focusIndex: number; close: boolean } {
@@ -59,8 +62,8 @@ export type CommentAnchor = ({ anchor_type: "text_highlight" } & TextAnchor) | (
 export type AuthenticationOutcome = { status: ConnectionStatus; message?: string };
 export type ReviewerAccessInput = { displayName: string; email: string; role: string; code: string };
 type SignOutOptions = { onSignOut?: () => Promise<void> };
-export type ReviewOverlayOptions = { panelStateStorage?: PanelStateStorage; onRequestInteraction?: (intent: "marker" | "selection") => void; onRequestPermission?: () => Promise<boolean>; onReloadRequired?: () => void; submitEmbedded?: (input: { capability: string; body: string; category: string; screenshot: boolean }) => Promise<{ id?: string; screenshot_available?: boolean } | void>; onAuthenticate?: () => Promise<AuthenticationOutcome>; onCheckApproval?: () => Promise<AuthenticationOutcome>; onAccessSubmit?: (input: ReviewerAccessInput) => Promise<AuthenticationOutcome>; findApprovedReviewer?: (email: string) => Promise<{ membershipId: string; label: string } | undefined>; onUseSavedReviewer?: (membershipId: string) => Promise<AuthenticationOutcome>; useAccessForm?: () => boolean; navigateToComment?: (commentId: string, pageUrl: string) => Promise<void>; submit?: (input: { body: string; category: string; anchor: CommentAnchor; screenshot: boolean; embeddedFrameUnavailable: boolean; contextSnapshot: CourseContext }) => Promise<{ id?: string; screenshot_available?: boolean } | void>; editThread?: (commentId: string, body: string) => Promise<void>; replyThread?: (commentId: string, body: string) => Promise<void>; changeStatus?: (commentId: string, status: string) => Promise<void>; refreshComments?: () => Promise<void>; manageSme?: (commentId: string, userIds?: string[]) => Promise<{ available_recipients: Array<{ id: string; display_name: string }>; selected_user_ids: string[] }>; deleteThread?: (commentId: string) => Promise<void>; uploadScreenshot?: (commentId: string, dataUrl: string) => Promise<void>; cancelScreenshot?: (commentId: string) => Promise<void>; captureScreenshot?: () => Promise<string>; onFrameFallback?: () => void; onTakeToContext?: (id: string) => void };
-export type ReviewOverlay = { update(context: CourseContext, status: ConnectionStatus): void; setStatus(status: ConnectionStatus): void; setInteractionState(state: "local" | "loading" | "embedded" | "permission-required" | "reload-required" | "unavailable", hasSelection?: boolean, markerActive?: boolean): void; setViewer(viewer?: { display_name: string | null; email: string; role: string }): void; setCommentList(comments: PageComment[]): void; setRendererComments(comments: PageComment[]): void; setPageComments(comments: PageComment[]): void; restoreCommentListGroup(pageUrl: string, status: "open" | "resolved"): boolean; setCommentNavigationStatus(message?: string): void; takeToContext(id: string): boolean; showFrameFallback(): void; hideFrameFallback(): void; setPresentationVisible(visible: boolean): void; setPresentationPosition(position?: { left: number; top: number }): void; presentationSize(): { width: number; height: number }; setUnresolvedAnchors(anchors: UnresolvedAnchor[]): void; destroy(): void };
+export type ReviewOverlayOptions = { accessLookupReadiness?: AccessLookupReadiness; canRegister?: boolean; onRegisterCourse?: () => Promise<AuthenticationOutcome>; panelStateStorage?: PanelStateStorage; onRequestInteraction?: (intent: "marker" | "selection") => void; onRequestPermission?: () => Promise<boolean>; onReloadRequired?: () => void; submitEmbedded?: (input: { capability: string; body: string; category: string; screenshot: boolean }) => Promise<{ id?: string; screenshot_available?: boolean } | void>; onAuthenticate?: () => Promise<AuthenticationOutcome>; onCheckApproval?: () => Promise<AuthenticationOutcome>; onAccessSubmit?: (input: ReviewerAccessInput) => Promise<AuthenticationOutcome>; findApprovedReviewer?: (email: string) => Promise<{ membershipId: string; label: string } | undefined>; onUseSavedReviewer?: (membershipId: string) => Promise<AuthenticationOutcome>; useAccessForm?: () => boolean; navigateToComment?: (commentId: string, pageUrl: string) => Promise<void>; submit?: (input: { body: string; category: string; anchor: CommentAnchor; screenshot: boolean; embeddedFrameUnavailable: boolean; contextSnapshot: CourseContext }) => Promise<{ id?: string; screenshot_available?: boolean } | void>; editThread?: (commentId: string, body: string) => Promise<void>; replyThread?: (commentId: string, body: string) => Promise<void>; changeStatus?: (commentId: string, status: string) => Promise<void>; refreshComments?: () => Promise<void>; manageSme?: (commentId: string, userIds?: string[]) => Promise<{ available_recipients: Array<{ id: string; display_name: string }>; selected_user_ids: string[] }>; deleteThread?: (commentId: string) => Promise<void>; uploadScreenshot?: (commentId: string, dataUrl: string) => Promise<void>; cancelScreenshot?: (commentId: string) => Promise<void>; captureScreenshot?: () => Promise<string>; onFrameFallback?: () => void; onTakeToContext?: (id: string) => void };
+export type ReviewOverlay = { update(context: CourseContext, status: ConnectionStatus): void; setStatus(status: ConnectionStatus): void; setStatusMessage(message: string): void; setAccessLookupReadiness(readiness: AccessLookupReadiness): void; setRegistrationCapability(canRegister: boolean): void; setInteractionState(state: "local" | "loading" | "embedded" | "permission-required" | "reload-required" | "unavailable", hasSelection?: boolean, markerActive?: boolean): void; setViewer(viewer?: { display_name: string | null; email: string; role: string }): void; setCommentList(comments: PageComment[]): void; setRendererComments(comments: PageComment[]): void; setPageComments(comments: PageComment[]): void; restoreCommentListGroup(pageUrl: string, status: "open" | "resolved"): boolean; setCommentNavigationStatus(message?: string): void; takeToContext(id: string): boolean; showFrameFallback(): void; hideFrameFallback(): void; setPresentationVisible(visible: boolean): void; setPresentationPosition(position?: { left: number; top: number }): void; presentationSize(): { width: number; height: number }; setUnresolvedAnchors(anchors: UnresolvedAnchor[]): void; destroy(): void };
 
 export function mountReviewOverlay(document: Document, context: CourseContext, status: ConnectionStatus = "connecting", options: ReviewOverlayOptions & SignOutOptions = {}, buildDiagnostics: BuildDiagnostics = defaultBuildDiagnostics): ReviewOverlay {
   const existing = document.getElementById(OVERLAY_HOST_ID) as HTMLElement | null;
@@ -87,7 +90,11 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
   ownerDocument.addEventListener("focusin", rememberPageFocus, true);
   let context = initial;
   let status = initialStatus;
+  let statusMessage: string | undefined;
   let currentViewer: { display_name: string | null; email: string; role: string } | undefined;
+  let readiness: AccessLookupReadiness = options.accessLookupReadiness ?? "ready";
+  let canRegister = options.canRegister === true;
+  let registering = false;
   let authenticating = false;
   let stateVersion = 0;
   let returnFocus: HTMLElement | null = null;
@@ -215,7 +222,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     shadow.innerHTML = "";
     if (style) shadow.append(style);
     const wrapper = ownerDocument.createElement("div");
-    wrapper.innerHTML = createOverlayMarkup({ courseTitle: context.title, pageTitle: context.pageTitle, status, ...buildDiagnostics });
+    wrapper.innerHTML = createOverlayMarkup({ courseTitle: context.title, pageTitle: context.pageTitle, status, accessLookupReadiness: readiness, canRegister, ...buildDiagnostics });
     shadow.append(...Array.from(wrapper.childNodes));
     bind();
   };
@@ -228,7 +235,9 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     if (viewer) viewer.textContent = currentViewer ? `${currentViewer.display_name || currentViewer.email} · ${currentViewer.role === "ld_dcd" ? "Learning Designer / Course Developer" : currentViewer.role === "sme" ? "Subject Matter Expert" : currentViewer.role === "beta_tester" ? "Beta Tester" : "Administrator"}` : "";
     renderStateControls();
   };
-  const renderStateControls = (message = statusLabels[status]) => {
+  const renderStateControls = (message?: string) => {
+    if (message !== undefined) statusMessage = message;
+    const displayMessage = message ?? statusMessage ?? statusLabels[status];
     const toolbar = shadow.querySelector<HTMLElement>(".toolbar");
     if (!toolbar) return;
     const panel = shadow.querySelector<HTMLElement>(".panel");
@@ -236,9 +245,9 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     const hadPanelToggle = Boolean(existingPanelToggle);
     const panelToggleHadFocus = shadow.activeElement === existingPanelToggle;
     const statusNode = toolbar.querySelector<HTMLElement>("[data-auth-status]");
-    if (statusNode) { statusNode.className = `status ${status}`; const messageNode = statusNode.querySelector<HTMLElement>("[data-status-message]"); if (messageNode) messageNode.textContent = message; }
+    if (statusNode) { statusNode.className = `status ${status}`; const messageNode = statusNode.querySelector<HTMLElement>("[data-status-message]"); if (messageNode) messageNode.textContent = displayMessage; }
     toolbar.querySelector("[data-auth-action]")?.remove(); toolbar.querySelector("[data-review-controls]")?.remove();
-    const wrapper = ownerDocument.createElement("div"); wrapper.innerHTML = createStateActions(status); toolbar.append(...Array.from(wrapper.childNodes));
+    const wrapper = ownerDocument.createElement("div"); wrapper.innerHTML = createStateActions(status, readiness, canRegister); toolbar.append(...Array.from(wrapper.childNodes));
     bind();
     const panelToggle = toolbar.querySelector<HTMLElement>('[data-action="panel"]');
     if (panelToggle && !hadPanelToggle) setPanelOpen(readCoursePanelState(panelStateStorage, context.course_url), { animate: false, persist: false });
@@ -261,7 +270,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     });
     if (signOutButton) signOutButton.dataset.bound = "true";
     shadow.querySelector<HTMLButtonElement>('[data-action="authenticate"]')?.addEventListener("click", async (event) => {
-      if (authenticating) return;
+      if (authenticating || readiness === "checking") return;
       if (status === "pending" && options.onCheckApproval) {
         authenticating = true; const attemptVersion = ++stateVersion; const button = event.currentTarget as HTMLButtonElement;
         button.disabled = true; button.textContent = "Checking…"; button.setAttribute("aria-busy", "true");
@@ -283,6 +292,9 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
         if (attemptVersion !== stateVersion) return;
         status = "signed-out"; authenticating = false; renderStateControls("Sign-in failed—try again"); shadow.querySelector<HTMLElement>('[data-action="authenticate"]')?.focus();
       }
+    });
+    shadow.querySelector<HTMLButtonElement>('[data-action="register-course"]')?.addEventListener("click", (event) => {
+      if (!registering) openRegistrationConfirmation(event.currentTarget as HTMLElement);
     });
   };
   const openAccessDialog = (trigger: HTMLElement) => {
@@ -325,6 +337,25 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     backdrop.querySelector("[data-cancel]")?.addEventListener("click", close);
     backdrop.querySelector("form")?.addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget as HTMLFormElement; const data = new FormData(form); const error = form.querySelector<HTMLElement>(".error")!; const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!; submit.disabled = true; error.hidden = true; try { const input: ReviewerAccessInput = { displayName: String(data.get("displayName") ?? "").trim(), email: String(data.get("email") ?? "").trim(), role: String(data.get("role") ?? "beta_tester"), code: String(data.get("code") ?? "").trim() }; const outcome = await options.onAccessSubmit!(input); close(); status = outcome.status; renderStateControls(outcome.message); } catch (caught) { error.textContent = caught instanceof Error ? caught.message : "Unable to verify reviewer access"; error.hidden = false; submit.disabled = false; } });
     shadow.append(backdrop); backdrop.querySelector<HTMLInputElement>('input[name="displayName"]')?.focus();
+  };
+  const openRegistrationConfirmation = (trigger: HTMLElement) => {
+    returnFocus = trigger;
+    const backdrop = ownerDocument.createElement("div"); backdrop.className = "backdrop";
+    backdrop.innerHTML = `<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="register-course-title"><h2 id="register-course-title">Register this course for review</h2><p>This will make the current course available for course-review access.</p><p class="error" role="alert" hidden></p><div class="actions"><button type="button" data-register-cancel>Cancel</button><button type="button" class="primary" data-register-confirm>Register this course for review</button></div></div>`;
+    const shell = shadow.querySelector<HTMLElement>(".shell")!; shell.inert = true;
+    const close = () => { shell.inert = false; backdrop.remove(); trigger.focus(); };
+    const cancel = backdrop.querySelector<HTMLButtonElement>("[data-register-cancel]")!;
+    const confirm = backdrop.querySelector<HTMLButtonElement>("[data-register-confirm]")!;
+    const error = backdrop.querySelector<HTMLElement>("[role=alert]")!;
+    backdrop.addEventListener("keydown", (event) => { const focusable = [cancel, confirm]; const activeIndex = Math.max(0, focusable.indexOf(shadow.activeElement as HTMLButtonElement)); const outcome = handleDialogKey({ key: event.key, shiftKey: event.shiftKey, activeIndex, focusableCount: focusable.length }); if (event.key === "Tab" || outcome.close) event.preventDefault(); if (outcome.close && !registering) close(); else if (event.key === "Tab") focusable[outcome.focusIndex]?.focus(); });
+    cancel.addEventListener("click", () => { if (!registering) close(); });
+    confirm.addEventListener("click", async () => {
+      if (registering || !options.onRegisterCourse) return;
+      registering = true; confirm.disabled = true; cancel.disabled = true; confirm.setAttribute("aria-busy", "true"); error.hidden = true;
+      try { const outcome = await options.onRegisterCourse(); close(); status = outcome.status; renderStateControls(outcome.message); }
+      catch (caught) { error.textContent = caught instanceof Error ? caught.message : "Unable to register this course for review"; error.hidden = false; registering = false; confirm.disabled = false; cancel.disabled = false; confirm.removeAttribute("aria-busy"); }
+    });
+    shadow.append(backdrop); cancel.focus();
   };
   const cleanupPreview = () => { previewCleanup?.(); previewCleanup = undefined; };
   const closeDialog = () => { if (pendingScreenshotId) void options.cancelScreenshot?.(pendingScreenshotId).catch(() => undefined); pendingScreenshotId = undefined; shadow.querySelector(".backdrop")?.remove(); composerContext = undefined; cleanupPreview(); fallbackPin = false; returnFocus?.focus(); };
@@ -544,7 +575,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     update(next, nextStatus) {
       const pageChanged = context.page_url !== next.page_url;
       const courseChanged = context.course_url !== next.course_url;
-      stateVersion += 1; authenticating = false; context = next; status = nextStatus; closeChoice(false);
+      stateVersion += 1; authenticating = false; context = next; status = nextStatus; statusMessage = undefined; closeChoice(false);
       if (pageChanged) { renderer.destroy(); renderer = makeRenderer(); }
       updateLabels();
       if (courseChanged) setPanelOpen((nextStatus === "connected" || nextStatus === "connecting") && readCoursePanelState(panelStateStorage, next.course_url), { animate: false, persist: false });
@@ -556,10 +587,13 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     },
     setStatus(nextStatus) {
       if (status === nextStatus) return;
-      status = nextStatus;
+      status = nextStatus; statusMessage = undefined;
       renderStateControls();
       if (nextStatus !== "connected") shadow.querySelectorAll<HTMLElement>("[data-comment-count],[data-comment-count-short]").forEach((node) => { node.textContent = "0"; });
     },
+    setAccessLookupReadiness(nextReadiness) { if (readiness === nextReadiness) return; readiness = nextReadiness; renderStateControls(); },
+    setRegistrationCapability(nextCanRegister) { if (canRegister === nextCanRegister) return; canRegister = nextCanRegister; renderStateControls(); },
+    setStatusMessage(message) { statusMessage = message; renderStateControls(); },
     setViewer(viewer) { currentViewer = viewer; updateLabels(); },
     setCommentList(comments) {
       restoreRenderedCommentListGroup = undefined;

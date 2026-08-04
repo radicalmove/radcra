@@ -666,6 +666,95 @@ test("sign in sends one authenticate per activation and refreshes course and com
   cleanup();
 });
 
+test("course access checking disables sign-in and does not invoke authentication", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=1" });
+  window.document.body.innerHTML = "<h1>Law</h1>";
+  let authenticateCalls = 0;
+  let publicLookup: ((response: any) => void) | undefined;
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    if (message.type === "RESOLVE_COURSE") callback({ ok: false, status: "signed-out", error: "Signed out" });
+    else if (message.type === "LOOKUP_REVIEW_COURSE") publicLookup = callback;
+    else if (message.type === "AUTHENTICATE") authenticateCalls += 1;
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(publicLookup);
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  const button = shadow.querySelector('[data-action="authenticate"]') as unknown as HTMLButtonElement;
+  assert.equal(button.disabled, true);
+  assert.equal(button.getAttribute("aria-busy"), "true");
+  button.click();
+  assert.equal(authenticateCalls, 0);
+  publicLookup!({ ok: false, status: "offline", error: "Review service unavailable" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.match(shadow.textContent!, /Service unavailable/);
+  cleanup();
+});
+
+test("authenticated unregistered resolve responses show the server capability without a client role guess", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=2" });
+  window.document.body.innerHTML = "<h1>New course</h1>";
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { registered: false, can_register: false } });
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  assert.match(shadow.textContent!, /Course not registered/);
+  assert.equal(shadow.querySelector('[data-action="register-course"]'), null);
+  cleanup();
+});
+
+test("successful registration forces a fresh read-only resolve for the current course", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=3" });
+  window.document.body.innerHTML = "<h1>New course</h1>";
+  const messages: any[] = []; let resolves = 0;
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    messages.push(message);
+    if (message.type === "RESOLVE_COURSE") { resolves += 1; callback(resolves === 1 ? { ok: true, data: { registered: false, can_register: true } } : { ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174003", title: "New course" } }); }
+    else if (message.type === "REGISTER_COURSE") callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174003" } });
+    else if (message.type === "GET_CURRENT_VIEWER") callback({ ok: true, data: {} });
+    else callback({ ok: true, data: [] });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  (shadow.querySelector('[data-action="register-course"]') as unknown as HTMLButtonElement)!.click();
+  (shadow.querySelector('[data-register-confirm]') as unknown as HTMLButtonElement)!.click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(messages.filter((message) => message.type === "REGISTER_COURSE").length, 1);
+  assert.equal(messages.filter((message) => message.type === "RESOLVE_COURSE").length, 2);
+  assert.equal(messages.filter((message) => message.type === "GET_CURRENT_VIEWER").length, 1);
+  cleanup();
+});
+
+test("a stale course lookup cannot overwrite the current URL or course state", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=4" });
+  window.document.body.innerHTML = "<h1>First</h1>";
+  const callbacks: Array<(response: any) => void> = [];
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    if (message.type === "RESOLVE_COURSE") callbacks.push(callback);
+    else if (message.type === "LIST_COURSE_COMMENTS") callback({ ok: true, data: [] });
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  window.document.querySelector("h1")!.textContent = "Second";
+  window.history.pushState({}, "", "https://moodle.example.invalid/course/view.php?id=5");
+  window.dispatchEvent(new window.Event("moodle-review:navigate"));
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(callbacks.length, 2);
+  callbacks[1]!({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174005", title: "Second" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  callbacks[0]!({ ok: true, data: { registered: false, can_register: true } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  const courseNode = ((shadow.childNodes[1] as unknown as HTMLElement).children[0]!).children[0]!;
+  assert.match(courseNode.textContent!, /Second/);
+  cleanup();
+});
+
 test("pending course access is checked automatically and connects without another code", async () => {
   const window = new Window({ url: "https://my.uconline.ac.nz/course/view.php?id=896" });
   window.document.title = "CRJU150";

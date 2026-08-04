@@ -1,5 +1,5 @@
-import { ApiClient, authenticate, findCourseReviewer, getActiveToken, lookupReviewCourse, redeemReviewerInvitation, renewReviewerDevice, resumeReviewerMembership, signInExistingReviewer, type SessionToken } from "./api";
-import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListCourseCommentsBridge, handleListPageCommentsBridge, handleResolveCourseBridge, normalizeErrorMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validatePageCommentsResponse, validateUploadScreenshotMessage, validateViewerResponse, type CreateCommentPayload, type ResolveCoursePayload } from "./background-bridge.ts";
+import { ApiClient, authenticate, findCourseReviewer, getActiveToken, lookupReviewCourse, redeemReviewerInvitation, registerCourse as registerCourseApi, renewReviewerDevice, resolveCourse as resolveCourseApi, resumeReviewerMembership, signInExistingReviewer, type SessionToken } from "./api";
+import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListCourseCommentsBridge, handleListPageCommentsBridge, handleRegisterCourseBridge, handleResolveCourseBridge, normalizeErrorMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validatePageCommentsResponse, validateUploadScreenshotMessage, validateViewerResponse, type CreateCommentPayload, type RegisterCoursePayload, type ResolveCoursePayload } from "./background-bridge.ts";
 import { EmbeddedCommentNavigation, handleCommentNavigationMessage } from "./embedded-comment-navigation.ts";
 import { EmbeddedAnchorCapabilities, issueEmbeddedAnchorFromWorker } from "./embedded-anchor-capabilities.ts";
 import { validateScreenshotDataUrl } from "./screenshot-validation.ts";
@@ -163,24 +163,15 @@ async function renewStoredDevice(): Promise<string | undefined> {
 }
 
 async function resolveCourse(payload: ResolveCoursePayload): Promise<unknown> {
-  const client = new ApiClient({
-    serviceOrigin: await serviceOrigin(),
-    getToken: activeToken,
-    clearToken: () => chrome.storage.session.remove(["apiToken", "expiresAt"]),
-    onSignedOut: () => undefined,
-  });
-  const response = await client.request("/api/courses/resolve", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (response.status === 403) throw new Error("Account pending approval");
-  if (!response.ok) throw new Error(`Course resolution failed (${response.status})`);
-  return response.json();
+  return resolveCourseApi(await client(), payload);
 }
 
 function client(): Promise<ApiClient> {
   return serviceOrigin().then((origin) => new ApiClient({ serviceOrigin: origin, getToken: activeToken, clearToken: () => chrome.storage.session.remove(["apiToken", "expiresAt"]), onSignedOut: () => undefined }));
+}
+
+async function registerCourse(payload: RegisterCoursePayload): Promise<unknown> {
+  return registerCourseApi(await client(), payload);
 }
 
 async function createComment(payload: CreateCommentPayload): Promise<unknown> {
@@ -348,6 +339,16 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
         }
         return resolved;
       },
+    });
+  } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "REGISTER_COURSE") {
+    operation = handleRegisterCourseBridge(message, sender, {
+      authorize: (candidate) => authorizeResolveSender(candidate, {
+        extensionId: chrome.runtime.id,
+        moodlePatterns: __MOODLE_PATTERNS__,
+        optionalPatterns: __OPTIONAL_FRAME_PATTERNS__,
+        hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }),
+      }),
+      register: registerCourse,
     });
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "REGISTER_SCORM_LAUNCH") {
     operation = (async () => {

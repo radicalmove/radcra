@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListPageCommentsBridge, handleResolveCourseBridge, normalizeErrorMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validateCreateCommentMessage, validateCreateEmbeddedCommentMessage, validateDeleteCommentMessage, validateListPageCommentsMessage, validatePageCommentsResponse, validateResolveCourseMessage, validateUploadScreenshotMessage, validateViewerResponse } from "../src/background-bridge.ts";
+import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListPageCommentsBridge, handleRegisterCourseBridge, handleResolveCourseBridge, normalizeErrorMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validateCreateCommentMessage, validateCreateEmbeddedCommentMessage, validateDeleteCommentMessage, validateListPageCommentsMessage, validatePageCommentsResponse, validateRegisterCourseMessage, validateResolveCourseMessage, validateUploadScreenshotMessage, validateViewerResponse } from "../src/background-bridge.ts";
 import type { EmbeddedAnchorClaim } from "../src/embedded-anchor-capabilities.ts";
 
 const capabilityUuid = (n: number) => `123e4567-e89b-42d3-a456-${String(n).padStart(12, "0")}`;
@@ -144,6 +144,23 @@ test("bridge rejects a payload whose course origin differs from the authorized s
   ), /origin/);
   assert.equal(authorizations, 0);
   assert.equal(resolutions, 0);
+});
+
+test("REGISTER_COURSE uses the exact trusted top-frame Moodle envelope and never calls API on rejection", async () => {
+  const payload = { course_url: "https://learn.example/course/view.php?id=7", title: "Law", moodle_course_id: 7 };
+  assert.deepEqual(validateRegisterCourseMessage({ type: "REGISTER_COURSE", payload }), payload);
+  for (const message of [
+    { type: "REGISTER_COURSE", payload: { ...payload, extra: true } },
+    { type: "REGISTER_COURSE", payload: { ...payload, moodle_course_id: "7" } },
+  ]) assert.throws(() => validateRegisterCourseMessage(message), /Invalid REGISTER_COURSE/);
+
+  let registrations = 0;
+  const dependencies = { authorize: async () => true, register: async () => { registrations += 1; return { id: "course-1" }; } };
+  assert.deepEqual(await handleRegisterCourseBridge({ type: "REGISTER_COURSE", payload }, { id: "ours", frameId: 0, url: payload.course_url }, dependencies), { id: "course-1" });
+  await assert.rejects(() => handleRegisterCourseBridge({ type: "REGISTER_COURSE", payload }, { id: "ours", frameId: 1, url: payload.course_url }, dependencies), /frame zero/);
+  await assert.rejects(() => handleRegisterCourseBridge({ type: "REGISTER_COURSE", payload }, { id: "ours", frameId: 0, url: "https://evil.example/course" }, dependencies), /origin/);
+  await assert.rejects(() => handleRegisterCourseBridge({ type: "REGISTER_COURSE", payload }, { id: "external", frameId: 0, url: payload.course_url }, { authorize: async () => false, register: dependencies.register }), /Unauthorized/);
+  assert.equal(registrations, 1);
 });
 
 test("unknown rejection values have safe useful response messages", () => {

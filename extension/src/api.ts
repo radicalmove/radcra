@@ -3,6 +3,9 @@ export type SessionToken = { apiToken: string; expiresAt: number };
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 type CourseLookup = { course_handle: string; title: string };
+export type CourseIdentityPayload = { course_url: string; title: string; moodle_course_id?: number };
+export type ResolvedCourse = { id: string; moodle_course_id: string; course_url: string; title: string; is_confirmed: boolean };
+export type CourseResolution = ResolvedCourse | { registered: false; can_register: boolean };
 type ReviewerAccess = { state: string; role: string; session?: SessionToken; deviceCredential?: string; reconnectCode?: string };
 export type CourseReviewer = { membershipId: string; label: string };
 
@@ -13,8 +16,12 @@ async function publicJson(originValue: string, path: string, body: unknown, fetc
   return response.json();
 }
 
-export async function lookupReviewCourse(options: { serviceOrigin: string; moodleOrigin: string; moodleCourseId: number; fetch?: Fetch }): Promise<CourseLookup> {
-  const body = await publicJson(options.serviceOrigin, "/api/access/course", { moodle_origin: options.moodleOrigin, moodle_course_id: options.moodleCourseId }, options.fetch);
+export async function lookupReviewCourse(options: { serviceOrigin: string; moodleOrigin: string; moodleCourseId: number; fetch?: Fetch }): Promise<CourseLookup | undefined> {
+  const origin = validateServiceOrigin(options.serviceOrigin).origin;
+  const response = await (options.fetch ?? fetch)(`${origin}/api/access/course`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ moodle_origin: options.moodleOrigin, moodle_course_id: options.moodleCourseId }), credentials: "omit" });
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw new Error("Unable to verify reviewer access");
+  const body = await response.json();
   if (typeof body?.course_handle !== "string" || typeof body?.title !== "string") throw new Error("Invalid course access response");
   return body;
 }
@@ -118,6 +125,37 @@ export class ApiClient {
     }
     return response;
   }
+}
+
+async function apiError(response: Response, fallback: string): Promise<never> {
+  const body = await response.json().catch(() => undefined) as { detail?: unknown } | undefined;
+  throw new Error(typeof body?.detail === "string" && body.detail.trim() ? body.detail : fallback);
+}
+
+function courseRequest(payload: CourseIdentityPayload): RequestInit {
+  return { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
+}
+
+export async function resolveCourse(client: ApiClient, payload: CourseIdentityPayload): Promise<CourseResolution> {
+  const response = await client.request("/api/courses/resolve", courseRequest(payload));
+  if (response.status === 404) {
+    const body = await response.json().catch(() => undefined) as { registered?: unknown; can_register?: unknown } | undefined;
+    if (body?.registered !== false || typeof body.can_register !== "boolean") return apiError(response, "Invalid course resolution response");
+    return { registered: false, can_register: body.can_register };
+  }
+  if (response.status === 403) return apiError(response, "Account pending approval");
+  if (!response.ok) return apiError(response, `Course resolution failed (${response.status})`);
+  const body = await response.json() as Partial<ResolvedCourse>;
+  if (typeof body.id !== "string" || typeof body.title !== "string") throw new Error("Invalid course resolution response");
+  return body as ResolvedCourse;
+}
+
+export async function registerCourse(client: ApiClient, payload: CourseIdentityPayload): Promise<ResolvedCourse> {
+  const response = await client.request("/api/courses/register", courseRequest(payload));
+  if (!response.ok) return apiError(response, `Course registration failed (${response.status})`);
+  const body = await response.json() as Partial<ResolvedCourse>;
+  if (typeof body.id !== "string" || typeof body.title !== "string") throw new Error("Invalid course registration response");
+  return body as ResolvedCourse;
 }
 
 export async function authenticate(options: {

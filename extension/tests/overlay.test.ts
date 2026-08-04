@@ -202,6 +202,59 @@ test("signed-out, pending, and offline states expose deterministic accessible co
   }
 });
 
+test("access lookup readiness disables sign-in and survives overlay rerenders", () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  const overlay = mountReviewOverlay(document, context, "signed-out", { accessLookupReadiness: "checking" });
+  const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  const signIn = shadow.querySelector<HTMLButtonElement>('[data-action="authenticate"]')!;
+  assert.equal(signIn.disabled, true);
+  assert.equal(signIn.getAttribute("aria-busy"), "true");
+  assert.match(signIn.textContent!, /Checking course access/);
+  overlay.update(context, "signed-out");
+  assert.equal(shadow.querySelector<HTMLButtonElement>('[data-action="authenticate"]')!.disabled, true);
+  overlay.setAccessLookupReadiness("ready");
+  assert.equal(shadow.querySelector<HTMLButtonElement>('[data-action="authenticate"]')!.disabled, false);
+});
+
+test("authenticated unregistered courses show only the server-authorized registration action", () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  const allowed = mountReviewOverlay(document, context, "unregistered", { canRegister: true });
+  const allowedShadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  assert.equal(allowedShadow.querySelector('[data-action="register-course"]')?.textContent, "Register this course for review");
+  allowed.destroy();
+
+  const denied = mountReviewOverlay(document, context, "unregistered", { canRegister: false });
+  const deniedShadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  assert.equal(deniedShadow.querySelector('[data-action="register-course"]'), null);
+});
+
+test("course registration confirmation is cancellable, single-submit, and retains useful errors", async () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  let calls = 0;
+  let rejectRegistration = true;
+  const overlay = mountReviewOverlay(document, context, "unregistered", {
+    canRegister: true,
+    onRegisterCourse: async () => { calls += 1; if (rejectRegistration) throw new Error("LD/DCD or administrator access required"); return { status: "connected" }; },
+  });
+  const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  shadow.querySelector<HTMLButtonElement>('[data-action="register-course"]')!.click();
+  assert.match(shadow.querySelector('[role="dialog"]')!.textContent!, /Register this course for review/);
+  shadow.querySelector<HTMLButtonElement>('[data-register-cancel]')!.click();
+  assert.equal(calls, 0);
+
+  shadow.querySelector<HTMLButtonElement>('[data-action="register-course"]')!.click();
+  shadow.querySelector<HTMLButtonElement>('[data-register-confirm]')!.click();
+  shadow.querySelector<HTMLButtonElement>('[data-register-confirm]')!.click();
+  await tick();
+  assert.equal(calls, 1);
+  assert.match(shadow.querySelector('[role="alert"]')!.textContent!, /LD\/DCD/);
+  rejectRegistration = false;
+  shadow.querySelector<HTMLButtonElement>('[data-register-confirm]')!.click();
+  await tick();
+  assert.equal(calls, 2);
+  assert.equal(shadow.querySelector('[role="dialog"]'), null);
+});
+
 test("authentication status is textual and announced through one live region", () => {
   const window = new Window(); const document = window.document as unknown as Document;
   const overlay = mountReviewOverlay(document, context, "signed-out");

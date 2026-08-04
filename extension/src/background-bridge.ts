@@ -1,4 +1,5 @@
 export type ResolveCoursePayload = { course_url: string; title: string; moodle_course_id?: number };
+export type RegisterCoursePayload = ResolveCoursePayload;
 import { validateRiseInteractionContext, type RiseInteractionContext } from "./rise-interaction-context.ts";
 export type CreateCommentPayload = { course_id: string; page_url: string; page_title: string; body: string; category: string; anchor_type: "text_highlight" | "visual_pin"; selected_quote?: string; prefix?: string; suffix?: string; css_selector?: string; dom_selector?: string; relative_x?: number; relative_y?: number; interaction_context?: RiseInteractionContext | null };
 export type EmbeddedCreateCommentPayload = CreateCommentPayload & { parent_activity_url: string; embedded_locator: string };
@@ -265,6 +266,15 @@ export function validateResolveCourseMessage(message: unknown): ResolveCoursePay
   return { course_url: payload.course_url, title: payload.title, ...(own(payload, "moodle_course_id") ? { moodle_course_id: payload.moodle_course_id as number } : {}) };
 }
 
+export function validateRegisterCourseMessage(message: unknown): RegisterCoursePayload {
+  const invalid = () => { throw new Error("Invalid REGISTER_COURSE message"); };
+  if (!message || typeof message !== "object" || Array.isArray(message)) return invalid();
+  const record = message as Record<string, unknown>;
+  if (!exactKeys(record, ["type", "payload"]) || record.type !== "REGISTER_COURSE") return invalid();
+  try { return validateResolveCourseMessage({ type: "RESOLVE_COURSE", payload: record.payload }); }
+  catch { return invalid(); }
+}
+
 function matches(url: string, pattern: string): boolean {
   const match = /^(\*|http|https):\/\/([^/]+)(\/.*)$/.exec(pattern);
   if (!match) return false;
@@ -301,4 +311,18 @@ export async function handleResolveCourseBridge(
   if (courseUrl.origin !== senderUrl.origin) throw new Error("RESOLVE_COURSE course origin must match sender origin");
   if (!await dependencies.authorize(sender)) throw new Error("Unauthorized RESOLVE_COURSE sender");
   return dependencies.resolve(payload);
+}
+
+export async function handleRegisterCourseBridge(
+  message: unknown,
+  sender: { id?: string; url?: string; frameId?: number },
+  dependencies: { authorize(sender: { id?: string; url?: string; frameId?: number }): Promise<boolean>; register(payload: RegisterCoursePayload): Promise<unknown> },
+): Promise<unknown> {
+  const payload = validateRegisterCourseMessage(message);
+  if (sender.frameId !== 0) throw new Error("Unauthorized REGISTER_COURSE sender: frame zero required");
+  let senderUrl: URL;
+  try { senderUrl = new URL(sender.url ?? ""); } catch { throw new Error("Unauthorized REGISTER_COURSE sender"); }
+  if (new URL(payload.course_url).origin !== senderUrl.origin) throw new Error("REGISTER_COURSE course origin must match sender origin");
+  if (!await dependencies.authorize(sender)) throw new Error("Unauthorized REGISTER_COURSE sender");
+  return dependencies.register(payload);
 }

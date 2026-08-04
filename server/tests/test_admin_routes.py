@@ -151,7 +151,7 @@ def test_admin_can_archive_and_restore_account_from_separate_sections(client):
     active = client.get("/admin/users")
     assert "Archive Target" in active.text
     assert "Delete account" in active.text
-    assert "Comments and review history will be retained" in active.text
+    assert "course comments and review history remain available in course review" in active.text
 
     archived = client.post(f"/admin/users/{target_id}/archive", data={"csrf_token": csrf}, follow_redirects=False)
     assert archived.status_code == 303

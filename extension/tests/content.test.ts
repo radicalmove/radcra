@@ -518,7 +518,7 @@ test("embedded review no longer loads a duplicate course comment list", async ()
   cleanup();
 });
 
-test("validated Connected Package identity aliases rerender legacy labels without changing worker comments and clear across courses", async () => {
+test("validated Connected Package identity aliases persist across same-course pages and clear across courses", async () => {
   const courseA = "123e4567-e89b-12d3-a456-426614174010";
   const courseB = "123e4567-e89b-12d3-a456-426614174011";
   const pageUrl = "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=We%20couldn't%20load%20this%20course";
@@ -568,6 +568,11 @@ test("validated Connected Package identity aliases rerender legacy labels withou
   assert.equal(workerProjection.payload.comments[0].dom_selector, "main > #marker");
   assert.equal(workerProjection.payload.comments[0].relative_x, 0.25);
   assert.equal(workerProjection.payload.comments[0].relative_y, 0.75);
+
+  window.history.pushState({}, "", "?page=2");
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  assert.match(shadow.textContent!, /1\.1\.1 Course foundations/, "same-course page navigation must retain aliases");
+  assert.doesNotMatch(shadow.textContent!, /We couldn't load this course/);
 
   window.document.body.dataset.courseid = "11";
   window.dispatchEvent(new window.Event("moodle-review:navigate"));

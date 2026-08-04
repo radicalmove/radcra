@@ -615,6 +615,7 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
   const clearNavigatedPage = () => {
     const next = currentContext(targetWindow, targetDocument);
     if (context.page_url === next.page_url && context.course_url === next.course_url) return;
+    const courseChanged = context.course_url !== next.course_url;
     interactionController.cancel();
     requestSequence += 1;
     courseGeneration += 1;
@@ -627,7 +628,7 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
     courseIds.delete(context.course_url);
     courseIds.delete(next.course_url);
     latestComments = [];
-    connectedPackageTitleAliases.clear();
+    if (courseChanged) connectedPackageTitleAliases.clear();
     latestCommentsSignature = "";
     accessLookupReadiness = "checking";
     context = next;

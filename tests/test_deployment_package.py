@@ -138,7 +138,7 @@ class DeploymentPackageTests(unittest.TestCase):
         self.assertIn("disposable", operations.lower())
         for token in ("CRJU150", "896", "9972", "9976", "118172", "146308", "Reviewer", "LD", "SME"):
             self.assertIn(token, pilot)
-        for token in ("0.5.29", "pilot-builds/moodle-review-extension", "chrome://extensions", "edge://extensions", "exactly one teal review toolbar", "Clear all", "revoke the permission"):
+        for token in ("0.5.30", "pilot-builds/moodle-review-extension", "chrome://extensions", "edge://extensions", "exactly one teal review toolbar", "Clear all", "revoke the permission"):
             self.assertIn(token, pilot)
         for route in (
             "https://my.uconline.ac.nz/course/view.php?id=896",

@@ -50,11 +50,11 @@ Account archiving is a separate lifecycle. In `/admin/users`, deleting an accoun
 
 ## Articulate Rise Connected Packages
 
-Version 0.5.29 supports the exact externally hosted frame used by the supplied Articulate Rise Connected Package launcher: `https://packages.articulateusercontent.com`. No wildcard Articulate subdomain or unrelated frame host is approved. If a different host appears in a future package, observe and review it before changing the allowlist.
+Versions 0.5.29 and later support the exact externally hosted frame used by the supplied Articulate Rise Connected Package launcher: `https://packages.articulateusercontent.com`. No wildcard Articulate subdomain or unrelated frame host is approved. If a different host appears in a future package, observe and review it before changing the allowlist.
 
 When a reviewer opens a Connected Package, the toolbar may show **Allow SCORM review access**. Selecting it opens Chrome's permission prompt for the exact Articulate host. A granted permission persists for that Chrome profile and extension installation, although the reviewer may need to reload the Moodle activity once immediately after granting it. Denying the prompt is safe: no fallback toolbar is injected into the inaccessible frame, and the reviewer can retry the permission action later.
 
-Never record, copy, or share a Connected Package launcher's `#token` value in comments, screenshots, support logs, or documentation. Version 0.5.29 strips launcher-token fragments from review page identities, embedded locators, worker events, and API payloads. Treat any launcher URL containing a token as sensitive even after this safeguard.
+Never record, copy, or share a Connected Package launcher's `#token` value in comments, screenshots, support logs, or documentation. Versions 0.5.29 and later strip launcher-token fragments from review page identities, embedded locators, worker events, and API payloads. Treat any launcher URL containing a token as sensitive even after this safeguard.
 
 Connected Packages load mutable content hosted by Articulate rather than a fixed uploaded SCORM archive. If Articulate content is changed after comments are saved, lesson structure, text, or layout changes may prevent an old highlight or visual marker from recovering at its original anchor. The comment thread remains associated with the Moodle review, but the reviewer may need to locate the revised content manually.
 

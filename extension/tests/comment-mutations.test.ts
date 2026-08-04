@@ -38,3 +38,11 @@ test("signed-out DELETE errors are not hidden by reconciliation", async () => {
 
   assert.equal(listCalls, 0);
 });
+
+test("signed-out reconciliation errors are not replaced by the original network error", async () => {
+  await assert.rejects(() => deleteWithReconciliation({
+    commentId,
+    deleteRequest: async () => { throw new TypeError("Failed to fetch"); },
+    listComments: async () => { throw new Error("Signed out: session expired"); },
+  }), /Signed out: session expired/);
+});

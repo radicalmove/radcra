@@ -21,7 +21,8 @@ export async function deleteWithReconciliation(options: DeleteWithReconciliation
         options.onReconciled?.(options.commentId, error);
         return;
       }
-    } catch {
+    } catch (reconciliationError) {
+      if (isSignedOutError(reconciliationError)) throw reconciliationError;
       // Preserve the original DELETE error when its outcome cannot be confirmed.
     }
     throw error;

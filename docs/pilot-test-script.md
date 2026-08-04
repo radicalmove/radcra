@@ -21,7 +21,7 @@ If Chrome or Edge shows historical errors after a reload, open the extension's *
 5. Select text in the Rise content and create and save one text-highlight comment. Then create and save one visual-marker comment on the Rise content.
 6. Reload the activity. Confirm the text highlight and visual marker both return, and that opening each one restores its complete thread content.
 7. Delete both temporary test comments. Reload again and confirm both deletions persist and no false **Service unavailable — retry** message appears.
-8. Deny the Articulate host permission once (or revoke it in the extension's site settings), confirm the activity fails safely, then use **Allow SCORM review access** to retry. Approve the exact host, reload if requested, and confirm review access returns.
+8. After completing the original grant checks above, revoke the Articulate host permission in the extension's site settings. Return to the activity, click **Allow SCORM review access**, deny the browser permission prompt, and confirm the activity fails safely. Click **Allow SCORM review access** again, approve the exact host, reload if requested, and confirm review access returns.
 9. Open an ordinary uploaded SCORM package and repeat a saved highlight or marker check to confirm the existing SCORM path still works.
 
 Connected Package content is mutable and externally hosted by Articulate. An Articulate content update can change text or layout and therefore affect recovery of saved highlights and marker anchors. Never include a launcher `#token` value in logs, screenshots, comments, or test evidence.

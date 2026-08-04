@@ -8,6 +8,7 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+APPROVED_OPTIONAL_FRAME_PATTERNS = ["https://packages.articulateusercontent.com/*"]
 
 
 def assert_classic_self_contained_script(source: str) -> None:
@@ -34,6 +35,8 @@ def assert_production_manifest(manifest: dict, service_origin: str = "https://fl
         raise AssertionError("production manifest must define exactly one content script")
     if scripts[0].get("matches") != [moodle] or scripts[0].get("js") != ["content.js"]:
         raise AssertionError("content.js must match only the real UC Online host")
+    if manifest.get("optional_host_permissions") != APPROVED_OPTIONAL_FRAME_PATTERNS:
+        raise AssertionError("production optional_host_permissions must contain only the reviewed Articulate package host")
 
 class DeploymentPackageTests(unittest.TestCase):
     @classmethod
@@ -44,7 +47,18 @@ class DeploymentPackageTests(unittest.TestCase):
         private_key = Path(cls._build_directory.name) / "pilot-test.pem"
         subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", str(private_key)], check=True, capture_output=True)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-        environment = {**os.environ, "PRIVATE_KEY_PATH": str(private_key), "REVIEW_SERVICE_ORIGIN": "https://fld-mini.tail4ccaba.ts.net", "OPTIONAL_FRAME_PATTERNS": "", "BUILD_COMMIT": commit}
+        optional_patterns = [
+            line.strip()
+            for line in (ROOT / "deploy/config/pilot-optional-frame-patterns.txt").read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        environment = {
+            **os.environ,
+            "PRIVATE_KEY_PATH": str(private_key),
+            "REVIEW_SERVICE_ORIGIN": "https://fld-mini.tail4ccaba.ts.net",
+            "OPTIONAL_FRAME_PATTERNS": ",".join(optional_patterns),
+            "BUILD_COMMIT": commit,
+        }
         subprocess.run([str(ROOT / "deploy/scripts/build-pilot-extension.sh")], cwd=ROOT, env=environment, check=True, capture_output=True, text=True)
 
     def test_compose_is_private_persistent_and_health_checked(self):
@@ -204,7 +218,7 @@ class DeploymentPackageTests(unittest.TestCase):
             for line in config.splitlines()
             if line.strip() and not line.lstrip().startswith("#")
         ]
-        self.assertEqual(patterns, ["https://packages.articulateusercontent.com/*"])
+        self.assertEqual(patterns, APPROVED_OPTIONAL_FRAME_PATTERNS)
         self.assertIn("Articulate Rise Connected Package", config)
         self.assertIn("supplied", config.lower())
         self.assertNotIn("https://*.articulateusercontent.com/*", config)
@@ -256,6 +270,7 @@ class DeploymentPackageTests(unittest.TestCase):
     def test_manifest_validator_rejects_placeholder_or_additional_hosts(self):
         valid = {
             "host_permissions": ["https://my.uconline.ac.nz/*", "https://fld-mini.tail4ccaba.ts.net/*"],
+            "optional_host_permissions": APPROVED_OPTIONAL_FRAME_PATTERNS,
             "content_scripts": [{"matches": ["https://my.uconline.ac.nz/*"], "js": ["content.js"]}],
         }
         assert_production_manifest(valid)
@@ -266,6 +281,14 @@ class DeploymentPackageTests(unittest.TestCase):
             with self.subTest(permissions=permissions):
                 with self.assertRaises(AssertionError):
                     assert_production_manifest({**valid, "host_permissions": permissions})
+        for permissions in (
+            [],
+            ["https://*.articulateusercontent.com/*"],
+            [*APPROVED_OPTIONAL_FRAME_PATTERNS, "https://unreviewed.example/*"],
+        ):
+            with self.subTest(optional_host_permissions=permissions):
+                with self.assertRaises(AssertionError):
+                    assert_production_manifest({**valid, "optional_host_permissions": permissions})
 
     def test_just_built_content_script_executes_as_classic_and_marks_active(self):
         harness = r'''

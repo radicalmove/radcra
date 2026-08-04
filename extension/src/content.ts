@@ -244,21 +244,39 @@ function currentContext(targetWindow: Window & typeof globalThis, targetDocument
   });
 }
 
+function traverseInaccessibleFrames(targetDocument: Document, visitInaccessible: (frame: HTMLIFrameElement, ownerDocument: Document) => void): void {
+  const visited = new Set<Document>();
+  const visit = (currentDocument: Document) => {
+    if (visited.has(currentDocument)) return;
+    visited.add(currentDocument);
+    for (const frame of Array.from(currentDocument.querySelectorAll("iframe"))) {
+      let childDocument: Document | null = null;
+      try { childDocument = frame.contentDocument; }
+      catch { visitInaccessible(frame, currentDocument); continue; }
+      if (childDocument) visit(childDocument);
+      else visitInaccessible(frame, currentDocument);
+    }
+  };
+  visit(targetDocument);
+}
+
 export function countInaccessibleFrames(targetDocument: Document): number {
   let count = 0;
-  for (const frame of Array.from(targetDocument.querySelectorAll("iframe"))) {
-    try { if (!frame.contentDocument) count += 1; } catch { count += 1; }
-  }
+  traverseInaccessibleFrames(targetDocument, () => { count += 1; });
   return count;
 }
 
 export function inaccessibleFrameOrigins(targetDocument: Document): string[] {
   const origins: string[] = [];
-  for (const frame of Array.from(targetDocument.querySelectorAll("iframe"))) {
-    let inaccessible = false; try { inaccessible = !frame.contentDocument; } catch { inaccessible = true; }
-    if (!inaccessible) continue;
-    try { origins.push(new URL(frame.src || frame.getAttribute("src") || "", targetDocument.baseURI).origin); } catch { origins.push("null"); }
-  }
+  const observed = new Set<string>();
+  traverseInaccessibleFrames(targetDocument, (frame, ownerDocument) => {
+    let origin: string;
+    try { origin = new URL(frame.src || frame.getAttribute("src") || "", ownerDocument.baseURI).origin; }
+    catch { origin = "null"; }
+    if (observed.has(origin)) return;
+    observed.add(origin);
+    origins.push(origin);
+  });
   return origins;
 }
 

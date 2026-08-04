@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Window } from "happy-dom";
 
-import { bootstrapContentScript, countInaccessibleFrames, createInteractionTargetController, createLifecycleController, isConfiguredFrame, navigateToPreparedComment, prepareCommentNavigationWithRetry, refreshCourseBindingBeforeComment, restoreCommentListArrivalAfterRender, sendRuntimeMessage, startCourseReview, startEmbeddedReview } from "../src/content.ts";
+import { bootstrapContentScript, countInaccessibleFrames, createInteractionTargetController, createLifecycleController, inaccessibleFrameOrigins, isConfiguredFrame, navigateToPreparedComment, prepareCommentNavigationWithRetry, refreshCourseBindingBeforeComment, restoreCommentListArrivalAfterRender, sendRuntimeMessage, startCourseReview, startEmbeddedReview } from "../src/content.ts";
 import { peekCommentListArrival, writeCommentListArrival } from "../src/comment-list-arrival.ts";
 
 class ArrivalStorage {
@@ -920,6 +920,56 @@ test("counts only inaccessible iframe DOMs", () => {
   Object.defineProperty(accessible, "contentDocument", { value: window.document });
   Object.defineProperty(blocked, "contentDocument", { value: null });
   assert.equal(countInaccessibleFrames(window.document as unknown as Document), 1);
+});
+
+function connectedPackageFrameTree(cycle = false) {
+  const top = new Window({ url: "https://my.uconline.ac.nz/mod/scorm/player.php?id=22" });
+  const launcher = new Window({ url: "https://my.uconline.ac.nz/pluginfile.php/1/mod_scorm/content/22/scormcontent/indexAPI.html" });
+  top.document.body.innerHTML = '<h1>Connected Package</h1><iframe id="launcher" src="https://my.uconline.ac.nz/pluginfile.php/1/mod_scorm/content/22/scormcontent/indexAPI.html"></iframe>';
+  launcher.document.body.innerHTML = `<iframe id="connected" src="https://packages.articulateusercontent.com/content/example/boot.html#token=synthetic"></iframe>${cycle ? '<iframe id="cycle"></iframe>' : ""}`;
+  Object.defineProperty(top.document.querySelector("#launcher")!, "contentDocument", { value: launcher.document });
+  Object.defineProperty(launcher.document.querySelector("#connected")!, "contentDocument", { value: null });
+  if (cycle) Object.defineProperty(launcher.document.querySelector("#cycle")!, "contentDocument", { value: top.document });
+  return { top, launcher };
+}
+
+test("recursive Connected Package discovery reaches an inaccessible iframe and terminates on a document cycle", () => {
+  const { top } = connectedPackageFrameTree(true);
+  assert.deepEqual(inaccessibleFrameOrigins(top.document as unknown as Document), ["https://packages.articulateusercontent.com"]);
+  assert.equal(countInaccessibleFrames(top.document as unknown as Document), 1);
+});
+
+test("Connected Package review requests permission only for the nested Articulate origin", async () => {
+  const globals = globalThis as typeof globalThis & { __OPTIONAL_FRAME_PATTERNS__?: string[] };
+  const originalOptional = globals.__OPTIONAL_FRAME_PATTERNS__;
+  let cleanup: () => void = () => undefined;
+  try {
+    globals.__OPTIONAL_FRAME_PATTERNS__ = ["https://packages.articulateusercontent.com/*"];
+    const { top } = connectedPackageFrameTree();
+    const messages: any[] = [];
+    const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+      messages.push(message);
+      if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174000" } });
+      else if (message.type === "GET_REVIEW_FRAME_STATUS") callback({ ok: true, data: { active_embedded_count: 0, ready_origins: [], granted_optional_patterns: [] } });
+      else if (message.type === "REQUEST_SCORM_PERMISSION") callback({ ok: true, data: { granted: false } });
+      else if (message.type === "LIST_COURSE_COMMENTS") callback({ ok: true, data: [] });
+      else callback({ ok: true, data: {} });
+    } };
+
+    cleanup = startCourseReview(top as any, top.document as any, runtime, undefined, 5);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const shadow = top.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+    const action = shadow.querySelector('[data-action="add-comment"]') as unknown as HTMLButtonElement;
+    assert.equal(action.textContent, "Allow SCORM review access");
+    action.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(messages.filter((message) => message.type === "REQUEST_SCORM_PERMISSION"), [
+      { type: "REQUEST_SCORM_PERMISSION", origin: "https://packages.articulateusercontent.com" },
+    ]);
+  } finally {
+    cleanup();
+    globals.__OPTIONAL_FRAME_PATTERNS__ = originalOptional;
+  }
 });
 
 test("mixed ready and inaccessible frames keep a passive embedded activity notice", async () => {

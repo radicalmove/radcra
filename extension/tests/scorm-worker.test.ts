@@ -4,7 +4,7 @@ import { Window } from "happy-dom";
 
 import type { PageComment } from "../src/background-bridge.ts";
 import type { CommentRenderer } from "../src/comment-renderer.ts";
-import { createScormWorker } from "../src/scorm-worker.ts";
+import { createScormWorker, embeddedPageIdentity } from "../src/scorm-worker.ts";
 import { validateScormAckFor, type ScormCommand, type ScormEvent } from "../src/scorm-protocol.ts";
 import { COMMENT_MARKER_CURSOR } from "../src/ui/comment-cursor.ts";
 
@@ -38,8 +38,8 @@ function selectText(window: Window, text: Text, start: number, end: number) {
   window.document.dispatchEvent(new window.Event("selectionchange"));
 }
 
-function createHarness(navigate?: (destination: URL, mode: "hash" | "route") => boolean, isTrustedActivation?: (event: Event) => boolean) {
-  const window = new Window({ url: "https://rise.example/activity#/lesson/1" });
+function createHarness(navigate?: (destination: URL, mode: "hash" | "route") => boolean, isTrustedActivation?: (event: Event) => boolean, url = "https://rise.example/activity#/lesson/1") {
+  const window = new Window({ url });
   window.document.title = "Lesson 1";
   window.document.body.innerHTML = "<main><h1>Lesson 1</h1><p id='copy'>Meaningful Rise lesson content.</p><button id='area'>Area</button></main>";
   const events: ScormEvent[] = [];
@@ -73,6 +73,36 @@ function createHarness(navigate?: (destination: URL, mode: "hash" | "route") => 
   });
   return { window, events, projections, worker, refresh: () => refresh?.(), rendererDestroyed: () => rendererDestroyed, tornDown: () => tornDown, takenToContext: () => takenToContext };
 }
+
+test("Connected Package launcher tokens never enter worker identities or captured events", () => {
+  const launcherUrl = "https://packages.articulateusercontent.com/content/example/boot.html#token=synthetic-secret";
+  const { window, events, worker } = createHarness(undefined, undefined, launcherUrl);
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+
+  assert.doesNotMatch(identity.pageUrl, /token|synthetic-secret/i);
+  assert.equal(identity.embeddedLocator, "/content/example/boot.html");
+
+  assert.equal(worker.handleCommand(command(window, "SCORM_START_MARKER", {})).ok, true);
+  (window.document.querySelector("#area") as unknown as HTMLElement).dispatchEvent(new window.MouseEvent("click", { bubbles: true, clientX: 1, clientY: 1 }) as unknown as Event);
+  const serializedEvents = JSON.stringify([...worker.initialEvents(), ...events]);
+  assert.doesNotMatch(serializedEvents, /token|synthetic-secret/i);
+  worker.destroy();
+});
+
+test("ordinary Rise hashes remain embedded locators", () => {
+  const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html#/lessons/one" });
+  window.document.title = "Lesson One";
+
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+
+  assert.equal(identity.embeddedLocator, "#/lessons/one");
+});
 
 test("embedded worker mounts no review toolbar host", () => {
   const { window, worker } = createHarness();

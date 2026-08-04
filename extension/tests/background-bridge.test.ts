@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Window } from "happy-dom";
 
 import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListPageCommentsBridge, handleRegisterCourseBridge, handleResolveCourseBridge, normalizeErrorMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validateCreateCommentMessage, validateCreateEmbeddedCommentMessage, validateDeleteCommentMessage, validateListPageCommentsMessage, validatePageCommentsResponse, validateRegisterCourseMessage, validateResolveCourseMessage, validateUploadScreenshotMessage, validateViewerResponse } from "../src/background-bridge.ts";
 import type { EmbeddedAnchorClaim } from "../src/embedded-anchor-capabilities.ts";
+import { embeddedPageIdentity } from "../src/scorm-worker.ts";
 
 const capabilityUuid = (n: number) => `123e4567-e89b-42d3-a456-${String(n).padStart(12, "0")}`;
 
@@ -43,6 +45,38 @@ test("embedded create requires this extension frame zero on Moodle and uses clai
     parent_activity_url: claim.parentActivityUrl, embedded_locator: claim.embeddedLocator,
     body: "Please revise", category: "general", ...claim.anchor, interaction_context: claim.interactionContext,
   }, screenshot: true });
+});
+
+test("Connected Package launcher tokens never cross the embedded comment API boundary", async () => {
+  const launcherUrl = "https://packages.articulateusercontent.com/content/example/boot.html#token=synthetic-secret";
+  const window = new Window({ url: launcherUrl });
+  window.document.title = "Connected lesson";
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+  const claim: EmbeddedAnchorClaim = {
+    tabId: 7, courseId: capabilityUuid(90), frameId: 12, workerInstanceId: capabilityUuid(91), generation: 3,
+    pageUrl: identity.pageUrl, pageTitle: identity.pageTitle,
+    parentActivityUrl: "https://my.uconline.ac.nz/mod/scorm/player.php?a=9", courseUrl: "https://my.uconline.ac.nz/course/view.php?id=896", embeddedLocator: identity.embeddedLocator,
+    anchor: { anchor_type: "visual_pin", css_selector: "#card", relative_x: 0.2, relative_y: 0.8 }, interactionContext: null,
+    createdAt: 1, expiresAt: 999,
+  };
+  const message = { type: "CREATE_EMBEDDED_COMMENT", capability: "a".repeat(64), body: "Please revise", category: "general" };
+  let created: unknown;
+
+  await handleCreateEmbeddedCommentBridge(
+    message,
+    { id: "ours", frameId: 0, url: claim.parentActivityUrl, tab: { id: 7 } },
+    {
+      extensionId: "ours", authorizeMoodle: async () => true, expectedCourseId: () => claim.courseId,
+      claim: async () => claim, current: () => true, restore: async () => undefined,
+      create: async (payload: unknown) => { created = payload; return { id: capabilityUuid(8) }; },
+    },
+  );
+
+  assert.equal((created as { embedded_locator: string }).embedded_locator, "/content/example/boot.html");
+  assert.doesNotMatch(JSON.stringify(created), /token|synthetic-secret/i);
 });
 
 test("stale election consumes the claim permanently instead of restoring it", async () => {

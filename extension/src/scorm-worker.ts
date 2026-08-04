@@ -40,7 +40,11 @@ export function embeddedPageIdentity(window: Window & typeof globalThis, documen
   const identity = new URL(window.location.href);
   identity.hash = `moodle-review-page=${encodeURIComponent(label)}`;
   const current = new URL(window.location.href);
-  const embeddedLocator = current.hash || `${current.pathname}${current.search}` || "/";
+  const fragment = current.hash.slice(1);
+  const launcherToken = new URLSearchParams(fragment).has("token");
+  const embeddedLocator = !launcherToken && current.hash
+    ? current.hash
+    : `${current.pathname}${current.search}` || "/";
   return { pageUrl: identity.href, pageTitle: `Embedded activity · ${label}`, embeddedLocator };
 }
 

@@ -170,6 +170,30 @@ for (const [description, attribute] of [
   });
 }
 
+for (const [description, attribute] of [
+  ["opacity:0", 'style="opacity: 0"'],
+  ["aria-hidden=true", 'aria-hidden="true"'],
+] as const) {
+  test(`Connected Package display titles skip headings concealed by an ancestor with ${description}`, () => {
+    const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html" });
+    const document = window.document as unknown as Document;
+    window.document.body.innerHTML = `
+      <section ${attribute}><h1>Ancestor-concealed heading</h1></section>
+      <h1>Rendered course heading</h1>`;
+    for (const heading of Array.from(document.querySelectorAll<HTMLElement>("h1"))) {
+      heading.getClientRects = () => [{ width: 640, height: 48 }] as unknown as DOMRectList;
+    }
+
+    const identity = embeddedPageIdentity(
+      window as unknown as globalThis.Window & typeof globalThis,
+      window.document as unknown as Document,
+    );
+
+    assert.equal(identity.pageTitle, "Embedded activity · Rendered course heading");
+    assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=Ancestor-concealed%20heading");
+  });
+}
+
 for (const [description, documentTitle, expectedDisplayLabel] of [
   ["document title", "Document fallback", "Document fallback"],
   ["Current page", " ", "Current page"],

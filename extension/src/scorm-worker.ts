@@ -37,14 +37,16 @@ function legacyPageLabel(document: Document): string {
 
 function renderedPageLabel(window: Window & typeof globalThis, document: Document): string | undefined {
   const heading = Array.from(document.querySelectorAll<HTMLElement>("h1")).find((candidate) => {
-    if (!candidate.textContent?.trim()) return false;
-    const style = window.getComputedStyle(candidate);
-    return candidate.getClientRects().length > 0
-      && !candidate.hidden
-      && candidate.getAttribute("aria-hidden") !== "true"
-      && style.display !== "none"
-      && style.visibility !== "hidden"
-      && style.opacity !== "0";
+    if (!candidate.textContent?.trim() || candidate.getClientRects().length === 0) return false;
+    for (let element: HTMLElement | null = candidate; element; element = element.parentElement) {
+      const style = window.getComputedStyle(element);
+      if (element.hidden
+        || element.getAttribute("aria-hidden") === "true"
+        || style.display === "none"
+        || style.visibility === "hidden"
+        || style.opacity === "0") return false;
+    }
+    return true;
   });
   return heading?.textContent?.trim() || undefined;
 }

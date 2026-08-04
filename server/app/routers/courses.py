@@ -8,7 +8,7 @@ from app.db import get_session
 from app.dependencies import current_extension_user, require_course_access
 from app.models import Course, User, UserRole
 from app.schemas import CourseConfirmRequest, CourseResolveRequest
-from app.services.courses import confirm_course, find_registered_course
+from app.services.courses import CourseIdentityConflict, confirm_course, find_registered_course, register_course
 from app.services.summary import SummaryAccessDenied, course_summary_for
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
@@ -30,6 +30,22 @@ def resolve(payload: CourseResolveRequest, user: User = Depends(current_extensio
             content={"registered": False, "can_register": user.role in {UserRole.LD_DCD, UserRole.ADMIN}},
         )
     return _course_json(course)
+
+
+@router.post("/register")
+def register(payload: CourseResolveRequest, user: User = Depends(current_extension_user), db: DbSession = Depends(get_session)) -> JSONResponse:
+    if user.role not in {UserRole.LD_DCD, UserRole.ADMIN}:
+        raise HTTPException(status_code=403, detail="LD/DCD or administrator access required")
+    payload_values = payload.model_dump()
+    try:
+        existing = find_registered_course(db, **payload_values)
+        course = register_course(db, **payload_values)
+    except CourseIdentityConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    status_code = status.HTTP_200_OK if existing is not None else status.HTTP_201_CREATED
+    return JSONResponse(status_code=status_code, content=_course_json(course))
 
 
 @router.post("/{course_id}/confirm")

@@ -7,6 +7,10 @@ from app.models import Comment, Course, PageLocation
 from app.security import utc_now
 
 
+class CourseIdentityConflict(ValueError):
+    pass
+
+
 def normalize_url(value: str) -> str:
     parsed = urlsplit(value.strip())
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -37,6 +41,56 @@ def find_registered_course(db: DbSession, *, course_url: str, title: str, moodle
             Course.moodle_origin == origin,
             Course.is_confirmed.is_(True),
         ))
+
+
+def register_course(db: DbSession, *, course_url: str, title: str, moodle_course_id: int | str | None = None) -> Course:
+    url = normalize_url(course_url)
+    parsed_url = urlsplit(url)
+    origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
+    clean_title, identity_title = normalize_title(title)
+    if moodle_course_id is None:
+        raise ValueError("moodle_course_id is required")
+    stable_id = str(moodle_course_id).strip()
+    if not stable_id or not stable_id.isdigit():
+        raise ValueError("moodle_course_id must be numeric")
+
+    with db.no_autoflush:
+        course = db.scalar(select(Course).where(Course.moodle_course_id == stable_id))
+        if course is not None:
+            if course.moodle_origin != origin:
+                raise CourseIdentityConflict(
+                    f"Moodle course {stable_id} is already registered for a different Moodle origin"
+                )
+            return course
+
+        course = db.scalar(select(Course).where(Course.normalized_url == url, Course.identity_title == identity_title))
+        if course is not None:
+            if course.moodle_course_id is not None:
+                raise CourseIdentityConflict(
+                    f"Course identity already belongs to Moodle course {course.moodle_course_id}"
+                )
+            course.moodle_course_id = stable_id
+            course.moodle_origin = origin
+            course.is_confirmed = True
+            course.confirmed_at = utc_now()
+            db.commit()
+            db.refresh(course)
+            return course
+
+        course = Course(
+            moodle_course_id=stable_id,
+            normalized_url=url,
+            moodle_origin=origin,
+            title=clean_title,
+            identity_title=identity_title,
+            is_confirmed=True,
+            created_at=utc_now(),
+            confirmed_at=utc_now(),
+        )
+        db.add(course)
+        db.commit()
+        db.refresh(course)
+        return course
 
 
 def resolve_course(db: DbSession, *, course_url: str, title: str, moodle_course_id: int | str | None = None) -> Course:

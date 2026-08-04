@@ -156,3 +156,123 @@ def test_resolve_does_not_match_a_registered_id_from_another_moodle_origin(clien
 
     assert response.status_code == 404
     assert response.json() == {"registered": False, "can_register": False}
+
+
+@pytest.mark.parametrize("role", [UserRole.ADMIN, UserRole.LD_DCD])
+def test_register_creates_a_confirmed_course_for_an_authorized_role(client, role):
+    response = client.post(
+        "/api/courses/register",
+        headers=extension_headers(client, role),
+        json={
+            "course_url": "https://moodle.example/course/view.php?id=20",
+            "title": "  New course  ",
+            "moodle_course_id": 20,
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["moodle_course_id"] == "20"
+    assert body["course_url"] == "https://moodle.example/course/view.php?id=20"
+    assert body["title"] == "New course"
+    assert body["is_confirmed"] is True
+    check = client.db_factory()
+    assert check.query(Course).count() == 1
+    check.close()
+
+
+def test_register_is_idempotent_for_the_same_moodle_identity(client):
+    headers = extension_headers(client, UserRole.ADMIN)
+    payload = {
+        "course_url": "https://moodle.example/course/view.php?id=21",
+        "title": "Repeatable course",
+        "moodle_course_id": 21,
+    }
+
+    first = client.post("/api/courses/register", headers=headers, json=payload)
+    check = client.db_factory()
+    course = check.query(Course).one()
+    original = {
+        "id": course.id,
+        "title": course.title,
+        "normalized_url": course.normalized_url,
+        "confirmed_at": course.confirmed_at,
+        "created_at": course.created_at,
+    }
+    check.close()
+
+    second = client.post("/api/courses/register", headers=headers, json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert second.json() == first.json()
+    check = client.db_factory()
+    assert check.query(Course).count() == 1
+    course = check.query(Course).one()
+    assert {field: getattr(course, field) for field in original} == original
+    check.close()
+
+
+@pytest.mark.parametrize("role", [UserRole.BETA_TESTER, UserRole.SME])
+def test_register_rejects_unauthorized_roles_even_when_client_claims_admin(client, role):
+    response = client.post(
+        "/api/courses/register",
+        headers=extension_headers(client, role),
+        json={
+            "course_url": "https://moodle.example/course/view.php?id=22",
+            "title": "Unauthorized course",
+            "moodle_course_id": 22,
+            "role": "admin",
+        },
+    )
+
+    assert response.status_code == 403
+    check = client.db_factory()
+    assert check.query(Course).count() == 0
+    check.close()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"course_url": "https://moodle.example/course/view.php?id=23", "title": "Missing id"},
+        {"course_url": "https://moodle.example/course/view.php?id=23", "title": "Invalid id", "moodle_course_id": 0},
+        {"course_url": "https://moodle.example/course/view.php?id=23", "title": "Invalid id", "moodle_course_id": "not numeric"},
+    ],
+)
+def test_register_rejects_an_invalid_or_incomplete_identity(client, payload):
+    response = client.post("/api/courses/register", headers=extension_headers(client, UserRole.ADMIN), json=payload)
+
+    assert response.status_code == 422
+    check = client.db_factory()
+    assert check.query(Course).count() == 0
+    check.close()
+
+
+def test_register_rejects_a_numeric_id_already_bound_to_another_moodle_origin(client):
+    headers = extension_headers(client, UserRole.ADMIN)
+    first = client.post(
+        "/api/courses/register",
+        headers=headers,
+        json={
+            "course_url": "https://moodle.example/course/view.php?id=24",
+            "title": "Origin-bound course",
+            "moodle_course_id": 24,
+        },
+    )
+    conflicting = client.post(
+        "/api/courses/register",
+        headers=headers,
+        json={
+            "course_url": "https://other.example/course/view.php?id=24",
+            "title": "Origin-bound course",
+            "moodle_course_id": 24,
+        },
+    )
+
+    assert first.status_code == 201
+    assert conflicting.status_code == 409
+    assert "different Moodle origin" in conflicting.json()["detail"]
+    check = client.db_factory()
+    assert check.query(Course).count() == 1
+    check.close()

@@ -755,6 +755,83 @@ test("a stale course lookup cannot overwrite the current URL or course state", a
   cleanup();
 });
 
+test("same-page course navigation immediately invalidates bindings and ignores stale comments", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/activity.php?id=10" });
+  window.document.body.dataset.courseid = "10";
+  window.document.body.innerHTML = "<h1>First course</h1>";
+  const listCallbacks: Array<(response: any) => void> = [];
+  let resolveCount = 0;
+  const runtime = { sendMessage(message: any, callback: (response: any) => void) {
+    if (message.type === "RESOLVE_COURSE") {
+      resolveCount += 1;
+      callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174010", title: "First course" } });
+    } else if (message.type === "LIST_COURSE_COMMENTS") listCallbacks.push(callback);
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(resolveCount, 1);
+  assert.equal(listCallbacks.length, 1);
+
+  window.document.body.dataset.courseid = "11";
+  window.document.querySelector("h1")!.textContent = "Second course";
+  window.dispatchEvent(new window.Event("moodle-review:navigate"));
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  assert.equal(shadow.querySelector("[data-auth-status]")?.classList.contains("connecting"), true);
+  assert.match(shadow.querySelector(".course")?.textContent ?? "", /Second course/);
+
+  listCallbacks[0]!({ ok: true, data: [{ id: "stale-comment", body: "Stale first-course comment", page_url: window.location.href }] });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.doesNotMatch(shadow.textContent!, /Stale first-course comment/);
+  assert.equal(resolveCount, 1, "the debounced refresh must not be triggered by the stale callback");
+  cleanup();
+});
+
+test("delayed approval results and timers cannot update a newly navigated course", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/activity.php?id=20" });
+  window.document.body.dataset.courseid = "20";
+  window.document.body.innerHTML = "<h1>Pending course</h1>";
+  const originalSetTimeout = window.setTimeout.bind(window);
+  const originalClearTimeout = window.clearTimeout.bind(window) as unknown as (timer: number) => void;
+  let approvalTimer: (() => void) | undefined;
+  (window as any).setTimeout = (handler: () => void, delay: number) => {
+    if (delay === 10_000) { approvalTimer = handler; return 10_000; }
+    return originalSetTimeout(handler, delay);
+  };
+  (window as any).clearTimeout = (timer: number) => {
+    if (timer !== 10_000) originalClearTimeout(timer);
+  };
+  let approvalCallback: ((response: any) => void) | undefined;
+  let approvalChecks = 0;
+  let resolveCount = 0;
+  const runtime = { sendMessage(message: any, callback: (response: any) => void) {
+    if (message.type === "RESOLVE_COURSE") { resolveCount += 1; callback({ ok: false, status: "signed-out", error: "Signed out" }); }
+    else if (message.type === "LOOKUP_REVIEW_COURSE") callback({ ok: true, data: { course_handle: "handle-20" } });
+    else if (message.type === "CHECK_PENDING_REVIEW_ACCESS") { approvalChecks += 1; approvalCallback = callback; }
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(approvalChecks, 1);
+  approvalCallback!({ ok: true, data: { state: "pending" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(approvalTimer);
+
+  window.document.body.dataset.courseid = "21";
+  window.document.querySelector("h1")!.textContent = "New course";
+  window.dispatchEvent(new window.Event("moodle-review:navigate"));
+  approvalCallback!({ ok: true, data: { state: "connected" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  approvalTimer!();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(approvalChecks, 1);
+  assert.equal(resolveCount, 1, "stale approval must not start a new course resolve");
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  assert.doesNotMatch(shadow.textContent!, /Connected/);
+  cleanup();
+});
+
 test("pending course access is checked automatically and connects without another code", async () => {
   const window = new Window({ url: "https://my.uconline.ac.nz/course/view.php?id=896" });
   window.document.title = "CRJU150";

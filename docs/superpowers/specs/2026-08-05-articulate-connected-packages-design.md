@@ -83,7 +83,7 @@ Test-first coverage will establish:
 - production manifest, classic content-script, typecheck, extension suite, browser layout checks, server suite, and deployment package suite pass before release;
 - release verification records the existing 0.5.28 artifact checksum before publishing, confirms 0.5.29 is a distinct immutable artifact, and confirms the 0.5.28 artifact and checksum are unchanged afterward.
 
-The final manual check uses a Moodle activity created from the supplied Connected Package: open it with 0.5.29, grant the one-time permission, reload only if requested, create a temporary marker and text comment, confirm both reappear, then delete the temporary test comments.
+The final manual check uses a Moodle activity created from the supplied Connected Package: open it with 0.5.29, approve the host-access grant (which persists until revoked), reload only if requested, create a temporary marker and text comment, confirm both reappear, then delete the temporary test comments.
 
 ## Operational caveats
 

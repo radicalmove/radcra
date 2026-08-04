@@ -38,12 +38,13 @@ function legacyPageLabel(document: Document): string {
 function renderedPageLabel(window: Window & typeof globalThis, document: Document): string | undefined {
   const heading = Array.from(document.querySelectorAll<HTMLElement>("h1")).find((candidate) => {
     if (!candidate.textContent?.trim() || candidate.getClientRects().length === 0) return false;
+    const candidateStyle = window.getComputedStyle(candidate);
+    if (candidateStyle.visibility === "hidden") return false;
     for (let element: HTMLElement | null = candidate; element; element = element.parentElement) {
-      const style = window.getComputedStyle(element);
+      const style = element === candidate ? candidateStyle : window.getComputedStyle(element);
       if (element.hidden
         || element.getAttribute("aria-hidden") === "true"
         || style.display === "none"
-        || style.visibility === "hidden"
         || style.opacity === "0") return false;
     }
     return true;

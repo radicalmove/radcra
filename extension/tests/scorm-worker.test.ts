@@ -194,6 +194,26 @@ for (const [description, attribute] of [
   });
 }
 
+test("Connected Package display titles accept a visible heading that overrides a hidden ancestor", () => {
+  const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html" });
+  const document = window.document as unknown as Document;
+  window.document.title = "Document fallback";
+  window.document.body.innerHTML = `
+    <section style="visibility: hidden"><h1 style="visibility: visible">Visibility override heading</h1></section>
+    <h1>Later rendered heading</h1>`;
+  for (const heading of Array.from(document.querySelectorAll<HTMLElement>("h1"))) {
+    heading.getClientRects = () => [{ width: 640, height: 48 }] as unknown as DOMRectList;
+  }
+
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+
+  assert.equal(identity.pageTitle, "Embedded activity · Visibility override heading");
+  assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=Visibility%20override%20heading");
+});
+
 for (const [description, documentTitle, expectedDisplayLabel] of [
   ["document title", "Document fallback", "Document fallback"],
   ["Current page", " ", "Current page"],

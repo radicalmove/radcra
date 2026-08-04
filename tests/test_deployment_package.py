@@ -124,7 +124,7 @@ class DeploymentPackageTests(unittest.TestCase):
         self.assertIn("disposable", operations.lower())
         for token in ("CRJU150", "896", "9972", "9976", "118172", "146308", "Reviewer", "LD", "SME"):
             self.assertIn(token, pilot)
-        for token in ("0.5.17", "pilot-builds/moodle-review-extension", "chrome://extensions", "edge://extensions", "exactly one teal review toolbar", "Clear all", "revoke the permission"):
+        for token in ("0.5.29", "pilot-builds/moodle-review-extension", "chrome://extensions", "edge://extensions", "exactly one teal review toolbar", "Clear all", "revoke the permission"):
             self.assertIn(token, pilot)
         for route in (
             "https://my.uconline.ac.nz/course/view.php?id=896",
@@ -197,12 +197,17 @@ class DeploymentPackageTests(unittest.TestCase):
         self.assertIn("CONFIGURED_OPTIONAL_FRAME_PATTERNS", script)
         self.assertIn('OPTIONAL_FRAME_PATTERNS="$CONFIGURED_OPTIONAL_FRAME_PATTERNS"', script)
 
-    def test_empty_optional_pattern_config_is_intentional_and_evidence_backed(self):
+    def test_optional_pattern_config_is_exactly_the_observed_rise_connected_package_host(self):
         config = (ROOT / "deploy/config/pilot-optional-frame-patterns.txt").read_text()
-        self.assertIn("INTENTIONALLY EMPTY", config)
-        self.assertIn("CRJU150", config)
-        self.assertIn("my.uconline.ac.nz/mod/scorm/player.php", config)
-        self.assertIn("no verified cross-origin iframe src", config)
+        patterns = [
+            line.strip()
+            for line in config.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(patterns, ["https://packages.articulateusercontent.com/*"])
+        self.assertIn("Articulate Rise Connected Package", config)
+        self.assertIn("supplied", config.lower())
+        self.assertNotIn("https://*.articulateusercontent.com/*", config)
 
     def test_release_script_rechecks_clean_tree_and_unchanged_head_before_publish(self):
         script = (ROOT / "deploy/scripts/release-pilot-extension.sh").read_text()

@@ -48,6 +48,16 @@ Merely visiting a course never registers it. The course lookup/resolve step only
 
 Account archiving is a separate lifecycle. In `/admin/users`, deleting an account archives it rather than destroying it: the user is signed out and loses access. The deleted-account area lists and restores the account; comments and review history remain available through the course review/comments area. Archived accounts cannot sign in until restored. This account state is distinct from both course registration and a membership's `Approved`, `Rejected`, or `Revoked` status.
 
+## Articulate Rise Connected Packages
+
+Version 0.5.29 supports the exact externally hosted frame used by the supplied Articulate Rise Connected Package launcher: `https://packages.articulateusercontent.com`. No wildcard Articulate subdomain or unrelated frame host is approved. If a different host appears in a future package, observe and review it before changing the allowlist.
+
+When a reviewer opens a Connected Package, the toolbar may show **Allow SCORM review access**. Selecting it opens Chrome's permission prompt for the exact Articulate host. A granted permission persists for that Chrome profile and extension installation, although the reviewer may need to reload the Moodle activity once immediately after granting it. Denying the prompt is safe: no fallback toolbar is injected into the inaccessible frame, and the reviewer can retry the permission action later.
+
+Never record, copy, or share a Connected Package launcher's `#token` value in comments, screenshots, support logs, or documentation. Version 0.5.29 strips launcher-token fragments from review page identities, embedded locators, worker events, and API payloads. Treat any launcher URL containing a token as sensitive even after this safeguard.
+
+Connected Packages load mutable content hosted by Articulate rather than a fixed uploaded SCORM archive. If Articulate content is changed after comments are saved, lesson structure, text, or layout changes may prevent an old highlight or visual marker from recovering at its original anchor. The comment thread remains associated with the Moodle review, but the reviewer may need to locate the revised content manually.
+
 ## Backup and restore
 
 Run `deploy/scripts/backup-postgres.sh` from the root-owned timer. The coordinated backup creates a brief maintenance window: it takes the lock, stops only the API, dumps the still-running database and archives attachments, then restarts the API even if backup creation fails. It is not an online snapshot. The script also uses umask 077, checksums, atomic rename, and retention. Credentials remain in the mode-0600 env file and container environment, not command arguments.

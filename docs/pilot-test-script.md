@@ -8,9 +8,23 @@ Use only this unpacked-extension folder in both browsers:
 
 `/Users/rcd58/OpenAI Projects/Beta Testing App-pilot-builds/moodle-review-extension`
 
-In `chrome://extensions` or `edge://extensions`, enable Developer mode, remove any older Moodle Course Review entries, choose **Load unpacked**, and select that folder. Confirm the extension details and the in-course help/version diagnostic both report **0.5.17**. After every replacement build, click **Reload** on the extension card and then reload the Moodle tab. Do not load `extension/dist` or a release-history folder alongside it.
+In `chrome://extensions` or `edge://extensions`, enable Developer mode, remove any older Moodle Course Review entries, choose **Load unpacked**, and select that folder. Confirm the extension details and the in-course Help/version diagnostic both report **0.5.29**. After every replacement build, click **Reload** on the extension card and then reload the Moodle tab. Do not load `extension/dist` or a release-history folder alongside it.
 
 If Chrome or Edge shows historical errors after a reload, open the extension's **Errors** page, choose **Clear all**, reload the extension, and reload the Moodle tab. An old warning is not a current failure unless it returns after those steps.
+
+## Version 0.5.29 Connected Package acceptance
+
+1. Install or reload version 0.5.29, reload the Moodle tab, and confirm the in-course **Help** diagnostic reports **Pilot 0.5.29**.
+2. In UC Online, open the Articulate Rise Connected Package SCORM selected for this test.
+3. If the toolbar shows **Allow SCORM review access**, select it and approve access only to `https://packages.articulateusercontent.com`. Reload the activity once if the toolbar requests it.
+4. Confirm there is exactly one teal review toolbar. There must not be another toolbar in the launcher or the Articulate content.
+5. Select text in the Rise content and create and save one text-highlight comment. Then create and save one visual-marker comment on the Rise content.
+6. Reload the activity. Confirm the text highlight and visual marker both return, and that opening each one restores its complete thread content.
+7. Delete both temporary test comments. Reload again and confirm both deletions persist and no false **Service unavailable — retry** message appears.
+8. Deny the Articulate host permission once (or revoke it in the extension's site settings), confirm the activity fails safely, then use **Allow SCORM review access** to retry. Approve the exact host, reload if requested, and confirm review access returns.
+9. Open an ordinary uploaded SCORM package and repeat a saved highlight or marker check to confirm the existing SCORM path still works.
+
+Connected Package content is mutable and externally hosted by Articulate. An Articulate content update can change text or layout and therefore affect recovery of saved highlights and marker anchors. Never include a launcher `#token` value in logs, screenshots, comments, or test evidence.
 
 ## Single-toolbar SCORM acceptance
 

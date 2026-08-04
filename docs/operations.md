@@ -46,7 +46,7 @@ Register each Moodle course deliberately, in this order:
 
 Merely visiting a course never registers it. The course lookup/resolve step only identifies an already registered course or reports that it is unregistered; it does not create or register a course. Course registration makes the Moodle course available for review. It is separate from reviewer membership statuses such as `Approved`, `Rejected`, and `Revoked`, which describe a particular user's access to that course and are managed after registration.
 
-Account archiving is a separate lifecycle. In `/admin/users`, deleting an account archives it rather than destroying it: the user is signed out and loses access, while comments and review history remain available in the deleted-account area. Archived accounts cannot sign in until restored. This account state is distinct from both course registration and a membership's `Approved` or `Revoked` status.
+Account archiving is a separate lifecycle. In `/admin/users`, deleting an account archives it rather than destroying it: the user is signed out and loses access. The deleted-account area lists and restores the account; comments and review history remain available through the course review/comments area. Archived accounts cannot sign in until restored. This account state is distinct from both course registration and a membership's `Approved`, `Rejected`, or `Revoked` status.
 
 ## Backup and restore
 

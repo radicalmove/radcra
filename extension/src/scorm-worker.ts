@@ -31,21 +31,37 @@ export type ScormWorkerOptions = {
 
 type PageIdentity = { pageUrl: string; pageTitle: string; embeddedLocator: string };
 
-function pageLabel(document: Document): string {
+function legacyPageLabel(document: Document): string {
   return document.querySelector<HTMLElement>("h1")?.textContent?.trim() || document.title.trim() || "Current page";
 }
 
+function renderedPageLabel(window: Window & typeof globalThis, document: Document): string | undefined {
+  const heading = Array.from(document.querySelectorAll<HTMLElement>("h1")).find((candidate) => {
+    const style = window.getComputedStyle(candidate);
+    return candidate.getClientRects().length > 0
+      && !candidate.hidden
+      && candidate.getAttribute("aria-hidden") !== "true"
+      && style.display !== "none"
+      && style.visibility !== "hidden"
+      && style.opacity !== "0";
+  });
+  return heading?.textContent?.trim() || undefined;
+}
+
 export function embeddedPageIdentity(window: Window & typeof globalThis, document: Document): PageIdentity {
-  const label = pageLabel(document);
+  const legacyLabel = legacyPageLabel(document);
+  const displayLabel = window.location.hostname === "packages.articulateusercontent.com"
+    ? renderedPageLabel(window, document) ?? legacyLabel
+    : legacyLabel;
   const identity = new URL(window.location.href);
-  identity.hash = `moodle-review-page=${encodeURIComponent(label)}`;
+  identity.hash = `moodle-review-page=${encodeURIComponent(legacyLabel)}`;
   const current = new URL(window.location.href);
   const fragment = current.hash.slice(1);
   const launcherToken = new URLSearchParams(fragment).has("token");
   const embeddedLocator = !launcherToken && current.hash
     ? current.hash
     : `${current.pathname}${current.search}` || "/";
-  return { pageUrl: identity.href, pageTitle: `Embedded activity · ${label}`, embeddedLocator };
+  return { pageUrl: identity.href, pageTitle: `Embedded activity · ${displayLabel}`, embeddedLocator };
 }
 
 function riseCoverStart(document: Document): HTMLAnchorElement | undefined {

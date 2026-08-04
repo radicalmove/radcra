@@ -104,6 +104,72 @@ test("ordinary Rise hashes remain embedded locators", () => {
   assert.equal(identity.embeddedLocator, "#/lessons/one");
 });
 
+test("Connected Package display titles use the rendered heading without changing the legacy page URL", () => {
+  const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html" });
+  const document = window.document as unknown as Document;
+  window.document.body.innerHTML = `
+    <h1>We couldn't load this course</h1>
+    <h1>1.1.1 Course foundations and defining crime and deviance</h1>`;
+  const headings = document.querySelectorAll<HTMLElement>("h1");
+  headings[0].getClientRects = () => [] as unknown as DOMRectList;
+  headings[1].getClientRects = () => [{ width: 640, height: 48 }] as unknown as DOMRectList;
+
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+
+  assert.equal(identity.pageTitle, "Embedded activity · 1.1.1 Course foundations and defining crime and deviance");
+  assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=We%20couldn't%20load%20this%20course");
+});
+
+for (const [description, attribute] of [
+  ["hidden", "hidden"],
+  ["aria-hidden=true", 'aria-hidden="true"'],
+  ["display:none", 'style="display: none"'],
+  ["visibility:hidden", 'style="visibility: hidden"'],
+  ["opacity:0", 'style="opacity: 0"'],
+] as const) {
+  test(`Connected Package display titles skip headings hidden via ${description}`, () => {
+    const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html" });
+    const document = window.document as unknown as Document;
+    window.document.body.innerHTML = `
+      <h1 ${attribute}>Hidden fallback</h1>
+      <h1>Rendered course heading</h1>`;
+    for (const heading of Array.from(document.querySelectorAll<HTMLElement>("h1"))) {
+      heading.getClientRects = () => [{ width: 640, height: 48 }] as unknown as DOMRectList;
+    }
+
+    const identity = embeddedPageIdentity(
+      window as unknown as globalThis.Window & typeof globalThis,
+      window.document as unknown as Document,
+    );
+
+    assert.equal(identity.pageTitle, "Embedded activity · Rendered course heading");
+    assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=Hidden%20fallback");
+  });
+}
+
+test("non-Articulate pages retain the exact legacy first-h1 identity even when that heading is hidden", () => {
+  const window = new Window({ url: "https://rise.example/activity" });
+  const document = window.document as unknown as Document;
+  window.document.title = "Document title";
+  window.document.body.innerHTML = `
+    <h1 hidden>Legacy first heading</h1>
+    <h1>Rendered course heading</h1>`;
+  const headings = document.querySelectorAll<HTMLElement>("h1");
+  headings[0].getClientRects = () => [] as unknown as DOMRectList;
+  headings[1].getClientRects = () => [{ width: 640, height: 48 }] as unknown as DOMRectList;
+
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+
+  assert.equal(identity.pageTitle, "Embedded activity · Legacy first heading");
+  assert.equal(identity.pageUrl, "https://rise.example/activity#moodle-review-page=Legacy%20first%20heading");
+});
+
 test("embedded worker mounts no review toolbar host", () => {
   const { window, worker } = createHarness();
   assert.equal(window.document.querySelector("#moodle-course-review-overlay"), null);

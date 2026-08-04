@@ -9,6 +9,7 @@ import { resolveScormLaunchUrl } from "./scorm-launch.ts";
 import { mountReviewOverlay, type AccessLookupReadiness, type AuthenticationOutcome, type BuildDiagnostics, type ConnectionStatus, type ReviewOverlay } from "./overlay/root.ts";
 import type { PageComment } from "./background-bridge.ts";
 import { clearCommentListArrival, peekCommentListArrival, writeCommentListArrival } from "./comment-list-arrival.ts";
+import { applyConnectedPackageTitleAliases, recordConnectedPackageTitleAlias, type ConnectedPackageTitleAliases } from "./connected-package-title-aliases.ts";
 import { measureFrameCapabilities } from "./frame-capabilities.ts";
 import { createScormWorker, type ScormWorker } from "./scorm-worker.ts";
 
@@ -342,6 +343,7 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
   let requestSequence = 0;
   let courseGeneration = 0;
   let latestComments: PageComment[] = [];
+  const connectedPackageTitleAliases: ConnectedPackageTitleAliases = new Map();
   let embeddedPageUrl = "";
   let interactionController: ReturnType<typeof createInteractionTargetController>;
   let embeddedHasSelection = false;
@@ -454,8 +456,9 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
         latestComments = comments;
         if (signature !== latestCommentsSignature) {
           latestCommentsSignature = signature;
-          if (scormRoute) { overlay.setRendererComments([]); overlay.setCommentList(comments); }
-          else overlay.setPageComments(comments);
+          const displayComments = applyConnectedPackageTitleAliases(comments, courseId, connectedPackageTitleAliases);
+          if (scormRoute) { overlay.setRendererComments([]); overlay.setCommentList(displayComments); }
+          else overlay.setPageComments(displayComments);
           if (scormRoute && embeddedPageUrl) void sendScormCommand("SCORM_SET_COMMENTS", { comments }).catch(() => undefined);
         }
         restoreCommentListArrivalAfterRender(commentListArrivalStorage, context.course_url, comments, overlay);
@@ -547,7 +550,13 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
     const event = record.event; embeddedPageUrl = typeof event.page_url === "string" ? event.page_url : embeddedPageUrl;
     if (event.type === "SCORM_SELECTION_CHANGED") { embeddedHasSelection = event.payload?.has_selection === true; overlay.setInteractionState(interactionController.state(), interactionController.state() === "embedded" && embeddedHasSelection, embeddedMarkerActive); }
     else if (event.type === "SCORM_ANCHOR_CAPTURED" && typeof record.capability === "string") { interactionController.cancel(); const { anchor_type, selected_quote, prefix, suffix, css_selector, relative_x, relative_y } = event.payload; const anchor = anchor_type === "text_highlight" ? { anchor_type, selected_quote, prefix, suffix } : { anchor_type, css_selector, relative_x, relative_y }; targetDocument.documentElement.dispatchEvent(new targetWindow.CustomEvent("moodle-review:embedded-anchor", { detail: { capability: record.capability, anchor } })); }
-    else if (event.type === "SCORM_PAGE_IDENTITY_CHANGED") { interactionController.cancel(); void sendScormCommand("SCORM_SET_COMMENTS", { comments: latestComments }).catch(() => undefined); }
+    else if (event.type === "SCORM_PAGE_IDENTITY_CHANGED") {
+      interactionController.cancel();
+      if (recordConnectedPackageTitleAlias(connectedPackageTitleAliases, courseId, event)) {
+        overlay.setCommentList(applyConnectedPackageTitleAliases(latestComments, courseId, connectedPackageTitleAliases));
+      }
+      void sendScormCommand("SCORM_SET_COMMENTS", { comments: latestComments }).catch(() => undefined);
+    }
     else if (event.type === "SCORM_COMMENTS_CHANGED") void loadPageComments(context.page_url);
     else if (event.type === "SCORM_COMMENT_NAVIGATION_REQUESTED") void (async () => { const navigation = await send<{ destination_url?: string }>({ type: "PREPARE_COMMENT_NAVIGATION", comment_id: event.payload.comment_id, page_url: event.payload.page_url }); if (navigation.destination_url) targetWindow.location.assign(navigation.destination_url); })().catch(() => undefined);
   };
@@ -558,6 +567,7 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
     const signature = `${next.course_url}\n${next.page_url}\n${next.title}\n${next.pageTitle}\n${next.moodle_course_id ?? next.identityConfidence}`;
     if (signature === lastSignature) return;
     lastSignature = signature;
+    if (context.course_url !== next.course_url) connectedPackageTitleAliases.clear();
     courseId = undefined; courseHandle = undefined; canRegister = false; accessLookupReadiness = "checking";
     const pageChanged = context.page_url !== next.page_url;
     context = next;
@@ -617,6 +627,7 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
     courseIds.delete(context.course_url);
     courseIds.delete(next.course_url);
     latestComments = [];
+    connectedPackageTitleAliases.clear();
     latestCommentsSignature = "";
     accessLookupReadiness = "checking";
     context = next;
@@ -676,7 +687,7 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
   const onFrameReady = (event: MessageEvent) => { if (event.data?.type === "MOODLE_REVIEW_FRAME_READY") checkFrames(); };
   targetWindow.addEventListener("message", onFrameReady);
   refresh();
-  return () => { stopped = true; clearCommentNavigationRetry(); interactionController.destroy(); runtime.onMessage?.removeListener(topMessageListener); clearApprovalTimer(); targetDocument.removeEventListener("visibilitychange", onVisibility); targetDocument.removeEventListener("visibilitychange", refreshVisibleComments); targetWindow.removeEventListener("focus", refreshVisibleComments); cancelTimeout(fallbackTimer); cancelFramePoll(framePoll); cancelFramePoll(commentPoll); targetWindow.removeEventListener("message", onFrameReady); for (const eventName of ["popstate", "hashchange", "moodle-review:navigate"]) targetWindow.removeEventListener(eventName, clearNavigatedPage); lifecycle.teardown(); overlay.destroy(); };
+  return () => { stopped = true; connectedPackageTitleAliases.clear(); clearCommentNavigationRetry(); interactionController.destroy(); runtime.onMessage?.removeListener(topMessageListener); clearApprovalTimer(); targetDocument.removeEventListener("visibilitychange", onVisibility); targetDocument.removeEventListener("visibilitychange", refreshVisibleComments); targetWindow.removeEventListener("focus", refreshVisibleComments); cancelTimeout(fallbackTimer); cancelFramePoll(framePoll); cancelFramePoll(commentPoll); targetWindow.removeEventListener("message", onFrameReady); for (const eventName of ["popstate", "hashchange", "moodle-review:navigate"]) targetWindow.removeEventListener(eventName, clearNavigatedPage); lifecycle.teardown(); overlay.destroy(); };
 }
 
 type RuntimeResponse = { ok?: boolean; status?: ConnectionStatus; error?: string; data?: unknown } | undefined;

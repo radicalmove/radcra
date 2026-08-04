@@ -518,6 +518,71 @@ test("embedded review no longer loads a duplicate course comment list", async ()
   cleanup();
 });
 
+test("validated Connected Package identity aliases rerender legacy labels without changing worker comments and clear across courses", async () => {
+  const courseA = "123e4567-e89b-12d3-a456-426614174010";
+  const courseB = "123e4567-e89b-12d3-a456-426614174011";
+  const pageUrl = "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=We%20couldn't%20load%20this%20course";
+  const window = new Window({ url: "https://moodle.example.invalid/mod/scorm/player.php" });
+  window.document.body.dataset.courseid = "10";
+  window.document.body.innerHTML = "<h1>Connected Package</h1>";
+  const legacyComment = {
+    id: "00000000-0000-4000-8000-000000000010", body: "Legacy package feedback", category: "general", status: "open",
+    author: { display_name: "Reviewer", role: "beta_tester" }, page_url: pageUrl, page_title: "Embedded activity · We couldn't load this course",
+    parent_activity_url: "https://moodle.example.invalid/mod/scorm/view.php?id=20", embedded_locator: "#/lesson/1", interaction_context: null,
+    anchor_type: "visual_pin", selected_quote: null, prefix: null, suffix: null, css_selector: "#marker", dom_selector: "main > #marker",
+    relative_x: 0.25, relative_y: 0.75, replies: [], status_history: [],
+    capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: false },
+  };
+  const latestComments = [legacyComment];
+  const sent: any[] = [];
+  let runtimeListener: ((message: any, sender?: any, sendResponse?: any) => boolean | void) | undefined;
+  const runtime = {
+    onMessage: {
+      addListener: (listener: typeof runtimeListener) => { runtimeListener = listener; },
+      removeListener: (listener: typeof runtimeListener) => { if (runtimeListener === listener) runtimeListener = undefined; },
+    },
+    sendMessage(message: any, callback: (response: any) => void) {
+      sent.push(message);
+      if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: message.payload.course_url.includes("id=11") ? courseB : courseA } });
+      else if (message.type === "LIST_COURSE_COMMENTS") callback({ ok: true, data: latestComments });
+      else callback({ ok: true, data: {} });
+    },
+  };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime, undefined, 5);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  assert.match(shadow.textContent!, /We couldn't load this course/);
+
+  runtimeListener!({ type: "SCORM_WORKER_EVENT", event: {
+    protocol: 1, type: "SCORM_PAGE_IDENTITY_CHANGED", request_id: "00000000-0000-4000-8000-000000000001",
+    worker_instance_id: "00000000-0000-4000-8000-000000000002", generation: 1, course_id: courseA, page_url: pageUrl,
+    payload: { page_title: "Embedded activity · 1.1.1 Course foundations", embedded_locator: "#/lesson/1" },
+  } });
+  assert.match(shadow.textContent!, /1\.1\.1 Course foundations/);
+  assert.doesNotMatch(shadow.textContent!, /We couldn't load this course/);
+  const workerProjection = sent.filter((message) => message.type === "SCORM_TOP_COMMAND" && message.command_type === "SCORM_SET_COMMENTS").at(-1);
+  assert.equal(workerProjection.payload.comments, latestComments, "the worker must receive authoritative comments, not the alias projection");
+  assert.equal(workerProjection.payload.comments[0], legacyComment);
+  assert.equal(workerProjection.payload.comments[0].page_url, pageUrl);
+  assert.equal(workerProjection.payload.comments[0].css_selector, "#marker");
+  assert.equal(workerProjection.payload.comments[0].dom_selector, "main > #marker");
+  assert.equal(workerProjection.payload.comments[0].relative_x, 0.25);
+  assert.equal(workerProjection.payload.comments[0].relative_y, 0.75);
+
+  window.document.body.dataset.courseid = "11";
+  window.dispatchEvent(new window.Event("moodle-review:navigate"));
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  assert.match(shadow.textContent!, /We couldn't load this course/, "a course change must clear aliases before rendering its comments");
+  runtimeListener!({ type: "SCORM_WORKER_EVENT", event: {
+    type: "SCORM_PAGE_IDENTITY_CHANGED", course_id: courseA, page_url: pageUrl,
+    payload: { page_title: "Embedded activity · Stale course A title", embedded_locator: "#/lesson/1" },
+  } });
+  assert.doesNotMatch(shadow.textContent!, /Stale course A title/);
+
+  cleanup();
+  assert.equal(runtimeListener, undefined, "teardown must detach alias-producing worker events");
+});
+
 test("embedded review retries while the top frame is still resolving", async () => {
   const window = new Window({ url: "https://moodle.example.invalid/embedded" });
   let attempts = 0;

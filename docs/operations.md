@@ -35,6 +35,19 @@ journalctl --user -u moodle-review-quick-tunnel --no-pager -n 50
 
 Use the `https://...trycloudflare.com` URL printed by `cloudflared` as `SERVICE_ORIGIN`, then build a new extension package with that exact URL. This is a temporary testing route: the URL changes if the tunnel process is restarted or the machine reboots, and the extension must be rebuilt for the new URL. Do not use Quick Tunnels as the permanent production route.
 
+## Course registration and reviewer access
+
+Register each Moodle course deliberately, in this order:
+
+1. Open the intended Moodle course, not just a page from another course.
+2. Wait for the extension to finish checking course access readiness.
+3. While signed in as an Admin or LD/DCD, use the explicit **Register this course for review** action and confirm it.
+4. Only after registration succeeds, open `/admin/users`, select that course, and create reviewer invitations or manage course memberships.
+
+Merely visiting a course never registers it. The course lookup/resolve step only identifies an already registered course or reports that it is unregistered; it does not create or register a course. Course registration makes the Moodle course available for review. It is separate from reviewer membership statuses such as `Approved`, `Rejected`, and `Revoked`, which describe a particular user's access to that course and are managed after registration.
+
+Account archiving is a separate lifecycle. In `/admin/users`, deleting an account archives it rather than destroying it: the user is signed out and loses access, while comments and review history remain available in the deleted-account area. Archived accounts cannot sign in until restored. This account state is distinct from both course registration and a membership's `Approved` or `Revoked` status.
+
 ## Backup and restore
 
 Run `deploy/scripts/backup-postgres.sh` from the root-owned timer. The coordinated backup creates a brief maintenance window: it takes the lock, stops only the API, dumps the still-running database and archives attachments, then restarts the API even if backup creation fails. It is not an online snapshot. The script also uses umask 077, checksums, atomic rename, and retention. Credentials remain in the mode-0600 env file and container environment, not command arguments.

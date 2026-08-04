@@ -489,7 +489,9 @@ test("Help dialog provides complete instructions and metadata", () => {
   assert.equal(trigger.getAttribute("aria-expanded"), "true");
   const dialog = shadow.querySelector<HTMLElement>('[role="dialog"]')!;
   assert.equal(dialog.getAttribute("aria-modal"), "true"); assert.equal(dialog.getAttribute("aria-labelledby"), "review-help-title"); assert.equal(dialog.getAttribute("aria-describedby"), "review-help-intro");
-  for (const text of ["Highlight exact text", "Place a comment marker", "Moodle and SCORM", "Open comments in context", "Filter and organise", "Reply, edit, and attach", "Resolve or delete", "Who can see feedback", "Pilot 0.3.2 · build abc1234"]) assert.match(dialog.textContent!, new RegExp(text));
+  for (const text of ["Highlight exact text", "Place a comment marker", "Moodle and SCORM", "Open comments in context", "Filter and organise", "Reply, edit, and attach", "Resolve or delete", "Register a course", "Who can see feedback", "Pilot 0.3.2 · build abc1234"]) assert.match(dialog.textContent!, new RegExp(text));
+  assert.match(dialog.textContent!, /Open the intended Moodle course and wait for course access readiness\. As an Admin or LD\/DCD, choose Register this course for review\. Visiting a course never registers it/);
+  assert.match(dialog.textContent!, /After registration, use \/admin\/users for reviewer invitations and membership management\. Course registration is separate from Approved or Revoked membership statuses and deleted\/archived accounts/);
   assert.equal(shadow.activeElement, dialog.querySelector("h2"));
   dialog.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }) as unknown as Event);
   assert.equal(trigger.getAttribute("aria-expanded"), "false");

@@ -717,7 +717,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
       renderer.setComments(comments);
       rendererOrder = new Map(renderer.orderedCommentIds().map((id, index) => [id, index]));
     },
-    setPageComments(comments) { this.setRendererComments(comments); this.setCommentList(comments); },
+    setPageComments(comments) { this.setCommentList(comments); this.setRendererComments(comments); },
     restoreCommentListGroup(pageUrl, arrivalStatus) { return restoreRenderedCommentListGroup?.(pageUrl, arrivalStatus) ?? false; },
     setCommentNavigationStatus(message) {
       shadow.querySelector("[data-comment-navigation-status]")?.remove();

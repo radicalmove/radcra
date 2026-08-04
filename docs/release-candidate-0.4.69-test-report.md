@@ -26,3 +26,5 @@ Automated tests do not substitute for a signed-in pilot on the live UC Online si
 ## Release-candidate decision
 
 The automated gate is **green**. Version 0.4.69 is suitable for structured manual pilot testing. Treat any data-loss, access-control, SCORM duplication, or comment-navigation fault found in that pilot as a release blocker.
+
+Guided-test results and defects are tracked in [Pilot findings — 0.4.69](pilot-findings-0.4.69.md).

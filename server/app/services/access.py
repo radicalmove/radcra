@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
-from app.models import Course, CourseMembership, DeviceCredential, MembershipState, ReconnectCredential, ReviewerInvitation, Session, User, UserRole
+from app.models import AuditEvent, Course, CourseMembership, DeviceCredential, MembershipState, ReconnectCredential, ReviewerInvitation, Session, User, UserRole
 from app.security import generate_token, hash_password, token_hash, utc_now, verify_password
 
 
@@ -91,8 +91,11 @@ def redeem_invitation(db: DbSession, *, course_id: uuid.UUID, display_name: str,
         raise AccessDenied("Unable to verify reviewer access")
     if db.scalar(select(CourseMembership).where(CourseMembership.user_id == user.id, CourseMembership.course_id == course_id)) is not None:
         raise AccessDenied("Unable to verify reviewer access")
-    state = MembershipState.APPROVED if role is UserRole.BETA_TESTER else MembershipState.PENDING
-    membership = CourseMembership(user_id=user.id, course_id=course_id, role=role, state=state, approved_at=now if state is MembershipState.APPROVED else None, created_at=now, updated_at=now)
+    if user.approved_at is None:
+        user.approved_at = now
+        db.add(AuditEvent(actor_user_id=invitation.created_by_user_id, action="user.approved", entity_type="user", entity_id=str(user.id), details="invitation", created_at=now))
+    state = MembershipState.APPROVED
+    membership = CourseMembership(user_id=user.id, course_id=course_id, role=role, state=state, approved_at=now, created_at=now, updated_at=now)
     db.add(membership)
     db.flush()
     reconnect = _code()

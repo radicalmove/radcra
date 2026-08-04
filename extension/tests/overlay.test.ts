@@ -338,6 +338,18 @@ test("comments count follows visible top-level threads", () => {
   assert.equal(shadow.querySelector("[data-comment-count]")?.textContent, "0");
 });
 
+test("comment count remains available when marker projection fails", () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  const overlay = mountReviewOverlay(document, context, "connected"); const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  const comment = { id: "00000000-0000-4000-8000-000000000004", body: "Feedback", category: "general", status: "open", author: { display_name: "SME", role: "sme" }, page_url: context.page_url, page_title: context.pageTitle, parent_activity_url: null, embedded_locator: null, anchor_type: "visual_pin" as const, selected_quote: null, prefix: null, suffix: null, css_selector: "#missing", dom_selector: null, relative_x: .5, relative_y: .5, replies: [], status_history: [], capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: true } };
+  overlay.setRendererComments = () => { throw new Error("marker projection failed"); };
+
+  assert.throws(() => overlay.setPageComments([comment]), /marker projection failed/);
+  assert.equal(shadow.querySelector("[data-comment-count]")?.textContent, "1");
+  assert.match(shadow.querySelector("[data-comment-item]")?.textContent ?? "", /Feedback/);
+  overlay.destroy();
+});
+
 test("course-list projection does not recover anchors until renderer projection is set", () => {
   const window = new Window(); const document = window.document as unknown as Document;
   const target = document.createElement("div"); target.id = "target"; document.body.append(target);

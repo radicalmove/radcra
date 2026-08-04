@@ -30,6 +30,39 @@ test("comment submission refreshes the trusted course binding after a worker res
   await assert.rejects(() => refreshCourseBindingBeforeComment(async () => ({ id: "course-2" }), { course_url: "https://moodle.example.invalid/course/view.php?id=7", title: "Law" }, "course-1"), /connection changed/);
 });
 
+test("comment save waits for the authoritative list refresh before closing", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=1" });
+  window.document.body.innerHTML = "<h1>Law</h1><p id='copy'>Select this text for review</p>";
+  const messages: any[] = []; const pendingLists: Array<(response: any) => void> = [];
+  const saved = { id: "00000000-0000-4000-8000-000000000099", body: "Saved feedback", category: "general", status: "open", author: { display_name: "SME", role: "sme" }, page_url: window.location.href, page_title: "Law", parent_activity_url: null, embedded_locator: null, anchor_type: "text_highlight" as const, selected_quote: "Select this text", prefix: "", suffix: " for review", css_selector: null, dom_selector: null, relative_x: null, relative_y: null, replies: [], status_history: [], capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: true } };
+  let listCount = 0;
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    messages.push(message);
+    if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174000" } });
+    else if (message.type === "GET_CURRENT_VIEWER") callback({ ok: true, data: { course_id: "123e4567-e89b-12d3-a456-426614174000", user: { id: "00000000-0000-4000-8000-000000000010", display_name: "SME", email: "sme@example.test", role: "sme" } } });
+    else if (message.type === "LIST_COURSE_COMMENTS") { listCount += 1; if (listCount === 1) callback({ ok: true, data: [] }); else pendingLists.push(callback); }
+    else if (message.type === "CREATE_COMMENT") callback({ ok: true, data: { id: saved.id } });
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const text = window.document.querySelector("#copy")!.firstChild!; const range = window.document.createRange(); range.setStart(text, 0); range.setEnd(text, 16); window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range as any); window.document.dispatchEvent(new window.Event("selectionchange") as any);
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  (shadow.querySelector('[data-action="add-comment"]') as unknown as HTMLElement).click();
+  const dialog = shadow.querySelector(".dialog") as unknown as HTMLElement; (dialog.querySelector("textarea") as unknown as HTMLTextAreaElement).value = "Saved feedback"; (dialog.querySelector("[data-save]") as unknown as HTMLButtonElement).click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(shadow.querySelector(".dialog"), "save must wait for the list refresh");
+  assert.equal(messages.filter((message) => message.type === "CREATE_COMMENT").length, 1);
+  assert.equal(pendingLists.length, 1);
+
+  pendingLists.shift()!({ ok: true, data: [saved] });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(shadow.querySelector(".dialog"), null);
+  assert.equal(shadow.querySelector("[data-comment-count]")?.textContent, "1");
+  assert.match(shadow.querySelector("[data-comment-item]")?.textContent ?? "", /Saved feedback/);
+  cleanup();
+});
+
 test("comment navigation refreshes its course binding and retries one closed response channel", async () => {
   const messages: unknown[] = [];
   let prepares = 0;

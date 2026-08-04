@@ -14,8 +14,8 @@ def user(db_session, email: str, role=UserRole.BETA_TESTER) -> User:
     return value
 
 
-def course(db_session) -> Course:
-    value = Course(moodle_course_id="896", normalized_url="https://my.uconline.ac.nz/course/view.php?id=896", moodle_origin="https://my.uconline.ac.nz", title="CRJU150", identity_title="CRJU150", is_confirmed=True, confirmed_at=utc_now(), created_at=utc_now())
+def course(db_session, moodle_course_id: str = "896", title: str = "CRJU150") -> Course:
+    value = Course(moodle_course_id=moodle_course_id, normalized_url=f"https://my.uconline.ac.nz/course/view.php?id={moodle_course_id}", moodle_origin="https://my.uconline.ac.nz", title=title, identity_title=title, is_confirmed=True, confirmed_at=utc_now(), created_at=utc_now())
     db_session.add(value)
     db_session.flush()
     return value
@@ -48,16 +48,37 @@ def test_invitation_is_bound_to_email_course_and_role(db_session):
         redeem_invitation(db_session, course_id=target_course.id, display_name="Wrong", email="right@example.test", role=UserRole.BETA_TESTER, invitation_code=raw_invite)
 
 
-def test_sme_redeems_pending_and_cannot_resume_until_approved(db_session):
+def test_sme_invitation_approves_existing_pending_account_and_membership(db_session):
     admin = user(db_session, "admin3@example.test", UserRole.ADMIN)
     target_course = course(db_session)
+    reviewer = user(db_session, "sme@example.test")
+    reviewer.approved_at = None
     _, raw_invite = create_invitation(db_session, admin, target_course, "sme@example.test", UserRole.SME)
     result = redeem_invitation(db_session, course_id=target_course.id, display_name="SME", email="sme@example.test", role=UserRole.SME, invitation_code=raw_invite)
 
-    assert result.membership.state is MembershipState.PENDING
-    assert result.session_token is None
-    with pytest.raises(AccessDenied):
-        resume_membership(db_session, course_id=target_course.id, email="sme@example.test", reconnect_code=result.reconnect_code)
+    assert reviewer.approved_at is not None
+    assert result.membership.state is MembershipState.APPROVED
+    assert result.session_token
+    assert result.device_credential
+    resumed = resume_membership(db_session, course_id=target_course.id, email="sme@example.test", reconnect_code=result.reconnect_code)
+    assert resumed.session_token
+
+
+def test_approved_reviewer_can_redeem_a_separate_invitation_for_another_course(db_session):
+    admin = user(db_session, "admin-courses@example.test", UserRole.ADMIN)
+    first_course = course(db_session)
+    second_course = course(db_session, "897", "CRJU151")
+    _, first_code = create_invitation(db_session, admin, first_course, "multi-course@example.test", UserRole.SME)
+    first = redeem_invitation(db_session, course_id=first_course.id, display_name="Multi Course SME", email="multi-course@example.test", role=UserRole.SME, invitation_code=first_code)
+
+    _, second_code = create_invitation(db_session, admin, second_course, "multi-course@example.test", UserRole.SME)
+    second = redeem_invitation(db_session, course_id=second_course.id, display_name="Multi Course SME", email="multi-course@example.test", role=UserRole.SME, invitation_code=second_code)
+
+    assert first.membership.user_id == second.membership.user_id
+    assert first.membership.course_id == first_course.id
+    assert second.membership.course_id == second_course.id
+    assert first.membership.state is MembershipState.APPROVED
+    assert second.membership.state is MembershipState.APPROVED
 
 
 def test_device_credential_rotates_and_old_value_cannot_be_reused(db_session):
@@ -79,17 +100,18 @@ def test_approved_course_reviewers_can_be_listed_and_signed_in_on_another_browse
     target_course = course(db_session)
     _, beta_code = create_invitation(db_session, admin, target_course, "reviewer@example.test", UserRole.BETA_TESTER)
     beta = redeem_invitation(db_session, course_id=target_course.id, display_name="Pilot Reviewer", email="reviewer@example.test", role=UserRole.BETA_TESTER, invitation_code=beta_code)
-    _, sme_code = create_invitation(db_session, admin, target_course, "pending-sme@example.test", UserRole.SME)
-    redeem_invitation(db_session, course_id=target_course.id, display_name="Pending SME", email="pending-sme@example.test", role=UserRole.SME, invitation_code=sme_code)
+    _, sme_code = create_invitation(db_session, admin, target_course, "sme@example.test", UserRole.SME)
+    sme = redeem_invitation(db_session, course_id=target_course.id, display_name="SME", email="sme@example.test", role=UserRole.SME, invitation_code=sme_code)
 
     reviewers = list_approved_reviewers(db_session, course_id=target_course.id)
 
     assert [(member.id, person.display_name, member.role) for member, person in reviewers] == [
         (beta.membership.id, "Pilot Reviewer", UserRole.BETA_TESTER),
+        (sme.membership.id, "SME", UserRole.SME),
     ]
     found = find_approved_reviewer(db_session, course_id=target_course.id, email=" REVIEWER@EXAMPLE.TEST ")
     assert found[0].id == beta.membership.id
-    assert find_approved_reviewer(db_session, course_id=target_course.id, email="pending-sme@example.test") is None
+    assert find_approved_reviewer(db_session, course_id=target_course.id, email="sme@example.test")[0].id == sme.membership.id
     signed_in = sign_in_existing_reviewer(db_session, course_id=target_course.id, membership_id=beta.membership.id)
     assert signed_in.membership.id == beta.membership.id
     assert signed_in.session_token

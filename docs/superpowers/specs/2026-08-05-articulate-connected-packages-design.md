@@ -44,7 +44,7 @@ Changing `indexAPI.html`, proxying Articulate content through Moodle, or downloa
 
 1. Moodle loads its local SCORM launcher under `https://my.uconline.ac.nz`.
 2. The launcher creates a visible iframe whose source origin is `https://packages.articulateusercontent.com`.
-3. The top-frame RADCRA controller observes that origin but cannot inspect the child document.
+3. The top-frame RADCRA controller recursively traverses accessible same-origin iframe documents. It reaches the Moodle-hosted launcher document, then observes the launcher’s inaccessible Articulate child iframe origin without reading that cross-origin document. Traversal is cycle-safe, visits each accessible document at most once, and reports only inaccessible descendant origins.
 4. Because the origin matches the build-declared optional pattern and is not yet granted, the toolbar enters `permission-required` and shows **Allow SCORM review access**.
 5. The reviewer clicks the action. The background worker accepts the request only from frame zero on the configured Moodle origin and calls `chrome.permissions.request` in the user-gesture stack for the exact pattern.
 6. On approval, the background worker reconciles the persistent optional content-script registration and attempts immediate all-frame injection. The current Connected Package document joins the existing frame election and becomes the embedded review worker.
@@ -58,7 +58,7 @@ No server API or database change is required.
 The supplied launch iframe includes a temporary token in its initial URL fragment before posting to Articulate's `content.html`. URL fragments are not sent in HTTP requests, but extension code can read them. RADCRA must never persist such a token.
 
 - Embedded comment `page_url` must continue replacing the runtime hash with RADCRA's derived page label.
-- Embedded locators must reject or strip launcher-only token fragments before they can be included in an anchor capability or API payload.
+- For locator derivation, a fragment is launcher-only when `new URLSearchParams(url.hash.slice(1)).has("token")` is true. In that case the entire fragment is discarded and the locator falls back to the URL pathname plus query string. Ordinary Rise route hashes such as `#/lessons/...` are preserved unchanged. The synthetic test token may use any value, but neither its `token` key nor value may appear in an emitted locator.
 - Tests must use synthetic token values and must assert that neither the token key nor value appears in the emitted page identity, locator, or captured anchor event.
 - Course-content route/hash locators used for ordinary Rise navigation remain supported.
 
@@ -75,11 +75,13 @@ The supplied launch iframe includes a temporary token in its initial URL fragmen
 Test-first coverage will establish:
 
 - the reviewed production configuration generates an optional host permission for only `https://packages.articulateusercontent.com/*`;
-- an inaccessible Articulate Connected Package iframe enters permission-required state and uses the existing exact-origin permission request;
+- a representative two-level frame tree—top Moodle document, accessible same-origin `indexAPI.html` launcher, then inaccessible `packages.articulateusercontent.com` child—enters permission-required state and uses the existing exact-origin permission request;
+- recursive origin discovery is cycle-safe, ignores accessible documents as permission candidates, and does not broaden the approved host;
 - permission grant registers/injects the worker and denial/revocation remain safe;
 - a synthetic Connected Package launcher token is absent from page identities, embedded locators, anchor events, and API-bound comment payloads;
 - ordinary same-origin SCORM and existing cross-origin authorization tests remain unchanged;
-- production manifest, classic content-script, typecheck, extension suite, browser layout checks, server suite, and deployment package suite pass before release.
+- production manifest, classic content-script, typecheck, extension suite, browser layout checks, server suite, and deployment package suite pass before release;
+- release verification records the existing 0.5.28 artifact checksum before publishing, confirms 0.5.29 is a distinct immutable artifact, and confirms the 0.5.28 artifact and checksum are unchanged afterward.
 
 The final manual check uses a Moodle activity created from the supplied Connected Package: open it with 0.5.29, grant the one-time permission, reload only if requested, create a temporary marker and text comment, confirm both reappear, then delete the temporary test comments.
 

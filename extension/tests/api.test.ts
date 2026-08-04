@@ -175,6 +175,21 @@ test("authenticated course resolve preserves the exact unregistered response fro
   assert.deepEqual(await resolveCourse(client, { course_url: "https://moodle.example/course/view.php?id=7", title: "Law", moodle_course_id: 7 }), { registered: false, can_register: true });
 });
 
+test("authenticated course resolve maps every 403 to the stable pending-account error", async () => {
+  const client = new ApiClient({
+    serviceOrigin: "https://review.example.org",
+    getToken: async () => "token",
+    clearToken: async () => undefined,
+    onSignedOut: () => undefined,
+    fetch: async () => new Response(JSON.stringify({ detail: "arbitrary server detail" }), { status: 403 }),
+  });
+
+  await assert.rejects(
+    () => resolveCourse(client, { course_url: "https://moodle.example/course/view.php?id=7", title: "Law", moodle_course_id: 7 }),
+    (error: unknown) => error instanceof Error && error.message === "Account pending approval",
+  );
+});
+
 test("authenticated course registration sends the exact payload and maps status errors", async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const client = new ApiClient({
@@ -184,12 +199,12 @@ test("authenticated course registration sends the exact payload and maps status 
     onSignedOut: () => undefined,
     fetch: async (url, init) => {
       requests.push({ url: String(url), init });
-      return new Response(JSON.stringify({ id: "course-1", title: "Law" }), { status: 201 });
+      return new Response(JSON.stringify({ id: "course-1", moodle_course_id: "7", course_url: payload?.course_url, title: "Law", is_confirmed: true }), { status: 201 });
     },
   });
   const payload = { course_url: "https://moodle.example/course/view.php?id=7", title: "Law", moodle_course_id: 7 };
 
-  assert.deepEqual(await registerCourse(client, payload), { id: "course-1", title: "Law" });
+  assert.deepEqual(await registerCourse(client, payload), { id: "course-1", moodle_course_id: "7", course_url: payload.course_url, title: "Law", is_confirmed: true });
   assert.equal(requests[0]?.url, "https://review.example.org/api/courses/register");
   assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), payload);
   assert.equal(new Headers(requests[0]?.init?.headers).get("Authorization"), "Bearer token");
@@ -203,6 +218,26 @@ test("authenticated course registration sends the exact payload and maps status 
       fetch: async () => new Response(JSON.stringify({ detail }), { status }),
     });
     await assert.rejects(() => registerCourse(failing, payload), new RegExp(detail));
+  }
+});
+
+test("course resolve and registration reject incomplete successful course responses", async () => {
+  const payload = { course_url: "https://moodle.example/course/view.php?id=7", title: "Law", moodle_course_id: 7 };
+  const invalidBodies = [
+    { id: "course-1", title: "Law" },
+    { id: "course-1", moodle_course_id: "7", course_url: payload.course_url, title: "Law" },
+    { id: "course-1", moodle_course_id: "7", course_url: payload.course_url, title: "Law", is_confirmed: "true" },
+  ];
+  for (const body of invalidBodies) {
+    const client = new ApiClient({
+      serviceOrigin: "https://review.example.org",
+      getToken: async () => "token",
+      clearToken: async () => undefined,
+      onSignedOut: () => undefined,
+      fetch: async () => new Response(JSON.stringify(body), { status: 200 }),
+    });
+    await assert.rejects(() => resolveCourse(client, payload), /Invalid course resolution response/);
+    await assert.rejects(() => registerCourse(client, payload), /Invalid course registration response/);
   }
 });
 

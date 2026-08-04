@@ -132,6 +132,23 @@ async function apiError(response: Response, fallback: string): Promise<never> {
   throw new Error(typeof body?.detail === "string" && body.detail.trim() ? body.detail : fallback);
 }
 
+function parseResolvedCourse(body: unknown, message: string): ResolvedCourse {
+  const candidate = body as Partial<ResolvedCourse> | null;
+  const validString = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
+  if (!validString(candidate?.id)
+    || !validString(candidate?.moodle_course_id)
+    || !validString(candidate?.course_url)
+    || !validString(candidate?.title)
+    || typeof candidate?.is_confirmed !== "boolean") throw new Error(message);
+  return {
+    id: candidate.id,
+    moodle_course_id: candidate.moodle_course_id,
+    course_url: candidate.course_url,
+    title: candidate.title,
+    is_confirmed: candidate.is_confirmed,
+  };
+}
+
 function courseRequest(payload: CourseIdentityPayload): RequestInit {
   return { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
 }
@@ -143,19 +160,15 @@ export async function resolveCourse(client: ApiClient, payload: CourseIdentityPa
     if (body?.registered !== false || typeof body.can_register !== "boolean") return apiError(response, "Invalid course resolution response");
     return { registered: false, can_register: body.can_register };
   }
-  if (response.status === 403) return apiError(response, "Account pending approval");
+  if (response.status === 403) throw new Error("Account pending approval");
   if (!response.ok) return apiError(response, `Course resolution failed (${response.status})`);
-  const body = await response.json() as Partial<ResolvedCourse>;
-  if (typeof body.id !== "string" || typeof body.title !== "string") throw new Error("Invalid course resolution response");
-  return body as ResolvedCourse;
+  return parseResolvedCourse(await response.json(), "Invalid course resolution response");
 }
 
 export async function registerCourse(client: ApiClient, payload: CourseIdentityPayload): Promise<ResolvedCourse> {
   const response = await client.request("/api/courses/register", courseRequest(payload));
   if (!response.ok) return apiError(response, `Course registration failed (${response.status})`);
-  const body = await response.json() as Partial<ResolvedCourse>;
-  if (typeof body.id !== "string" || typeof body.title !== "string") throw new Error("Invalid course registration response");
-  return body as ResolvedCourse;
+  return parseResolvedCourse(await response.json(), "Invalid course registration response");
 }
 
 export async function authenticate(options: {

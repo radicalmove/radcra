@@ -255,6 +255,23 @@ test("course registration confirmation is cancellable, single-submit, and retain
   assert.equal(shadow.querySelector('[role="dialog"]'), null);
 });
 
+test("course updates invalidate registration confirmation and reset registering state", () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  const otherCourse = { ...context, course_url: "https://learn.example/course/view.php?id=99", moodle_course_id: 99 };
+  const overlay = mountReviewOverlay(document, context, "unregistered", { canRegister: true, onRegisterCourse: async () => new Promise(() => undefined) });
+  const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  shadow.querySelector<HTMLButtonElement>('[data-action="register-course"]')!.click();
+  shadow.querySelector<HTMLButtonElement>('[data-register-confirm]')!.click();
+  assert.ok(shadow.querySelector('[role="dialog"]'));
+
+  overlay.update(otherCourse, "connecting");
+  assert.equal(shadow.querySelector('[role="dialog"]'), null);
+  overlay.update(otherCourse, "unregistered");
+  overlay.setRegistrationCapability(true);
+  assert.ok(shadow.querySelector('[data-action="register-course"]'));
+  overlay.destroy();
+});
+
 test("authentication status is textual and announced through one live region", () => {
   const window = new Window(); const document = window.document as unknown as Document;
   const overlay = mountReviewOverlay(document, context, "signed-out");

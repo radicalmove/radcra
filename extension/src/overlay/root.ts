@@ -95,6 +95,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
   let readiness: AccessLookupReadiness = options.accessLookupReadiness ?? "ready";
   let canRegister = options.canRegister === true;
   let registering = false;
+  let registrationDialogClose: (() => void) | undefined;
   let authenticating = false;
   let stateVersion = 0;
   let returnFocus: HTMLElement | null = null;
@@ -343,7 +344,8 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     const backdrop = ownerDocument.createElement("div"); backdrop.className = "backdrop";
     backdrop.innerHTML = `<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="register-course-title"><h2 id="register-course-title">Register this course for review</h2><p>This will make the current course available for course-review access.</p><p class="error" role="alert" hidden></p><div class="actions"><button type="button" data-register-cancel>Cancel</button><button type="button" class="primary" data-register-confirm>Register this course for review</button></div></div>`;
     const shell = shadow.querySelector<HTMLElement>(".shell")!; shell.inert = true;
-    const close = () => { shell.inert = false; backdrop.remove(); trigger.focus(); };
+    const close = () => { shell.inert = false; backdrop.remove(); if (registrationDialogClose === close) registrationDialogClose = undefined; trigger.focus(); };
+    registrationDialogClose = close;
     const cancel = backdrop.querySelector<HTMLButtonElement>("[data-register-cancel]")!;
     const confirm = backdrop.querySelector<HTMLButtonElement>("[data-register-confirm]")!;
     const error = backdrop.querySelector<HTMLElement>("[role=alert]")!;
@@ -351,9 +353,16 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     cancel.addEventListener("click", () => { if (!registering) close(); });
     confirm.addEventListener("click", async () => {
       if (registering || !options.onRegisterCourse) return;
+      const attemptVersion = stateVersion;
       registering = true; confirm.disabled = true; cancel.disabled = true; confirm.setAttribute("aria-busy", "true"); error.hidden = true;
-      try { const outcome = await options.onRegisterCourse(); close(); status = outcome.status; renderStateControls(outcome.message); }
-      catch (caught) { error.textContent = caught instanceof Error ? caught.message : "Unable to register this course for review"; error.hidden = false; registering = false; confirm.disabled = false; cancel.disabled = false; confirm.removeAttribute("aria-busy"); }
+      try {
+        const outcome = await options.onRegisterCourse();
+        if (attemptVersion !== stateVersion) return;
+        registering = false; close(); status = outcome.status; renderStateControls(outcome.message);
+      } catch (caught) {
+        if (attemptVersion !== stateVersion) return;
+        error.textContent = caught instanceof Error ? caught.message : "Unable to register this course for review"; error.hidden = false; registering = false; confirm.disabled = false; cancel.disabled = false; confirm.removeAttribute("aria-busy");
+      }
     });
     shadow.append(backdrop); cancel.focus();
   };
@@ -575,6 +584,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     update(next, nextStatus) {
       const pageChanged = context.page_url !== next.page_url;
       const courseChanged = context.course_url !== next.course_url;
+      if (registrationDialogClose) { registrationDialogClose(); registering = false; }
       stateVersion += 1; authenticating = false; context = next; status = nextStatus; statusMessage = undefined; closeChoice(false);
       if (pageChanged) { renderer.destroy(); renderer = makeRenderer(); }
       updateLabels();

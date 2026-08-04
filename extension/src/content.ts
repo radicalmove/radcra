@@ -500,8 +500,12 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
       resolve({ status: "connected" });
     });
   }), onRegisterCourse: async () => {
-    await send({ type: "REGISTER_COURSE", payload: { course_url: context.course_url, title: context.title, ...(context.moodle_course_id ? { moodle_course_id: context.moodle_course_id } : {}) } });
-    courseId = undefined; courseHandle = undefined; canRegister = false; courseIds.delete(context.course_url); lastSignature = "";
+    const registrationGeneration = courseGeneration;
+    const registrationCourseUrl = context.course_url;
+    const payload = { course_url: context.course_url, title: context.title, ...(context.moodle_course_id ? { moodle_course_id: context.moodle_course_id } : {}) };
+    await send({ type: "REGISTER_COURSE", payload });
+    if (registrationGeneration !== courseGeneration || context.course_url !== registrationCourseUrl) return { status: "connected" };
+    courseId = undefined; courseHandle = undefined; canRegister = false; courseIds.delete(registrationCourseUrl); lastSignature = "";
     refresh();
     return { status: "connected" };
   }, onTakeToContext: (id) => { overlay.takeToContext(id); }, submit: async ({ body, category, anchor, screenshot, embeddedFrameUnavailable, contextSnapshot }) => {

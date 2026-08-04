@@ -730,6 +730,42 @@ test("successful registration forces a fresh read-only resolve for the current c
   cleanup();
 });
 
+test("delayed registration cannot clear or refresh a course reached during navigation", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/activity.php?id=30" });
+  window.document.body.dataset.courseid = "30";
+  window.document.body.innerHTML = "<h1>Registration course</h1>";
+  const messages: any[] = [];
+  const resolveCallbacks: Array<(response: any) => void> = [];
+  let registrationCallback: ((response: any) => void) | undefined;
+  let resolves = 0;
+  const runtime = { sendMessage(message: any, callback: (response: any) => void) {
+    messages.push(message);
+    if (message.type === "RESOLVE_COURSE") {
+      resolves += 1;
+      if (resolves === 1) callback({ ok: true, data: { registered: false, can_register: true } });
+      else resolveCallbacks.push(callback);
+    } else if (message.type === "REGISTER_COURSE") registrationCallback = callback;
+    else callback({ ok: true, data: [] });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  (shadow.querySelector('[data-action="register-course"]') as unknown as HTMLButtonElement)!.click();
+  (shadow.querySelector('[data-register-confirm]') as unknown as HTMLButtonElement)!.click();
+  assert.ok(registrationCallback);
+
+  window.document.body.dataset.courseid = "31";
+  window.document.querySelector("h1")!.textContent = "Navigated course";
+  window.dispatchEvent(new window.Event("moodle-review:navigate"));
+  assert.equal(shadow.querySelector('[role="dialog"]'), null);
+  registrationCallback!({ ok: true, data: { id: "registered-too-late" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(resolves, 1, "stale registration must not force a resolve for the new course");
+  assert.match(shadow.querySelector(".course")?.textContent ?? "", /Navigated course/);
+  assert.equal(shadow.querySelector("[data-auth-status]")?.classList.contains("connecting"), true);
+  cleanup();
+});
+
 test("a stale course lookup cannot overwrite the current URL or course state", async () => {
   const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=4" });
   window.document.body.innerHTML = "<h1>First</h1>";
@@ -750,8 +786,7 @@ test("a stale course lookup cannot overwrite the current URL or course state", a
   callbacks[0]!({ ok: true, data: { registered: false, can_register: true } });
   await new Promise((resolve) => setTimeout(resolve, 0));
   const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
-  const courseNode = ((shadow.childNodes[1] as unknown as HTMLElement).children[0]!).children[0]!;
-  assert.match(courseNode.textContent!, /Second/);
+  assert.match(shadow.querySelector(".course")?.textContent ?? "", /Second/);
   cleanup();
 });
 

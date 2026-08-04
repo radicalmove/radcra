@@ -35,7 +35,8 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&"
 export const isTransientInteractionNavigationError = (error: unknown) => error instanceof Error && error.message === "INTERACTION_NOT_READY";
 const authActionLabels: Partial<Record<ConnectionStatus, string>> = { "signed-out": "Sign in", pending: "Check approval", offline: "Retry" };
 
-function createStateActions(status: ConnectionStatus, readiness: AccessLookupReadiness = "ready", canRegister = false): string {
+function createStateActions(status: ConnectionStatus, readiness: AccessLookupReadiness = "ready", canRegister = false, registering = false): string {
+  if (registering) return `<span data-auth-action></span>`;
   const action = authActionLabels[status];
   const checking = readiness === "checking" && Boolean(action);
   const registration = status === "unregistered" && canRegister ? `<button type="button" data-action="register-course">Register this course for review</button>` : "";
@@ -248,7 +249,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     const statusNode = toolbar.querySelector<HTMLElement>("[data-auth-status]");
     if (statusNode) { statusNode.className = `status ${status}`; const messageNode = statusNode.querySelector<HTMLElement>("[data-status-message]"); if (messageNode) messageNode.textContent = displayMessage; }
     toolbar.querySelector("[data-auth-action]")?.remove(); toolbar.querySelector("[data-review-controls]")?.remove();
-    const wrapper = ownerDocument.createElement("div"); wrapper.innerHTML = createStateActions(status, readiness, canRegister); toolbar.append(...Array.from(wrapper.childNodes));
+    const wrapper = ownerDocument.createElement("div"); wrapper.innerHTML = createStateActions(status, readiness, canRegister, registering); toolbar.append(...Array.from(wrapper.childNodes));
     bind();
     const panelToggle = toolbar.querySelector<HTMLElement>('[data-action="panel"]');
     if (panelToggle && !hadPanelToggle) setPanelOpen(readCoursePanelState(panelStateStorage, context.course_url), { animate: false, persist: false });
@@ -353,14 +354,15 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     cancel.addEventListener("click", () => { if (!registering) close(); });
     confirm.addEventListener("click", async () => {
       if (registering || !options.onRegisterCourse) return;
-      const attemptVersion = stateVersion;
+      const attemptCourseUrl = context.course_url;
+      const attemptPageUrl = context.page_url;
       registering = true; confirm.disabled = true; cancel.disabled = true; confirm.setAttribute("aria-busy", "true"); error.hidden = true;
       try {
         const outcome = await options.onRegisterCourse();
-        if (attemptVersion !== stateVersion) return;
+        if (attemptCourseUrl !== context.course_url || attemptPageUrl !== context.page_url || registrationDialogClose !== close) return;
         registering = false; close(); status = outcome.status; renderStateControls(outcome.message);
       } catch (caught) {
-        if (attemptVersion !== stateVersion) return;
+        if (attemptCourseUrl !== context.course_url || attemptPageUrl !== context.page_url || registrationDialogClose !== close) return;
         error.textContent = caught instanceof Error ? caught.message : "Unable to register this course for review"; error.hidden = false; registering = false; confirm.disabled = false; cancel.disabled = false; confirm.removeAttribute("aria-busy");
       }
     });
@@ -584,7 +586,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     update(next, nextStatus) {
       const pageChanged = context.page_url !== next.page_url;
       const courseChanged = context.course_url !== next.course_url;
-      if (registrationDialogClose) { registrationDialogClose(); registering = false; }
+      if (pageChanged || courseChanged) { registrationDialogClose?.(); registering = false; }
       stateVersion += 1; authenticating = false; context = next; status = nextStatus; statusMessage = undefined; closeChoice(false);
       if (pageChanged) { renderer.destroy(); renderer = makeRenderer(); }
       updateLabels();

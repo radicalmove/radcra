@@ -272,6 +272,34 @@ test("course updates invalidate registration confirmation and reset registering 
   overlay.destroy();
 });
 
+test("same-course rerenders keep a pending registration locked to one request", async () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  let calls = 0;
+  let finishRegistration!: (outcome: { status: "connected" }) => void;
+  const overlay = mountReviewOverlay(document, context, "unregistered", {
+    canRegister: true,
+    onRegisterCourse: async () => {
+      calls += 1;
+      return new Promise<{ status: "connected" }>((resolve) => { finishRegistration = resolve; });
+    },
+  });
+  const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  shadow.querySelector<HTMLButtonElement>('[data-action="register-course"]')!.click();
+  shadow.querySelector<HTMLButtonElement>('[data-register-confirm]')!.click();
+  assert.equal(calls, 1);
+
+  overlay.update(context, "unregistered");
+  assert.ok(shadow.querySelector('[role="dialog"]'), "same-course rerender must keep the confirmation open");
+  assert.equal(shadow.querySelector('[data-action="register-course"]'), null, "pending registration must not expose another action");
+  shadow.querySelector<HTMLButtonElement>('[data-register-confirm]')!.click();
+  assert.equal(calls, 1);
+
+  finishRegistration({ status: "connected" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(shadow.querySelector('[role="dialog"]'), null);
+  overlay.destroy();
+});
+
 test("authentication status is textual and announced through one live region", () => {
   const window = new Window(); const document = window.document as unknown as Document;
   const overlay = mountReviewOverlay(document, context, "signed-out");

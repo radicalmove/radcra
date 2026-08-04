@@ -1,7 +1,53 @@
 from datetime import UTC, datetime
 
+import pytest
+
 from app.models import Comment, Course, User
-from app.services.courses import confirm_course, resolve_course
+from app.services.courses import confirm_course, find_registered_course, resolve_course
+
+
+def test_find_registered_course_is_read_only_for_existing_and_missing_identities(db_session):
+    registered = resolve_course(
+        db_session,
+        moodle_course_id=123,
+        course_url="https://moodle.example/course/view.php?id=123",
+        title="Law",
+    )
+    original = {
+        "moodle_course_id": registered.moodle_course_id,
+        "moodle_origin": registered.moodle_origin,
+        "normalized_url": registered.normalized_url,
+        "title": registered.title,
+        "is_confirmed": registered.is_confirmed,
+        "confirmed_at": registered.confirmed_at,
+    }
+
+    found = find_registered_course(
+        db_session,
+        moodle_course_id=123,
+        course_url="https://moodle.example/course/view.php?id=123",
+        title="Changed client title",
+    )
+    missing = find_registered_course(
+        db_session,
+        moodle_course_id=456,
+        course_url="https://moodle.example/course/view.php?id=456",
+        title="Other",
+    )
+
+    assert found is registered
+    assert missing is None
+    assert db_session.query(Course).count() == 1
+    assert {field: getattr(registered, field) for field in original} == original
+
+
+def test_find_registered_course_requires_a_stable_moodle_identity(db_session):
+    with pytest.raises(ValueError, match="moodle_course_id is required"):
+        find_registered_course(
+            db_session,
+            course_url="https://moodle.example/course/view.php?id=123",
+            title="Law",
+        )
 
 
 def test_moodle_numeric_id_creates_a_confirmed_stable_course(db_session):

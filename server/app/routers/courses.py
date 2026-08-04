@@ -1,13 +1,14 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session as DbSession
 
 from app.db import get_session
 from app.dependencies import current_extension_user, require_course_access
 from app.models import Course, User, UserRole
 from app.schemas import CourseConfirmRequest, CourseResolveRequest
-from app.services.courses import confirm_course, resolve_course
+from app.services.courses import confirm_course, find_registered_course
 from app.services.summary import SummaryAccessDenied, course_summary_for
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
@@ -17,12 +18,18 @@ def _course_json(course: Course) -> dict[str, object]:
     return {"id": str(course.id), "moodle_course_id": course.moodle_course_id, "course_url": course.normalized_url, "title": course.title, "is_confirmed": course.is_confirmed}
 
 
-@router.post("/resolve", status_code=status.HTTP_201_CREATED)
+@router.post("/resolve")
 def resolve(payload: CourseResolveRequest, user: User = Depends(current_extension_user), db: DbSession = Depends(get_session)) -> dict[str, object]:
     try:
-        return _course_json(resolve_course(db, **payload.model_dump()))
+        course = find_registered_course(db, **payload.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if course is None:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"registered": False, "can_register": user.role in {UserRole.LD_DCD, UserRole.ADMIN}},
+        )
+    return _course_json(course)
 
 
 @router.post("/{course_id}/confirm")

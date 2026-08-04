@@ -21,6 +21,24 @@ def normalize_title(value: str) -> tuple[str, str]:
     return title, title.casefold()
 
 
+def find_registered_course(db: DbSession, *, course_url: str, title: str, moodle_course_id: int | str | None = None) -> Course | None:
+    url = normalize_url(course_url)
+    parsed_url = urlsplit(url)
+    origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
+    normalize_title(title)
+    if moodle_course_id is None:
+        raise ValueError("moodle_course_id is required")
+    stable_id = str(moodle_course_id).strip()
+    if not stable_id or not stable_id.isdigit():
+        raise ValueError("moodle_course_id must be numeric")
+    with db.no_autoflush:
+        return db.scalar(select(Course).where(
+            Course.moodle_course_id == stable_id,
+            Course.moodle_origin == origin,
+            Course.is_confirmed.is_(True),
+        ))
+
+
 def resolve_course(db: DbSession, *, course_url: str, title: str, moodle_course_id: int | str | None = None) -> Course:
     url = normalize_url(course_url)
     parsed_url = urlsplit(url)

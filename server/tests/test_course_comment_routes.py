@@ -46,6 +46,19 @@ def extension_headers(client, role=UserRole.BETA_TESTER):
     return {"Authorization": f"Bearer {token}"}
 
 
+def registered_course(client, moodle_course_id, title="Law"):
+    session = client.db_factory()
+    course = resolve_course(
+        session,
+        moodle_course_id=moodle_course_id,
+        course_url=f"https://moodle.example/course/view.php?id={moodle_course_id}",
+        title=title,
+    )
+    course_id = course.id
+    session.close()
+    return course_id
+
+
 def bound_extension_headers(client, course: Course, role=UserRole.BETA_TESTER, *, email=None, display_name="Bound reviewer"):
     session = client.db_factory()
     email = email or f"bound-{course.moodle_course_id}@example.test"
@@ -140,10 +153,10 @@ def test_bound_extension_identity_hides_other_courses(client):
 
 def test_extension_comment_route_defaults_omitted_category_to_general(client):
     headers = extension_headers(client)
-    course = client.post("/api/courses/resolve", headers=headers, json={"course_url": "https://moodle.example/course/view.php?id=12", "title": "Law", "moodle_course_id": 12})
+    course_id = registered_course(client, 12)
 
     response = client.post("/api/comments", headers=headers, json={
-        "course_id": course.json()["id"], "page_url": "https://moodle.example/mod/page/view.php?id=9",
+        "course_id": str(course_id), "page_url": "https://moodle.example/mod/page/view.php?id=9",
         "page_title": "Unit 1", "body": "Clarify this", "anchor_type": "text_highlight",
         "selected_quote": "Clarify", "css_selector": "#content",
     })
@@ -157,8 +170,8 @@ def test_extension_comment_route_defaults_omitted_category_to_general(client):
 
 def test_course_comment_list_includes_locations_and_excludes_other_courses(client):
     headers = extension_headers(client, UserRole.LD_DCD)
-    first = client.post("/api/courses/resolve", headers=headers, json={"course_url": "https://moodle.example/course/view.php?id=12", "title": "Law", "moodle_course_id": 12}).json()["id"]
-    second = client.post("/api/courses/resolve", headers=headers, json={"course_url": "https://moodle.example/course/view.php?id=13", "title": "Other", "moodle_course_id": 13}).json()["id"]
+    first = str(registered_course(client, 12))
+    second = str(registered_course(client, 13, "Other"))
     for course_id, page_id in [(first, 91), (first, 92), (second, 93)]:
         client.post("/api/comments", headers=headers, json={"course_id": course_id, "page_url": f"https://moodle.example/mod/page/view.php?id={page_id}", "page_title": f"Page {page_id}", "body": f"Comment {page_id}", "anchor_type": "text_highlight", "selected_quote": "Comment", "css_selector": "#main"})
 
@@ -172,9 +185,9 @@ def test_course_comment_list_includes_locations_and_excludes_other_courses(clien
 
 def test_embedded_navigation_metadata_round_trips_through_course_comment_list(client):
     headers = extension_headers(client)
-    course = client.post("/api/courses/resolve", headers=headers, json={"course_url": "https://moodle.example/course/view.php?id=20", "title": "Law", "moodle_course_id": 20})
+    course_id = registered_course(client, 20)
     payload = {
-        "course_id": course.json()["id"], "page_url": "https://rise.example/scorm/index.html", "page_title": "Lesson 1", "body": "Clarify",
+        "course_id": str(course_id), "page_url": "https://rise.example/scorm/index.html", "page_title": "Lesson 1", "body": "Clarify",
         "anchor_type": "visual_pin", "css_selector": "#main", "relative_x": .2, "relative_y": .3,
         "parent_activity_url": "https://moodle.example/mod/scorm/player.php?a=9", "embedded_locator": "/activity/index.html#/lessons/one",
         "interaction_context": {
@@ -185,7 +198,7 @@ def test_embedded_navigation_metadata_round_trips_through_course_comment_list(cl
     }
     created = client.post("/api/comments", headers=headers, json=payload)
     assert created.status_code == 201
-    listed = client.get(f"/api/comments?course_id={course.json()['id']}", headers=headers)
+    listed = client.get(f"/api/comments?course_id={course_id}", headers=headers)
     assert listed.status_code == 200
     assert listed.json()[0]["parent_activity_url"] == payload["parent_activity_url"]
     assert listed.json()[0]["embedded_locator"] == payload["embedded_locator"]
@@ -194,9 +207,9 @@ def test_embedded_navigation_metadata_round_trips_through_course_comment_list(cl
 
 def test_course_comment_list_fails_closed_for_malformed_stored_interaction_context(client):
     headers = extension_headers(client)
-    course = client.post("/api/courses/resolve", headers=headers, json={"course_url": "https://moodle.example/course/view.php?id=22", "title": "Law", "moodle_course_id": 22})
+    course_id = registered_course(client, 22)
     created = client.post("/api/comments", headers=headers, json={
-        "course_id": course.json()["id"], "page_url": "https://rise.example/index.html", "page_title": "Lesson", "body": "Clarify",
+        "course_id": str(course_id), "page_url": "https://rise.example/index.html", "page_title": "Lesson", "body": "Clarify",
         "anchor_type": "visual_pin", "css_selector": "#main", "relative_x": .2, "relative_y": .3,
     })
     check = client.db_factory()
@@ -206,16 +219,16 @@ def test_course_comment_list_fails_closed_for_malformed_stored_interaction_conte
     check.commit()
     check.close()
 
-    listed = client.get(f"/api/comments?course_id={course.json()['id']}", headers=headers)
+    listed = client.get(f"/api/comments?course_id={course_id}", headers=headers)
 
     assert listed.status_code == 422
 
 
 def test_embedded_parent_with_out_of_range_port_returns_validation_error(client):
     headers = extension_headers(client)
-    course = client.post("/api/courses/resolve", headers=headers, json={"course_url": "https://moodle.example/course/view.php?id=21", "title": "Law", "moodle_course_id": 21})
+    course_id = registered_course(client, 21)
     response = client.post("/api/comments", headers=headers, json={
-        "course_id": course.json()["id"], "page_url": "https://rise.example/scorm/index.html", "page_title": "Lesson", "body": "Clarify",
+        "course_id": str(course_id), "page_url": "https://rise.example/scorm/index.html", "page_title": "Lesson", "body": "Clarify",
         "anchor_type": "visual_pin", "css_selector": "#main", "relative_x": .2, "relative_y": .3,
         "parent_activity_url": "https://moodle.example:99999/mod/scorm/player.php", "embedded_locator": "#/lessons/one",
     })
@@ -243,11 +256,11 @@ def test_extension_course_confirmation_rejects_a_confirmed_source_without_deleti
 @pytest.mark.parametrize("url", ["/course/view.php?id=12", "javascript:alert(1)", "ftp://moodle.example/course"])
 def test_extension_routes_reject_non_http_absolute_course_and_page_urls(client, url):
     headers = extension_headers(client)
-    course = client.post("/api/courses/resolve", headers=headers, json={"course_url": "https://moodle.example/course/view.php?id=12", "title": "Law", "moodle_course_id": 12})
+    course_id = registered_course(client, 12)
 
     resolved = client.post("/api/courses/resolve", headers=headers, json={"course_url": url, "title": "Bad"})
     comment = client.post("/api/comments", headers=headers, json={
-        "course_id": course.json()["id"], "page_url": url, "page_title": "Unit 1", "body": "Clarify this",
+        "course_id": str(course_id), "page_url": url, "page_title": "Unit 1", "body": "Clarify this",
         "anchor_type": "text_highlight", "selected_quote": "Clarify", "css_selector": "#content",
     })
 

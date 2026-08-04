@@ -37,6 +37,7 @@ function legacyPageLabel(document: Document): string {
 
 function renderedPageLabel(window: Window & typeof globalThis, document: Document): string | undefined {
   const heading = Array.from(document.querySelectorAll<HTMLElement>("h1")).find((candidate) => {
+    if (!candidate.textContent?.trim()) return false;
     const style = window.getComputedStyle(candidate);
     return candidate.getClientRects().length > 0
       && !candidate.hidden
@@ -51,7 +52,7 @@ function renderedPageLabel(window: Window & typeof globalThis, document: Documen
 export function embeddedPageIdentity(window: Window & typeof globalThis, document: Document): PageIdentity {
   const legacyLabel = legacyPageLabel(document);
   const displayLabel = window.location.hostname === "packages.articulateusercontent.com"
-    ? renderedPageLabel(window, document) ?? legacyLabel
+    ? renderedPageLabel(window, document) || document.title.trim() || "Current page"
     : legacyLabel;
   const identity = new URL(window.location.href);
   identity.hash = `moodle-review-page=${encodeURIComponent(legacyLabel)}`;

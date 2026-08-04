@@ -123,6 +123,26 @@ test("Connected Package display titles use the rendered heading without changing
   assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=We%20couldn't%20load%20this%20course");
 });
 
+test("Connected Package display titles skip rendered empty headings", () => {
+  const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html" });
+  const document = window.document as unknown as Document;
+  window.document.title = "Document fallback";
+  window.document.body.innerHTML = `
+    <h1> </h1>
+    <h1>Rendered course heading</h1>`;
+  for (const heading of Array.from(document.querySelectorAll<HTMLElement>("h1"))) {
+    heading.getClientRects = () => [{ width: 640, height: 48 }] as unknown as DOMRectList;
+  }
+
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+
+  assert.equal(identity.pageTitle, "Embedded activity · Rendered course heading");
+  assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=Document%20fallback");
+});
+
 for (const [description, attribute] of [
   ["hidden", "hidden"],
   ["aria-hidden=true", 'aria-hidden="true"'],
@@ -147,6 +167,29 @@ for (const [description, attribute] of [
 
     assert.equal(identity.pageTitle, "Embedded activity · Rendered course heading");
     assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=Hidden%20fallback");
+  });
+}
+
+for (const [description, documentTitle, expectedDisplayLabel] of [
+  ["document title", "Document fallback", "Document fallback"],
+  ["Current page", " ", "Current page"],
+] as const) {
+  test(`Connected Package display titles fall back to ${description} when no rendered non-empty heading exists`, () => {
+    const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html" });
+    const document = window.document as unknown as Document;
+    window.document.title = documentTitle;
+    window.document.body.innerHTML = "<h1 hidden>Hidden legacy heading</h1><h1> </h1>";
+    for (const heading of Array.from(document.querySelectorAll<HTMLElement>("h1"))) {
+      heading.getClientRects = () => [] as unknown as DOMRectList;
+    }
+
+    const identity = embeddedPageIdentity(
+      window as unknown as globalThis.Window & typeof globalThis,
+      window.document as unknown as Document,
+    );
+
+    assert.equal(identity.pageTitle, `Embedded activity · ${expectedDisplayLabel}`);
+    assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=Hidden%20legacy%20heading");
   });
 }
 

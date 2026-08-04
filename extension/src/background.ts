@@ -10,6 +10,7 @@ import { PendingAccessStore, PendingApprovalManager } from "./pending-access.ts"
 import { FrameCoordinatorRuntime, workerReadyMatchesState, type WorkerReadyNotification } from "./frame-coordination-runtime.ts";
 import { validateScormMessage, type ScormCommand, type ScormEvent } from "./scorm-protocol.ts";
 import { packageRootFromScormUrl, ScormLaunchCache, validateScormLaunchRegistration } from "./scorm-launch.ts";
+import { deleteWithReconciliation } from "./comment-mutations.ts";
 
 declare const chrome: any;
 declare const __MOODLE_PATTERNS__: string[];
@@ -210,12 +211,14 @@ async function currentViewer(courseId: string): Promise<unknown> {
   return validateViewerResponse(await response.json(), courseId);
 }
 
-async function deleteComment(commentId: string, _courseId: string): Promise<unknown> {
+async function deleteComment(commentId: string, courseId: string): Promise<unknown> {
   const api = await client();
-  const response = await api.request(`/api/comments/${commentId}`, { method: "DELETE" });
-  if (response.status === 404) throw new Error("Comment was already removed");
-  if (response.status === 403) throw new Error("You do not have permission to delete this thread");
-  if (!response.ok) throw new Error(`Comment deletion failed (${response.status})`);
+  await deleteWithReconciliation({
+    commentId,
+    deleteRequest: () => api.request(`/api/comments/${commentId}`, { method: "DELETE" }),
+    listComments: async () => validatePageCommentsResponse(await listCourseComments(courseId)),
+    onReconciled: (id, error) => console.warn("[RADCRA] DELETE response was lost; comment absent after reconciliation", { commentId: id, reason: error instanceof Error ? error.message : String(error) }),
+  });
   return {};
 }
 

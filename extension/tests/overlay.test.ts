@@ -168,6 +168,22 @@ test("connected status stays textual with a decorative green indicator", () => {
   assert.match(overlayStyles, /\.connected \.dot\{background:#16833b\}/);
 });
 
+test("a successful comment refresh restores Connected without replacing the panel", () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  const overlay = mountReviewOverlay(document, context, "connected");
+  const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  shadow.querySelector<HTMLElement>('[data-action="panel"]')!.click();
+  const panel = shadow.querySelector<HTMLElement>(".panel")!;
+
+  overlay.update(context, "offline");
+  overlay.setStatus("connected");
+
+  assert.equal(shadow.querySelector<HTMLElement>("[data-auth-status]")!.textContent, "Connected");
+  assert.equal(shadow.querySelector<HTMLElement>("[data-auth-status]")!.className, "status connected");
+  assert.equal(shadow.querySelector('[data-action="panel"]')?.getAttribute("aria-expanded"), "true");
+  assert.equal(panel.hidden, false);
+});
+
 test("signed-out, pending, and offline states expose deterministic accessible controls", () => {
   for (const [status, label, action] of [
     ["signed-out", "Signed out", "Sign in"],

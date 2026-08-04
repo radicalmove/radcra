@@ -736,6 +736,24 @@ test("delete refresh closes the thread and removes stale renderer artifacts", as
   assert.equal(document.querySelector("[data-moodle-review-stored-pin]"), null);
 });
 
+test("cancelling delete confirmation never sends a delete mutation", async () => {
+  const { document } = setup();
+  let deleteCalls = 0;
+  const renderer = createCommentRenderer(document, pageUrl, {
+    confirmAction: async () => false,
+    deleteThread: async () => { deleteCalls += 1; },
+  });
+  renderer.setComments([comment()]);
+  document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!.click();
+  const root = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!;
+
+  root.querySelector<HTMLElement>('[aria-label="Delete thread"]')!.click();
+  await settle();
+
+  assert.equal(deleteCalls, 0);
+  assert.ok(root.querySelector("[data-thread-popover]"));
+});
+
 test("takeToContext opens the matching anchored thread and destroy removes renderer artifacts", () => {
   const { document } = setup();
   const renderer = createCommentRenderer(document, pageUrl);

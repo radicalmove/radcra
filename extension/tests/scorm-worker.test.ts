@@ -38,7 +38,7 @@ function selectText(window: Window, text: Text, start: number, end: number) {
   window.document.dispatchEvent(new window.Event("selectionchange"));
 }
 
-function createHarness(navigate?: (destination: URL, mode: "hash" | "route") => boolean, isTrustedActivation?: (event: Event) => boolean, url = "https://rise.example/activity#/lesson/1") {
+function createHarness(navigate?: (destination: URL, mode: "hash" | "route") => boolean, isTrustedActivation?: (event: Event) => boolean, url = "https://rise.example/activity#/lesson/1", contextResults: boolean[] = []) {
   const window = new Window({ url });
   window.document.title = "Lesson 1";
   window.document.body.innerHTML = "<main><h1>Lesson 1</h1><p id='copy'>Meaningful Rise lesson content.</p><button id='area'>Area</button></main>";
@@ -56,7 +56,7 @@ function createHarness(navigate?: (destination: URL, mode: "hash" | "route") => 
     },
     setStatusFilter: () => {},
     orderedCommentIds: () => [],
-    takeToContext: (commentId) => { takenToContext = commentId; return true; },
+    takeToContext: (commentId) => { takenToContext = commentId; return contextResults.length ? contextResults.shift()! : true; },
     destroy: () => { rendererDestroyed += 1; },
   });
   const worker = createScormWorker({
@@ -530,6 +530,26 @@ test("take-to-context cannot open a comment before its exact worker projection a
   assert.equal(acknowledgement.ok, false);
   assert.equal(acknowledgement.ok ? undefined : acknowledgement.error_code, "COMMENT_NOT_FOUND");
   assert.equal(takenToContext(), "");
+  worker.destroy();
+});
+
+test("take-to-context remains retryable until the renderer reports visible context", () => {
+  const { window, worker } = createHarness(undefined, undefined, undefined, [false, true]);
+  const commentId = "00000000-0000-4000-8000-000000000091";
+  const current = pageIdentity(window).pageUrl;
+  const projected: PageComment = {
+    id: commentId, body: "Feedback", category: "general", status: "open", author: { display_name: "Reviewer", role: "beta_tester" },
+    page_url: current, page_title: "Embedded activity · Lesson 1", parent_activity_url: null, embedded_locator: null, interaction_context: null, anchor_type: "visual_pin", selected_quote: null, prefix: null, suffix: null,
+    css_selector: "#area", dom_selector: null, relative_x: 0.5, relative_y: 0.5, replies: [], status_history: [],
+    capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: false },
+  };
+  assert.equal(worker.handleCommand(command(window, "SCORM_SET_COMMENTS", { comments: [projected] })).ok, true);
+
+  const first = worker.handleCommand({ ...command(window, "SCORM_TAKE_TO_CONTEXT", { comment_id: commentId }), request_id: "423e4567-e89b-42d3-a456-426614174000" });
+  const second = worker.handleCommand({ ...command(window, "SCORM_TAKE_TO_CONTEXT", { comment_id: commentId }), request_id: "523e4567-e89b-42d3-a456-426614174000" });
+  assert.equal(first.ok, false);
+  assert.equal(first.ok ? undefined : first.error_code, "COMMENT_NOT_FOUND");
+  assert.equal(second.ok, true);
   worker.destroy();
 });
 

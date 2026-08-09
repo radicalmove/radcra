@@ -157,10 +157,31 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
     }
     return undefined;
   };
+  const nearestVerticalScroller = (node: Node) => {
+    const view = document.defaultView;
+    let candidate: HTMLElement | null = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
+    while (candidate) {
+      const overflowY = view?.getComputedStyle(candidate).overflowY ?? "";
+      if (candidate.scrollHeight > candidate.clientHeight + 1 && /^(auto|scroll|overlay)$/.test(overflowY)) return candidate;
+      candidate = candidate.parentElement;
+    }
+    return null;
+  };
   const scrollCommentIntoView = (comment: PageComment) => {
     if (comment.anchor_type === "text_highlight" && comment.selected_quote) {
       const recovered = recoverTextAnchor(document, { selected_quote: comment.selected_quote, prefix: comment.prefix ?? "", suffix: comment.suffix ?? "" });
-      if (recovered.status === "resolved") (recovered.range.commonAncestorContainer.nodeType === 1 ? recovered.range.commonAncestorContainer as HTMLElement : recovered.range.commonAncestorContainer.parentElement)?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      if (recovered.status === "resolved") {
+        const view = document.defaultView;
+        const rangeRect = recovered.range.getBoundingClientRect();
+        const rangeCenter = (rangeRect.top + rangeRect.bottom) / 2;
+        const scroller = nearestVerticalScroller(recovered.range.startContainer);
+        if (scroller) {
+          const scrollerRect = scroller.getBoundingClientRect();
+          const top = rangeCenter - (scrollerRect.top + scroller.clientTop + scroller.clientHeight / 2);
+          if (typeof scroller.scrollBy === "function") scroller.scrollBy({ top, behavior: "smooth" });
+          else scroller.scrollTop += top;
+        } else if (view) view.scrollBy({ top: rangeCenter - view.innerHeight / 2, behavior: "smooth" });
+      }
       return;
     }
     if (comment.css_selector && comment.relative_x !== null && comment.relative_y !== null) {
@@ -200,17 +221,20 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
     }
   };
 
-  const openThread = (comment: PageComment, index: number, marker: HTMLElement) => {
+  const openThread = (comment: PageComment, index: number, marker: HTMLElement, toggleExisting = true) => {
     if (activeThreadId && activeThreadId !== comment.id && pendingProjection) {
       const requestedId = comment.id; const next = pendingProjection; pendingProjection = undefined;
       applyComments(next);
       const refreshedComment = comments.get(requestedId); const refreshedMarker = markers.get(requestedId);
-      if (refreshedComment && refreshedMarker) openThread(refreshedComment, Array.from(comments.keys()).indexOf(requestedId), refreshedMarker);
+      if (refreshedComment && refreshedMarker) openThread(refreshedComment, Array.from(comments.keys()).indexOf(requestedId), refreshedMarker, toggleExisting);
       else deferredThreadId = requestedId;
       return;
     }
     deferredThreadId = undefined;
-    if (activeThreadId === comment.id && root.querySelector("[data-thread-popover]")) { closeThread(); marker.focus(); return; }
+    if (activeThreadId === comment.id && root.querySelector("[data-thread-popover]")) {
+      if (toggleExisting) { closeThread(); marker.focus(); }
+      return;
+    }
     closeThread(false);
     activeThreadId = comment.id; marker.setAttribute("aria-expanded", "true"); marker.style.background = "#b85812"; marker.style.borderColor = "#7b3509";
     const article = document.createElement("article"); article.dataset.threadPopover = "true"; article.tabIndex = -1;
@@ -341,10 +365,33 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
       const preferred = right + popoverWidth <= width - 8 && !overlapsPanel(right) ? right : left;
       article.style.left = `${preferred}px`; article.style.top = `${Math.max(8, Math.min(height - popoverHeight - 8, rect.top))}px`;
     };
-    article.style.cssText += ";position:fixed;pointer-events:auto;z-index:2147483647;width:min(360px,calc(100vw - 16px));max-height:min(620px,calc(100vh - 16px));overflow-y:auto;overflow-x:visible;background:white;border:4px solid #28c4c2;border-radius:10px;padding:14px;box-shadow:0 8px 28px #0006";
+    article.style.cssText += ";box-sizing:border-box;position:fixed;pointer-events:auto;z-index:2147483647;width:min(360px,calc(100vw - 16px));max-height:min(620px,calc(100vh - 16px));overflow-y:auto;overflow-x:visible;background:white;border:4px solid #28c4c2;border-radius:10px;padding:14px;box-shadow:0 8px 28px #0006";
     root.append(article); repositioners.add(position); startRepositioning(); position();
     popoverCleanup = () => { repositioners.delete(position); article.remove(); };
     article.focus({ preventScroll: true });
+  };
+
+  const contextIsVisible = (commentId: string) => {
+    const comment = comments.get(commentId);
+    const marker = markers.get(commentId);
+    const article = activeThreadId === commentId ? root.querySelector<HTMLElement>("[data-thread-popover]") : null;
+    if (!comment || !marker || marker.hidden || !article || article.hidden) return false;
+    const width = document.defaultView?.innerWidth ?? 800;
+    const height = document.defaultView?.innerHeight ?? 600;
+    const withinViewport = (rect: DOMRect) => rect.top >= 0 && rect.left >= 0 && rect.bottom <= height && rect.right <= width;
+    if (!withinViewport(marker.getBoundingClientRect()) || !withinViewport(article.getBoundingClientRect())) return false;
+    if (comment.anchor_type === "text_highlight" && comment.selected_quote) {
+      const recovered = recoverTextAnchor(document, { selected_quote: comment.selected_quote, prefix: comment.prefix ?? "", suffix: comment.suffix ?? "" });
+      if (recovered.status !== "resolved") return false;
+      const scroller = nearestVerticalScroller(recovered.range.startContainer);
+      if (scroller) {
+        const rangeRect = recovered.range.getBoundingClientRect();
+        const scrollerRect = scroller.getBoundingClientRect();
+        const scrollportTop = scrollerRect.top + scroller.clientTop;
+        if (rangeRect.top < scrollportTop || rangeRect.bottom > scrollportTop + scroller.clientHeight) return false;
+      }
+    }
+    return true;
   };
 
   const clear = () => { closeThread(false); for (const cleanup of cleanups) cleanup(); cleanups = []; stopRepositioning(); markers.clear(); comments.clear(); };
@@ -444,8 +491,11 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
         const quote = document.createElement("blockquote"); quote.dataset.recoveryQuote = commentId; quote.textContent = comment?.selected_quote || (comment ? `${comment.page_title} · ${comment.body}` : "Comment context unavailable"); root.append(status, quote);
         return false;
       }
+      if (contextIsVisible(commentId)) return true;
       scrollCommentIntoView(comment);
-      marker.focus({ preventScroll: true }); openThread(comment, Array.from(comments.keys()).indexOf(commentId), marker); return true;
+      marker.focus({ preventScroll: true });
+      openThread(comment, Array.from(comments.keys()).indexOf(commentId), marker, false);
+      return contextIsVisible(commentId);
     },
     destroy() { pendingProjection = undefined; deferredThreadId = undefined; clear(); projectedComments = []; courseOpenComments = []; physicalOrderIds = []; options.onUnresolvedAnchors?.([]); ownedRoot?.dispose(); },
   };

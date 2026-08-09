@@ -384,10 +384,11 @@ test("top-level Moodle navigation scrolls to the exact visual-pin coordinate", (
   const targetComment = comment({ relative_x: 0.5, relative_y: 0.1 });
   renderer.setComments([targetComment]);
 
-  assert.equal(renderer.takeToContext(targetComment.id), true);
+  assert.equal(renderer.takeToContext(targetComment.id), false, "offscreen context remains retryable until its marker is visibly repositioned");
 
   assert.deepEqual(windowScrolls, [{ top: -1300, behavior: "smooth" }]);
   assert.equal(elementScrolls, 0);
+  renderer.destroy();
 });
 
 test("next scrolls a visual pin through its nested SCORM scroll container", async () => {
@@ -781,4 +782,152 @@ test("takeToContext opens the matching anchored thread and destroy removes rende
   renderer.destroy();
   assert.equal(document.querySelector("[data-moodle-review-stored-pin]"), null);
   assert.equal(document.querySelector("[data-moodle-review-renderer-root]"), null);
+});
+
+test("takeToContext scrolls the exact recovered text range within Rise's nested page scroller", () => {
+  const { document } = setup();
+  const scroller = document.createElement("div");
+  scroller.className = "page-wrap";
+  scroller.style.overflowY = "auto";
+  Object.defineProperties(scroller, { clientHeight: { value: 600 }, scrollHeight: { value: 3000 } });
+  scroller.getBoundingClientRect = () => ({ x: 0, y: 50, left: 0, top: 50, right: 800, bottom: 650, width: 800, height: 600, toJSON() {} });
+  const paragraph = document.createElement("p");
+  paragraph.textContent = "Before exact target after";
+  let ancestorScrolls = 0;
+  paragraph.scrollIntoView = () => { ancestorScrolls += 1; };
+  scroller.append(paragraph);
+  document.body.append(scroller);
+  const originalCreateRange = document.createRange.bind(document);
+  document.createRange = (() => {
+    const range = originalCreateRange();
+    const rect = { x: 100, y: 950, left: 100, top: 950, right: 220, bottom: 974, width: 120, height: 24, toJSON() {} };
+    range.getBoundingClientRect = () => rect;
+    range.getClientRects = () => [rect] as unknown as DOMRectList;
+    return range;
+  }) as typeof document.createRange;
+  let scrollRequest: ScrollToOptions | undefined;
+  scroller.scrollBy = ((options?: ScrollToOptions | number) => { if (options && typeof options !== "number") scrollRequest = options; }) as typeof scroller.scrollBy;
+  const targetComment = comment({ anchor_type: "text_highlight", selected_quote: "exact target", prefix: "Before ", suffix: " after", css_selector: null, relative_x: null, relative_y: null });
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([targetComment]);
+
+  const completed = renderer.takeToContext(targetComment.id);
+  renderer.destroy();
+  assert.equal(completed, false);
+  assert.deepEqual(scrollRequest, { top: 612, behavior: "smooth" });
+  assert.equal(ancestorScrolls, 0);
+});
+
+test("takeToContext retries keep the requested thread open instead of toggling it closed", () => {
+  const { document } = setup();
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([comment()]);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!;
+  marker.getBoundingClientRect = () => ({ x: 10, y: 20, left: 10, top: 20, right: 48, bottom: 58, width: 38, height: 38, toJSON() {} });
+
+  const firstCompleted = renderer.takeToContext(comment().id);
+  const root = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!;
+  const thread = root.querySelector("[data-thread-popover]");
+  const secondCompleted = renderer.takeToContext(comment().id);
+  const threadAfterRetry = root.querySelector("[data-thread-popover]");
+  const expandedAfterRetry = marker.getAttribute("aria-expanded");
+  renderer.destroy();
+  assert.equal(firstCompleted, true);
+  assert.ok(thread);
+  assert.equal(secondCompleted, true);
+  assert.equal(threadAfterRetry, thread);
+  assert.equal(expandedAfterRetry, "true");
+});
+
+test("takeToContext reports completion only after the requested marker and thread are visible", async () => {
+  const { window, document } = setup();
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([comment()]);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!;
+  let top = 900;
+  marker.getBoundingClientRect = () => ({ x: 10, y: top, left: 10, top, right: 48, bottom: top + 38, width: 38, height: 38, toJSON() {} });
+
+  const completedWhileHidden = renderer.takeToContext(comment().id);
+  const root = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!;
+  const hiddenBeforeScroll = root.querySelector<HTMLElement>("[data-thread-popover]")?.hidden;
+  top = 20;
+  window.dispatchEvent(new window.Event("scroll"));
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+  const completedWhenVisible = renderer.takeToContext(comment().id);
+  const hiddenAfterScroll = root.querySelector<HTMLElement>("[data-thread-popover]")?.hidden;
+  renderer.destroy();
+  assert.equal(completedWhileHidden, false);
+  assert.equal(hiddenBeforeScroll, true);
+  assert.equal(completedWhenVisible, true);
+  assert.equal(hiddenAfterScroll, false);
+});
+
+test("takeToContext remains retryable while the open thread is outside the viewport", () => {
+  const { document } = setup();
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([comment()]);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!;
+  marker.getBoundingClientRect = () => ({ x: 10, y: 20, left: 10, top: 20, right: 48, bottom: 58, width: 38, height: 38, toJSON() {} });
+  assert.equal(renderer.takeToContext(comment().id), true);
+  const root = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!;
+  const thread = root.querySelector<HTMLElement>("[data-thread-popover]")!;
+  thread.getBoundingClientRect = () => ({ x: 10, y: 900, left: 10, top: 900, right: 370, bottom: 1200, width: 360, height: 300, toJSON() {} });
+
+  const completed = renderer.takeToContext(comment().id);
+  const expanded = marker.getAttribute("aria-expanded");
+  renderer.destroy();
+  assert.equal(completed, false);
+  assert.equal(expanded, "true");
+});
+
+test("a long thread remains viewport-bounded and completable on a short SCORM viewport", () => {
+  const { window, document } = setup();
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
+  const longComment = comment({
+    body: "Long review comment ".repeat(20),
+    replies: Array.from({ length: 10 }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}`, body: "Long reply ".repeat(20), author: { display_name: `Reviewer ${index}`, role: "beta_tester" } })),
+  });
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([longComment]);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!;
+  marker.getBoundingClientRect = () => ({ x: 10, y: 20, left: 10, top: 20, right: 48, bottom: 58, width: 38, height: 38, toJSON() {} });
+  renderer.takeToContext(longComment.id);
+  const thread = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!.querySelector<HTMLElement>("[data-thread-popover]")!;
+  thread.getBoundingClientRect = () => ({ x: 56, y: 8, left: 56, top: 8, right: 416, bottom: 492, width: 360, height: 484, toJSON() {} });
+
+  const completed = renderer.takeToContext(longComment.id);
+  const sizing = thread.style.boxSizing;
+  renderer.destroy();
+  assert.equal(sizing, "border-box");
+  assert.equal(completed, true);
+});
+
+test("takeToContext scrolls a text range clipped by Rise's scrollport even when it is inside the browser viewport", () => {
+  const { document } = setup();
+  const scroller = document.createElement("div");
+  scroller.style.overflowY = "auto";
+  Object.defineProperties(scroller, { clientHeight: { value: 400 }, clientTop: { value: 5 }, scrollHeight: { value: 2000 } });
+  scroller.getBoundingClientRect = () => ({ x: 0, y: 100, left: 0, top: 100, right: 800, bottom: 510, width: 800, height: 410, toJSON() {} });
+  const paragraph = document.createElement("p");
+  paragraph.textContent = "Before clipped target after";
+  scroller.append(paragraph);
+  document.body.append(scroller);
+  const originalCreateRange = document.createRange.bind(document);
+  document.createRange = (() => {
+    const range = originalCreateRange();
+    const rect = { x: 100, y: 650, left: 100, top: 650, right: 240, bottom: 670, width: 140, height: 20, toJSON() {} };
+    range.getBoundingClientRect = () => rect;
+    range.getClientRects = () => [rect] as unknown as DOMRectList;
+    return range;
+  }) as typeof document.createRange;
+  let scrollRequest: ScrollToOptions | undefined;
+  scroller.scrollBy = ((options?: ScrollToOptions | number) => { if (options && typeof options !== "number") scrollRequest = options; }) as typeof scroller.scrollBy;
+  const targetComment = comment({ anchor_type: "text_highlight", selected_quote: "clipped target", prefix: "Before ", suffix: " after", css_selector: null, relative_x: null, relative_y: null });
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([targetComment]);
+
+  const completed = renderer.takeToContext(targetComment.id);
+  renderer.destroy();
+  assert.equal(completed, false);
+  assert.deepEqual(scrollRequest, { top: 355, behavior: "smooth" });
 });

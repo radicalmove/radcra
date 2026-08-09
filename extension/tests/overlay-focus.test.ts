@@ -319,9 +319,18 @@ test("take to context retries a late text anchor and reports an accessible failu
   overlay.setPageComments([storedHighlight]);
   assert.equal(document.querySelector("[data-moodle-review-stored-highlight]"), null);
   document.body.insertAdjacentHTML("afterbegin", "<p>An important phrase here</p>");
-  let contentScrolls = 0; (document.querySelector("p") as any).scrollIntoView = () => { contentScrolls += 1; };
+  const originalCreateRange = document.createRange.bind(document);
+  document.createRange = (() => {
+    const range = originalCreateRange();
+    const rect = { x: 40, y: 100, left: 40, top: 100, right: 200, bottom: 120, width: 160, height: 20, toJSON() {} };
+    range.getBoundingClientRect = () => rect;
+    range.getClientRects = () => [rect] as unknown as DOMRectList;
+    return range;
+  }) as typeof document.createRange;
+  const contentScrolls: ScrollToOptions[] = [];
+  window.scrollBy = ((options: ScrollToOptions) => { contentScrolls.push(options); }) as typeof window.scrollBy;
   assert.equal(overlay.takeToContext(storedHighlight.id), true);
-  assert.equal(contentScrolls, 1, "navigation must scroll the underlying course content, not the fixed marker");
+  assert.deepEqual(contentScrolls, [{ top: 110 - window.innerHeight / 2, behavior: "smooth" }], "navigation must centre the exact recovered text range");
   assert.ok(document.querySelector("[data-moodle-review-stored-highlight]"));
   (document.getElementById(`moodle-review-highlight-${storedHighlight.id}`) as HTMLElement).click();
   document.querySelector("p")!.remove(); overlay.setPageComments([storedHighlight]);

@@ -81,6 +81,20 @@ test("Help displays accessible pilot version diagnostics", () => {
   assert.equal(diagnostic.textContent, "Pilot 0.2.0 · build abc1234");
 });
 
+test("toolbar displays the visible installed version without the build hash", () => {
+  const markup = createOverlayMarkup({ courseTitle: "Law", pageTitle: "Week 2", status: "connected", version: "7.8.9", buildCommit: "abc1234def567890abc1234def567890abc1234d" });
+  const window = new Window();
+  const document = window.document as unknown as Document;
+  const container = document.createElement("div");
+  container.innerHTML = markup;
+  const label = container.querySelector<HTMLElement>(".toolbar .identity > .pilot-version");
+  assert.equal(label?.textContent, "v7.8.9");
+  assert.doesNotMatch(label?.textContent ?? "", /abc1234/);
+  assert.match(overlayStyles, /\.identity\{[^}]*position:relative/);
+  assert.match(overlayStyles, /\.course\{[^}]*padding-right:50px/);
+  assert.match(overlayStyles, /\.pilot-version\{[^}]*position:absolute;top:0;right:0/);
+});
+
 function auditShellBoundary(styles: string): void {
   const rule = styles.match(/\.shell\{([^}]*)\}/)?.[1];
   assert.ok(rule, "missing shell rule");

@@ -153,6 +153,21 @@ test("opens a contextual thread beside its marker and toggles it closed", () => 
   assert.equal(marker.getAttribute("aria-expanded"), "false");
 });
 
+test("thread focus preserves the SCORM anchor scroll position", () => {
+  const { window, document } = setup();
+  let threadFocusOptions: FocusOptions | undefined;
+  window.HTMLElement.prototype.focus = function (options?: FocusOptions) {
+    if (this.hasAttribute("data-thread-popover")) threadFocusOptions = options;
+  };
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([comment()]);
+
+  document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!.click();
+
+  assert.deepEqual(threadFocusOptions, { preventScroll: true });
+  renderer.destroy();
+});
+
 test("contextual thread moves left when the expanded comments panel occupies the right side", () => {
   const { window, document } = setup();
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });

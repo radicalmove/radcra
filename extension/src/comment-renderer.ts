@@ -344,7 +344,7 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
     article.style.cssText += ";position:fixed;pointer-events:auto;z-index:2147483647;width:min(360px,calc(100vw - 16px));max-height:min(620px,calc(100vh - 16px));overflow-y:auto;overflow-x:visible;background:white;border:4px solid #28c4c2;border-radius:10px;padding:14px;box-shadow:0 8px 28px #0006";
     root.append(article); repositioners.add(position); startRepositioning(); position();
     popoverCleanup = () => { repositioners.delete(position); article.remove(); };
-    article.focus();
+    article.focus({ preventScroll: true });
   };
 
   const clear = () => { closeThread(false); for (const cleanup of cleanups) cleanup(); cleanups = []; stopRepositioning(); markers.clear(); comments.clear(); };

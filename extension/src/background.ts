@@ -1,5 +1,5 @@
-import { ApiClient, authenticate, findCourseReviewer, getActiveToken, lookupReviewCourse, redeemReviewerInvitation, renewReviewerDevice, resumeReviewerMembership, signInExistingReviewer, type SessionToken } from "./api";
-import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListCourseCommentsBridge, handleListPageCommentsBridge, handleResolveCourseBridge, normalizeErrorMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validatePageCommentsResponse, validateUploadScreenshotMessage, validateViewerResponse, type CreateCommentPayload, type ResolveCoursePayload } from "./background-bridge.ts";
+import { ApiClient, authenticate, findCourseReviewer, getActiveToken, lookupReviewCourse, redeemReviewerInvitation, registerCourse as registerCourseApi, renewReviewerDevice, resolveCourse as resolveCourseApi, resumeReviewerMembership, signInExistingReviewer, type SessionToken } from "./api";
+import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListCourseCommentsBridge, handleListPageCommentsBridge, handleRegisterCourseBridge, handleResolveCourseBridge, normalizeErrorMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validatePageCommentsResponse, validateUploadScreenshotMessage, validateViewerResponse, type CreateCommentPayload, type RegisterCoursePayload, type ResolveCoursePayload } from "./background-bridge.ts";
 import { EmbeddedCommentNavigation, handleCommentNavigationMessage } from "./embedded-comment-navigation.ts";
 import { EmbeddedAnchorCapabilities, issueEmbeddedAnchorFromWorker } from "./embedded-anchor-capabilities.ts";
 import { validateScreenshotDataUrl } from "./screenshot-validation.ts";
@@ -10,6 +10,7 @@ import { PendingAccessStore, PendingApprovalManager } from "./pending-access.ts"
 import { FrameCoordinatorRuntime, workerReadyMatchesState, type WorkerReadyNotification } from "./frame-coordination-runtime.ts";
 import { validateScormMessage, type ScormCommand, type ScormEvent } from "./scorm-protocol.ts";
 import { packageRootFromScormUrl, ScormLaunchCache, validateScormLaunchRegistration } from "./scorm-launch.ts";
+import { deleteWithReconciliation } from "./comment-mutations.ts";
 
 declare const chrome: any;
 declare const __MOODLE_PATTERNS__: string[];
@@ -58,7 +59,7 @@ const cacheScormLaunchForEvent = async (tabId: number, event: ScormEvent) => {
   const cmid = Number(player.searchParams.get("cm")); if (!Number.isSafeInteger(cmid) || cmid <= 0) return;
   try { await scormLaunchCache.put({ courseId: context.id, configuredOrigin: new URL(context.course_url).origin, cmid, packageRoot: packageRootFromScormUrl(event.page_url), playerUrl: context.parent_activity_url }); } catch { /* non-package worker events are not cacheable */ }
 };
-const navigationCommand = async (tabId: number, type: "SCORM_ACTIVATE_COVER" | "SCORM_APPLY_LOCATOR" | "SCORM_TAKE_TO_CONTEXT", payload: Record<string, string>): Promise<void> => {
+const navigationCommand = async (tabId: number, type: "SCORM_ACTIVATE_COVER" | "SCORM_APPLY_LOCATOR" | "SCORM_RESTORE_INTERACTION" | "SCORM_TAKE_TO_CONTEXT", payload: Record<string, string>): Promise<void> => {
   const owner = frameCoordination.currentOwner(tabId); const state = latestWorkerEvent.get(tabId); const context = reviewContexts.exportTab(tabId);
   if (!owner || !state || !context || state.worker_instance_id !== owner.workerInstanceId || state.generation !== owner.generation) throw new Error("SCORM worker is not ready");
   const command = validateScormMessage({ protocol: 1, type, request_id: crypto.randomUUID(), worker_instance_id: owner.workerInstanceId, generation: owner.generation, course_id: context.id, page_url: state.page_url, payload }) as ScormCommand;
@@ -68,6 +69,8 @@ const navigationCommand = async (tabId: number, type: "SCORM_ACTIVATE_COVER" | "
       chrome.tabs.sendMessage(tabId, { type: "REVIEW_SCORM_START_REQUIRED" }, { frameId: 0 }, () => void chrome.runtime.lastError);
       throw new Error("Start this lesson using the flashing arrow or Tab+Enter to continue to the comment.");
     }
+    if (acknowledgement.error_code === "INTERACTION_NOT_READY") throw new Error("INTERACTION_NOT_READY");
+    if (acknowledgement.error_code === "INTERACTION_MISMATCH") throw new Error("INTERACTION_MISMATCH: This Rise tab or process step has changed. Please locate the comment manually.");
     throw new Error(acknowledgement.error_code === "COMMENT_NOT_FOUND" ? "Comment projection is not ready" : "SCORM navigation failed");
   }
 };
@@ -77,6 +80,7 @@ const embeddedNavigation = new EmbeddedCommentNavigation(chrome.storage.session,
   activateCover: (tabId) => navigationCommand(tabId, "SCORM_ACTIVATE_COVER", {}),
   applyLocator: (tabId, locator) => navigationCommand(tabId, "SCORM_APPLY_LOCATOR", { embedded_locator: locator }),
   projectionContains: (tabId, commentId, pageUrl) => { const projection = workerProjections.get(tabId); return projection?.pageUrl === pageUrl && projection.commentIds.has(commentId); },
+  restoreInteraction: (tabId, commentId) => navigationCommand(tabId, "SCORM_RESTORE_INTERACTION", { comment_id: commentId }),
   takeToContext: (tabId, commentId) => navigationCommand(tabId, "SCORM_TAKE_TO_CONTEXT", { comment_id: commentId }),
 });
 const resumeEmbeddedNavigation = (tabId: number) => void embeddedNavigation.advance(tabId).catch(() => undefined);
@@ -159,24 +163,15 @@ async function renewStoredDevice(): Promise<string | undefined> {
 }
 
 async function resolveCourse(payload: ResolveCoursePayload): Promise<unknown> {
-  const client = new ApiClient({
-    serviceOrigin: await serviceOrigin(),
-    getToken: activeToken,
-    clearToken: () => chrome.storage.session.remove(["apiToken", "expiresAt"]),
-    onSignedOut: () => undefined,
-  });
-  const response = await client.request("/api/courses/resolve", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (response.status === 403) throw new Error("Account pending approval");
-  if (!response.ok) throw new Error(`Course resolution failed (${response.status})`);
-  return response.json();
+  return resolveCourseApi(await client(), payload);
 }
 
 function client(): Promise<ApiClient> {
   return serviceOrigin().then((origin) => new ApiClient({ serviceOrigin: origin, getToken: activeToken, clearToken: () => chrome.storage.session.remove(["apiToken", "expiresAt"]), onSignedOut: () => undefined }));
+}
+
+async function registerCourse(payload: RegisterCoursePayload): Promise<unknown> {
+  return registerCourseApi(await client(), payload);
 }
 
 async function createComment(payload: CreateCommentPayload): Promise<unknown> {
@@ -207,12 +202,14 @@ async function currentViewer(courseId: string): Promise<unknown> {
   return validateViewerResponse(await response.json(), courseId);
 }
 
-async function deleteComment(commentId: string, _courseId: string): Promise<unknown> {
+async function deleteComment(commentId: string, courseId: string): Promise<unknown> {
   const api = await client();
-  const response = await api.request(`/api/comments/${commentId}`, { method: "DELETE" });
-  if (response.status === 404) throw new Error("Comment was already removed");
-  if (response.status === 403) throw new Error("You do not have permission to delete this thread");
-  if (!response.ok) throw new Error(`Comment deletion failed (${response.status})`);
+  await deleteWithReconciliation({
+    commentId,
+    deleteRequest: () => api.request(`/api/comments/${commentId}`, { method: "DELETE" }),
+    listComments: async () => validatePageCommentsResponse(await listCourseComments(courseId)),
+    onReconciled: (id, error) => console.warn("[RADCRA] DELETE response was lost; comment absent after reconciliation", { commentId: id, reason: error instanceof Error ? error.message : String(error) }),
+  });
   return {};
 }
 
@@ -342,6 +339,16 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
         }
         return resolved;
       },
+    });
+  } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "REGISTER_COURSE") {
+    operation = handleRegisterCourseBridge(message, sender, {
+      authorize: (candidate) => authorizeResolveSender(candidate, {
+        extensionId: chrome.runtime.id,
+        moodlePatterns: __MOODLE_PATTERNS__,
+        optionalPatterns: __OPTIONAL_FRAME_PATTERNS__,
+        hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }),
+      }),
+      register: registerCourse,
     });
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "REGISTER_SCORM_LAUNCH") {
     operation = (async () => {

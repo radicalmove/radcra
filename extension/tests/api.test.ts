@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ApiClient, authenticate, findCourseReviewer, getActiveToken, lookupReviewCourse, redeemReviewerInvitation, signInExistingReviewer, validateServiceOrigin } from "../src/api.ts";
+import { ApiClient, authenticate, findCourseReviewer, getActiveToken, lookupReviewCourse, redeemReviewerInvitation, registerCourse, resolveCourse, signInExistingReviewer, validateServiceOrigin } from "../src/api.ts";
 
 test("API calls use the configured private service origin and bearer token", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -154,12 +154,107 @@ test("course lookup and invitation redemption use public credential-free endpoin
   };
 
   const course = await lookupReviewCourse({ serviceOrigin: "https://review.example.org", moodleOrigin: "https://my.uconline.ac.nz", moodleCourseId: 896, fetch: fetcher });
+  assert.ok(course);
   const access = await redeemReviewerInvitation({ serviceOrigin: "https://review.example.org", courseHandle: course.course_handle, displayName: "Reviewer", email: "reviewer@example.org", role: "beta_tester", invitationCode: "11111-22222-33333-44444", fetch: fetcher });
 
   assert.equal(access.session?.apiToken, "session");
   assert.equal(access.deviceCredential, "device");
   assert.equal(requests.every((request) => new Headers(request.init?.headers).get("Authorization") === null), true);
   assert.equal(requests.every((request) => request.init?.credentials === "omit"), true);
+});
+
+test("authenticated course resolve preserves the exact unregistered response from a 404", async () => {
+  const client = new ApiClient({
+    serviceOrigin: "https://review.example.org",
+    getToken: async () => "token",
+    clearToken: async () => undefined,
+    onSignedOut: () => undefined,
+    fetch: async () => new Response(JSON.stringify({ registered: false, can_register: true }), { status: 404 }),
+  });
+
+  assert.deepEqual(await resolveCourse(client, { course_url: "https://moodle.example/course/view.php?id=7", title: "Law", moodle_course_id: 7 }), { registered: false, can_register: true });
+});
+
+test("authenticated course resolve maps every 403 to the stable pending-account error", async () => {
+  const client = new ApiClient({
+    serviceOrigin: "https://review.example.org",
+    getToken: async () => "token",
+    clearToken: async () => undefined,
+    onSignedOut: () => undefined,
+    fetch: async () => new Response(JSON.stringify({ detail: "arbitrary server detail" }), { status: 403 }),
+  });
+
+  await assert.rejects(
+    () => resolveCourse(client, { course_url: "https://moodle.example/course/view.php?id=7", title: "Law", moodle_course_id: 7 }),
+    (error: unknown) => error instanceof Error && error.message === "Account pending approval",
+  );
+});
+
+test("authenticated course registration sends the exact payload and maps status errors", async () => {
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const client = new ApiClient({
+    serviceOrigin: "https://review.example.org",
+    getToken: async () => "token",
+    clearToken: async () => undefined,
+    onSignedOut: () => undefined,
+    fetch: async (url, init) => {
+      requests.push({ url: String(url), init });
+      return new Response(JSON.stringify({ id: "course-1", moodle_course_id: "7", course_url: payload?.course_url, title: "Law", is_confirmed: true }), { status: 201 });
+    },
+  });
+  const payload = { course_url: "https://moodle.example/course/view.php?id=7", title: "Law", moodle_course_id: 7 };
+
+  assert.deepEqual(await registerCourse(client, payload), { id: "course-1", moodle_course_id: "7", course_url: payload.course_url, title: "Law", is_confirmed: true });
+  assert.equal(requests[0]?.url, "https://review.example.org/api/courses/register");
+  assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), payload);
+  assert.equal(new Headers(requests[0]?.init?.headers).get("Authorization"), "Bearer token");
+
+  for (const [status, detail] of [[409, "Course identity conflict"], [403, "LD/DCD or administrator access required"], [422, "Invalid course identity"]] as const) {
+    const failing = new ApiClient({
+      serviceOrigin: "https://review.example.org",
+      getToken: async () => "token",
+      clearToken: async () => undefined,
+      onSignedOut: () => undefined,
+      fetch: async () => new Response(JSON.stringify({ detail }), { status }),
+    });
+    await assert.rejects(() => registerCourse(failing, payload), new RegExp(detail));
+  }
+});
+
+test("course resolve and registration reject incomplete successful course responses", async () => {
+  const payload = { course_url: "https://moodle.example/course/view.php?id=7", title: "Law", moodle_course_id: 7 };
+  const invalidBodies = [
+    { id: "course-1", title: "Law" },
+    { id: "course-1", moodle_course_id: "7", course_url: payload.course_url, title: "Law" },
+    { id: "course-1", moodle_course_id: "7", course_url: payload.course_url, title: "Law", is_confirmed: "true" },
+  ];
+  for (const body of invalidBodies) {
+    const client = new ApiClient({
+      serviceOrigin: "https://review.example.org",
+      getToken: async () => "token",
+      clearToken: async () => undefined,
+      onSignedOut: () => undefined,
+      fetch: async () => new Response(JSON.stringify(body), { status: 200 }),
+    });
+    await assert.rejects(() => resolveCourse(client, payload), /Invalid course resolution response/);
+    await assert.rejects(() => registerCourse(client, payload), /Invalid course registration response/);
+  }
+});
+
+test("public registered-course lookup treats 404 as not registered but keeps service failures retryable", async () => {
+  const notRegistered = await lookupReviewCourse({
+    serviceOrigin: "https://review.example.org",
+    moodleOrigin: "https://moodle.example.org",
+    moodleCourseId: 7,
+    fetch: async () => new Response(JSON.stringify({ detail: "not registered" }), { status: 404 }),
+  });
+  assert.equal(notRegistered, undefined);
+  await assert.rejects(() => lookupReviewCourse({
+    serviceOrigin: "https://review.example.org",
+    moodleOrigin: "https://moodle.example.org",
+    moodleCourseId: 7,
+    fetch: async () => new Response(null, { status: 503 }),
+  }), /Unable to verify reviewer access/);
 });
 
 test("existing reviewers can be found by email and signed in for the current course", async () => {

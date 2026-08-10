@@ -153,6 +153,21 @@ test("opens a contextual thread beside its marker and toggles it closed", () => 
   assert.equal(marker.getAttribute("aria-expanded"), "false");
 });
 
+test("thread focus preserves the SCORM anchor scroll position", () => {
+  const { window, document } = setup();
+  let threadFocusOptions: FocusOptions | undefined;
+  window.HTMLElement.prototype.focus = function (options?: FocusOptions) {
+    if (this.hasAttribute("data-thread-popover")) threadFocusOptions = options;
+  };
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([comment()]);
+
+  document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!.click();
+
+  assert.deepEqual(threadFocusOptions, { preventScroll: true });
+  renderer.destroy();
+});
+
 test("contextual thread moves left when the expanded comments panel occupies the right side", () => {
   const { window, document } = setup();
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
@@ -356,7 +371,7 @@ test("previous and next follow anchor order on the current page and scroll into 
   assert.deepEqual(scrolls, [{ top: -260, behavior: "smooth" }]);
 });
 
-test("top-level Moodle navigation scrolls to the exact visual-pin coordinate", () => {
+test("Moodle context completes immediately after scrolling to the exact visual-pin coordinate", () => {
   const { window, document } = setup();
   const target = document.querySelector<HTMLElement>("#target")!;
   target.getBoundingClientRect = () => ({ x: 0, y: -1200, left: 0, top: -1200, right: 1000, bottom: 800, width: 1000, height: 2000, toJSON() {} });
@@ -369,21 +384,154 @@ test("top-level Moodle navigation scrolls to the exact visual-pin coordinate", (
   const targetComment = comment({ relative_x: 0.5, relative_y: 0.1 });
   renderer.setComments([targetComment]);
 
-  assert.equal(renderer.takeToContext(targetComment.id), true);
+  assert.equal(renderer.takeToContext(targetComment.id), true, "top-level Moodle must not wait for an embedded retry cycle");
 
   assert.deepEqual(windowScrolls, [{ top: -1300, behavior: "smooth" }]);
   assert.equal(elementScrolls, 0);
+  renderer.destroy();
+});
+
+test("Moodle context does not complete when its stored anchor no longer resolves", () => {
+  const { document } = setup();
+  const renderer = createCommentRenderer(document, pageUrl); renderer.setComments([comment()]);
+  document.querySelector("#target")!.remove();
+
+  const completed = renderer.takeToContext(comment().id);
+  const recovery = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!.querySelector<HTMLElement>("[data-recovery-status]")?.textContent;
+  renderer.destroy();
+  assert.equal(completed, false);
+  assert.match(recovery ?? "", /original content could not be found/i);
+});
+
+test("SCORM text context settles at centre before completing and clamps its popover inside the viewport", async () => {
+  const { window, document } = setup();
+  Object.defineProperty(window, "top", { configurable: true, value: {} });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
+  const scroller = document.createElement("div");
+  scroller.style.overflowY = "auto";
+  Object.defineProperties(scroller, { clientHeight: { value: 400 }, scrollHeight: { value: 2000 } });
+  scroller.getBoundingClientRect = () => ({ x: 0, y: 50, left: 0, top: 50, right: 800, bottom: 450, width: 800, height: 400, toJSON() {} });
+  const paragraph = document.createElement("p"); paragraph.textContent = "Before centred target after"; scroller.append(paragraph); document.body.append(scroller);
+  let rangeTop = 390;
+  const originalCreateRange = document.createRange.bind(document);
+  document.createRange = (() => {
+    const range = originalCreateRange();
+    range.getBoundingClientRect = () => ({ x: 100, y: rangeTop, left: 100, top: rangeTop, right: 240, bottom: rangeTop + 20, width: 140, height: 20, toJSON() {} });
+    range.getClientRects = () => [range.getBoundingClientRect()] as unknown as DOMRectList;
+    return range;
+  }) as typeof document.createRange;
+  const scrolls: ScrollToOptions[] = [];
+  scroller.scrollBy = ((options?: ScrollToOptions | number) => { if (options && typeof options !== "number") scrolls.push(options); }) as typeof scroller.scrollBy;
+  const targetComment = comment({ anchor_type: "text_highlight", selected_quote: "centred target", prefix: "Before ", suffix: " after", css_selector: null, relative_x: null, relative_y: null });
+  const renderer = createCommentRenderer(document, pageUrl); renderer.setComments([targetComment]);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-highlight]")!;
+  marker.getBoundingClientRect = () => ({ x: 100, y: rangeTop + 24, left: 100, top: rangeTop + 24, right: 138, bottom: rangeTop + 62, width: 38, height: 38, toJSON() {} });
+
+  const first = renderer.takeToContext(targetComment.id);
+  rangeTop = 240;
+  window.dispatchEvent(new window.Event("scroll"));
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+  const second = renderer.takeToContext(targetComment.id);
+  const thread = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!.querySelector<HTMLElement>("[data-thread-popover]")!;
+  const threadTop = thread.style.top;
+  renderer.destroy();
+  assert.equal(first, false);
+  assert.deepEqual(scrolls, [{ top: 150, behavior: "smooth" }]);
+  assert.equal(second, true);
+  assert.equal(threadTop, "192px", "the centred marker's popover keeps the established 8px bottom clamp");
+});
+
+test("SCORM text context settles at centre using the viewport fallback", () => {
+  const { window, document } = setup();
+  Object.defineProperty(window, "top", { configurable: true, value: {} });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+  const paragraph = document.createElement("p"); paragraph.textContent = "Before fallback target after"; document.body.append(paragraph);
+  let rangeTop = 500;
+  const originalCreateRange = document.createRange.bind(document);
+  document.createRange = (() => {
+    const range = originalCreateRange();
+    range.getBoundingClientRect = () => ({ x: 100, y: rangeTop, left: 100, top: rangeTop, right: 240, bottom: rangeTop + 20, width: 140, height: 20, toJSON() {} });
+    range.getClientRects = () => [range.getBoundingClientRect()] as unknown as DOMRectList;
+    return range;
+  }) as typeof document.createRange;
+  const scrolls: ScrollToOptions[] = [];
+  window.scrollBy = ((options: ScrollToOptions) => { scrolls.push(options); }) as typeof window.scrollBy;
+  const targetComment = comment({ anchor_type: "text_highlight", selected_quote: "fallback target", prefix: "Before ", suffix: " after", css_selector: null, relative_x: null, relative_y: null });
+  const renderer = createCommentRenderer(document, pageUrl); renderer.setComments([targetComment]);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-highlight]")!;
+  marker.getBoundingClientRect = () => ({ x: 100, y: rangeTop + 24, left: 100, top: rangeTop + 24, right: 138, bottom: rangeTop + 62, width: 38, height: 38, toJSON() {} });
+
+  const first = renderer.takeToContext(targetComment.id);
+  rangeTop = 290;
+  const second = renderer.takeToContext(targetComment.id);
+  renderer.destroy();
+  assert.equal(first, false);
+  assert.deepEqual(scrolls, [{ top: 210, behavior: "smooth" }]);
+  assert.equal(second, true);
+});
+
+test("SCORM pin context settles at centre in a nested scrollport", async () => {
+  const { window, document } = setup();
+  Object.defineProperty(window, "top", { configurable: true, value: {} });
+  const scroller = document.createElement("div"); scroller.style.overflowY = "auto";
+  Object.defineProperties(scroller, { clientHeight: { value: 400 }, scrollHeight: { value: 2000 } });
+  scroller.getBoundingClientRect = () => ({ x: 0, y: 100, left: 0, top: 100, right: 800, bottom: 500, width: 800, height: 400, toJSON() {} });
+  const target = document.querySelector<HTMLElement>("#target")!; scroller.append(target); document.body.append(scroller);
+  let targetTop = 400;
+  target.getBoundingClientRect = () => ({ x: 100, y: targetTop, left: 100, top: targetTop, right: 300, bottom: targetTop + 120, width: 200, height: 120, toJSON() {} });
+  const scrolls: ScrollToOptions[] = [];
+  scroller.scrollBy = ((options?: ScrollToOptions | number) => { if (options && typeof options !== "number") scrolls.push(options); }) as typeof scroller.scrollBy;
+  const renderer = createCommentRenderer(document, pageUrl); renderer.setComments([comment()]);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!;
+  marker.getBoundingClientRect = () => ({ x: 100, y: targetTop + 41, left: 100, top: targetTop + 41, right: 138, bottom: targetTop + 79, width: 38, height: 38, toJSON() {} });
+
+  const first = renderer.takeToContext(comment().id);
+  targetTop = 240;
+  window.dispatchEvent(new window.Event("scroll"));
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+  const second = renderer.takeToContext(comment().id);
+  const threadTop = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!.querySelector<HTMLElement>("[data-thread-popover]")!.style.top;
+  renderer.destroy();
+  assert.equal(first, false);
+  assert.deepEqual(scrolls, [{ top: 160, behavior: "smooth" }]);
+  assert.equal(second, true);
+  assert.equal(threadTop, "281px", "an unclamped popover aligns its top with the centred marker");
+});
+
+test("SCORM pin context settles at centre using the viewport fallback", () => {
+  const { window, document } = setup();
+  Object.defineProperty(window, "top", { configurable: true, value: {} });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
+  const target = document.querySelector<HTMLElement>("#target")!;
+  let targetTop = 540;
+  target.getBoundingClientRect = () => ({ x: 100, y: targetTop, left: 100, top: targetTop, right: 300, bottom: targetTop + 120, width: 200, height: 120, toJSON() {} });
+  const scrolls: ScrollToOptions[] = [];
+  window.scrollBy = ((options: ScrollToOptions) => { scrolls.push(options); }) as typeof window.scrollBy;
+  const renderer = createCommentRenderer(document, pageUrl); renderer.setComments([comment()]);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!;
+  marker.getBoundingClientRect = () => ({ x: 100, y: targetTop + 41, left: 100, top: targetTop + 41, right: 138, bottom: targetTop + 79, width: 38, height: 38, toJSON() {} });
+
+  const first = renderer.takeToContext(comment().id);
+  targetTop = 340;
+  const second = renderer.takeToContext(comment().id);
+  renderer.destroy();
+  assert.equal(first, false);
+  assert.deepEqual(scrolls, [{ top: 200, behavior: "smooth" }]);
+  assert.equal(second, true);
 });
 
 test("next scrolls a visual pin through its nested SCORM scroll container", async () => {
   const { window, document } = setup();
   Object.defineProperty(window, "top", { configurable: true, value: {} });
   const scroller = document.createElement("div");
+  scroller.style.overflowY = "auto";
+  Object.defineProperties(scroller, { clientHeight: { value: 600 }, scrollHeight: { value: 2000 } });
+  scroller.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, toJSON() {} });
   const later = document.createElement("div"); later.id = "later-in-scorm";
   later.getBoundingClientRect = () => ({ x: 10, y: 720, left: 10, top: 720, right: 210, bottom: 820, width: 200, height: 100, toJSON() {} });
   scroller.append(later); document.body.append(scroller);
-  const scrolls: ScrollIntoViewOptions[] = [];
-  later.scrollIntoView = (options?: boolean | ScrollIntoViewOptions) => { if (typeof options === "object") scrolls.push(options); };
+  const scrolls: ScrollToOptions[] = [];
+  scroller.scrollBy = ((options?: ScrollToOptions | number) => { if (options && typeof options !== "number") scrolls.push(options); }) as typeof scroller.scrollBy;
   const first = comment({ id: "00000000-0000-4000-8000-000000000036", body: "First", css_selector: "#target" });
   const second = comment({ id: "00000000-0000-4000-8000-000000000037", body: "Later", css_selector: "#later-in-scorm" });
   const renderer = createCommentRenderer(document, pageUrl);
@@ -394,7 +542,7 @@ test("next scrolls a visual pin through its nested SCORM scroll container", asyn
   root.querySelector<HTMLButtonElement>('[data-thread-navigation] [data-direction="next"]')!.click();
   await settle();
 
-  assert.deepEqual(scrolls, [{ block: "center", inline: "center", behavior: "smooth" }]);
+  assert.deepEqual(scrolls, [{ top: 470, behavior: "smooth" }]);
   assert.equal(root.querySelector<HTMLElement>("[data-thread-position]")?.textContent, "Comment 2 of 2");
 });
 
@@ -417,6 +565,25 @@ test("next restores the previous marker to its unfocused teal colour", async () 
   assert.equal(firstMarker.getAttribute("aria-expanded"), "false");
   assert.equal(firstMarker.style.background, "#28c4c2");
   assert.equal(firstMarker.style.borderColor, "#0b6261");
+});
+
+test("next requests same-page navigation when the target belongs to another hidden Rise interaction", async () => {
+  const { document } = setup();
+  const navigations: Array<[string, string]> = [];
+  const first = comment({ id: "00000000-0000-4000-8000-000000000036", body: "First tab" });
+  const second = comment({ id: "00000000-0000-4000-8000-000000000037", body: "Second tab" });
+  const renderer = createCommentRenderer(document, pageUrl, {
+    navigateToComment: async (id, url) => { navigations.push([id, url]); },
+  });
+  renderer.setVisibleCommentIds?.(new Set([first.id]));
+  renderer.setComments([first, second]);
+  document.querySelector<HTMLElement>(`[data-moodle-review-stored-pin="${first.id}"]`)!.click();
+  const root = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!;
+
+  root.querySelector<HTMLButtonElement>('[data-thread-navigation] [data-direction="next"]')!.click();
+  await settle();
+
+  assert.deepEqual(navigations, [[second.id, second.page_url]]);
 });
 
 test("next from the final anchor-ordered comment navigates to the following course page", async () => {
@@ -717,6 +884,24 @@ test("delete refresh closes the thread and removes stale renderer artifacts", as
   assert.equal(document.querySelector("[data-moodle-review-stored-pin]"), null);
 });
 
+test("cancelling delete confirmation never sends a delete mutation", async () => {
+  const { document } = setup();
+  let deleteCalls = 0;
+  const renderer = createCommentRenderer(document, pageUrl, {
+    confirmAction: async () => false,
+    deleteThread: async () => { deleteCalls += 1; },
+  });
+  renderer.setComments([comment()]);
+  document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!.click();
+  const root = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!;
+
+  root.querySelector<HTMLElement>('[aria-label="Delete thread"]')!.click();
+  await settle();
+
+  assert.equal(deleteCalls, 0);
+  assert.ok(root.querySelector("[data-thread-popover]"));
+});
+
 test("takeToContext opens the matching anchored thread and destroy removes renderer artifacts", () => {
   const { document } = setup();
   const renderer = createCommentRenderer(document, pageUrl);
@@ -729,4 +914,160 @@ test("takeToContext opens the matching anchored thread and destroy removes rende
   renderer.destroy();
   assert.equal(document.querySelector("[data-moodle-review-stored-pin]"), null);
   assert.equal(document.querySelector("[data-moodle-review-renderer-root]"), null);
+});
+
+test("takeToContext scrolls the exact recovered text range within Rise's nested page scroller", () => {
+  const { window, document } = setup();
+  Object.defineProperty(window, "top", { configurable: true, value: {} });
+  const scroller = document.createElement("div");
+  scroller.className = "page-wrap";
+  scroller.style.overflowY = "auto";
+  Object.defineProperties(scroller, { clientHeight: { value: 600 }, scrollHeight: { value: 3000 } });
+  scroller.getBoundingClientRect = () => ({ x: 0, y: 50, left: 0, top: 50, right: 800, bottom: 650, width: 800, height: 600, toJSON() {} });
+  const paragraph = document.createElement("p");
+  paragraph.textContent = "Before exact target after";
+  let ancestorScrolls = 0;
+  paragraph.scrollIntoView = () => { ancestorScrolls += 1; };
+  scroller.append(paragraph);
+  document.body.append(scroller);
+  const originalCreateRange = document.createRange.bind(document);
+  document.createRange = (() => {
+    const range = originalCreateRange();
+    const rect = { x: 100, y: 950, left: 100, top: 950, right: 220, bottom: 974, width: 120, height: 24, toJSON() {} };
+    range.getBoundingClientRect = () => rect;
+    range.getClientRects = () => [rect] as unknown as DOMRectList;
+    return range;
+  }) as typeof document.createRange;
+  let scrollRequest: ScrollToOptions | undefined;
+  scroller.scrollBy = ((options?: ScrollToOptions | number) => { if (options && typeof options !== "number") scrollRequest = options; }) as typeof scroller.scrollBy;
+  const targetComment = comment({ anchor_type: "text_highlight", selected_quote: "exact target", prefix: "Before ", suffix: " after", css_selector: null, relative_x: null, relative_y: null });
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([targetComment]);
+
+  const completed = renderer.takeToContext(targetComment.id);
+  renderer.destroy();
+  assert.equal(completed, false);
+  assert.deepEqual(scrollRequest, { top: 612, behavior: "smooth" });
+  assert.equal(ancestorScrolls, 0);
+});
+
+test("takeToContext retries keep the requested thread open instead of toggling it closed", () => {
+  const { document } = setup();
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([comment()]);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!;
+  marker.getBoundingClientRect = () => ({ x: 10, y: 20, left: 10, top: 20, right: 48, bottom: 58, width: 38, height: 38, toJSON() {} });
+
+  const firstCompleted = renderer.takeToContext(comment().id);
+  const root = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!;
+  const thread = root.querySelector("[data-thread-popover]");
+  const secondCompleted = renderer.takeToContext(comment().id);
+  const threadAfterRetry = root.querySelector("[data-thread-popover]");
+  const expandedAfterRetry = marker.getAttribute("aria-expanded");
+  renderer.destroy();
+  assert.equal(firstCompleted, true);
+  assert.ok(thread);
+  assert.equal(secondCompleted, true);
+  assert.equal(threadAfterRetry, thread);
+  assert.equal(expandedAfterRetry, "true");
+});
+
+test("takeToContext reports completion only after the requested marker and thread are visible", async () => {
+  const { window, document } = setup();
+  Object.defineProperty(window, "top", { configurable: true, value: {} });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 140 });
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([comment()]);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!;
+  let top = 900;
+  marker.getBoundingClientRect = () => ({ x: 10, y: top, left: 10, top, right: 48, bottom: top + 38, width: 38, height: 38, toJSON() {} });
+
+  const completedWhileHidden = renderer.takeToContext(comment().id);
+  const root = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!;
+  const hiddenBeforeScroll = root.querySelector<HTMLElement>("[data-thread-popover]")?.hidden;
+  top = 20;
+  window.dispatchEvent(new window.Event("scroll"));
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+  const completedWhenVisible = renderer.takeToContext(comment().id);
+  const hiddenAfterScroll = root.querySelector<HTMLElement>("[data-thread-popover]")?.hidden;
+  renderer.destroy();
+  assert.equal(completedWhileHidden, false);
+  assert.equal(hiddenBeforeScroll, true);
+  assert.equal(completedWhenVisible, true);
+  assert.equal(hiddenAfterScroll, false);
+});
+
+test("takeToContext remains retryable while the open thread is outside the viewport", () => {
+  const { window, document } = setup();
+  Object.defineProperty(window, "top", { configurable: true, value: {} });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 140 });
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([comment()]);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!;
+  marker.getBoundingClientRect = () => ({ x: 10, y: 20, left: 10, top: 20, right: 48, bottom: 58, width: 38, height: 38, toJSON() {} });
+  assert.equal(renderer.takeToContext(comment().id), true);
+  const root = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!;
+  const thread = root.querySelector<HTMLElement>("[data-thread-popover]")!;
+  thread.getBoundingClientRect = () => ({ x: 10, y: 900, left: 10, top: 900, right: 370, bottom: 1200, width: 360, height: 300, toJSON() {} });
+
+  const completed = renderer.takeToContext(comment().id);
+  const expanded = marker.getAttribute("aria-expanded");
+  renderer.destroy();
+  assert.equal(completed, false);
+  assert.equal(expanded, "true");
+});
+
+test("a long thread remains viewport-bounded and completable on a short SCORM viewport", () => {
+  const { window, document } = setup();
+  Object.defineProperty(window, "top", { configurable: true, value: {} });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
+  document.querySelector<HTMLElement>("#target")!.getBoundingClientRect = () => ({ x: 10, y: 200, left: 10, top: 200, right: 210, bottom: 300, width: 200, height: 100, toJSON() {} });
+  const longComment = comment({
+    body: "Long review comment ".repeat(20),
+    replies: Array.from({ length: 10 }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}`, body: "Long reply ".repeat(20), author: { display_name: `Reviewer ${index}`, role: "beta_tester" } })),
+  });
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([longComment]);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")!;
+  marker.getBoundingClientRect = () => ({ x: 10, y: 20, left: 10, top: 20, right: 48, bottom: 58, width: 38, height: 38, toJSON() {} });
+  renderer.takeToContext(longComment.id);
+  const thread = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!.shadowRoot!.querySelector<HTMLElement>("[data-thread-popover]")!;
+  thread.getBoundingClientRect = () => ({ x: 56, y: 8, left: 56, top: 8, right: 416, bottom: 492, width: 360, height: 484, toJSON() {} });
+
+  const completed = renderer.takeToContext(longComment.id);
+  const sizing = thread.style.boxSizing;
+  renderer.destroy();
+  assert.equal(sizing, "border-box");
+  assert.equal(completed, true);
+});
+
+test("takeToContext scrolls a text range clipped by Rise's scrollport even when it is inside the browser viewport", () => {
+  const { window, document } = setup();
+  Object.defineProperty(window, "top", { configurable: true, value: {} });
+  const scroller = document.createElement("div");
+  scroller.style.overflowY = "auto";
+  Object.defineProperties(scroller, { clientHeight: { value: 400 }, clientTop: { value: 5 }, scrollHeight: { value: 2000 } });
+  scroller.getBoundingClientRect = () => ({ x: 0, y: 100, left: 0, top: 100, right: 800, bottom: 510, width: 800, height: 410, toJSON() {} });
+  const paragraph = document.createElement("p");
+  paragraph.textContent = "Before clipped target after";
+  scroller.append(paragraph);
+  document.body.append(scroller);
+  const originalCreateRange = document.createRange.bind(document);
+  document.createRange = (() => {
+    const range = originalCreateRange();
+    const rect = { x: 100, y: 650, left: 100, top: 650, right: 240, bottom: 670, width: 140, height: 20, toJSON() {} };
+    range.getBoundingClientRect = () => rect;
+    range.getClientRects = () => [rect] as unknown as DOMRectList;
+    return range;
+  }) as typeof document.createRange;
+  let scrollRequest: ScrollToOptions | undefined;
+  scroller.scrollBy = ((options?: ScrollToOptions | number) => { if (options && typeof options !== "number") scrollRequest = options; }) as typeof scroller.scrollBy;
+  const targetComment = comment({ anchor_type: "text_highlight", selected_quote: "clipped target", prefix: "Before ", suffix: " after", css_selector: null, relative_x: null, relative_y: null });
+  const renderer = createCommentRenderer(document, pageUrl);
+  renderer.setComments([targetComment]);
+
+  const completed = renderer.takeToContext(targetComment.id);
+  renderer.destroy();
+  assert.equal(completed, false);
+  assert.deepEqual(scrollRequest, { top: 355, behavior: "smooth" });
 });

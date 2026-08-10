@@ -8,6 +8,7 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+APPROVED_OPTIONAL_FRAME_PATTERNS = ["https://packages.articulateusercontent.com/*"]
 
 
 def assert_classic_self_contained_script(source: str) -> None:
@@ -24,16 +25,18 @@ def assert_classic_self_contained_script(source: str) -> None:
             raise AssertionError(f"classic extension script contains {label}")
 
 
-def assert_production_manifest(manifest: dict) -> None:
+def assert_production_manifest(manifest: dict, service_origin: str = "https://fld-mini.tail4ccaba.ts.net") -> None:
     moodle = "https://my.uconline.ac.nz/*"
-    service = "https://fld-mini.tail4ccaba.ts.net/*"
+    service = f"{service_origin.rstrip('/')}/*"
     if manifest.get("host_permissions") != [moodle, service]:
-        raise AssertionError("production host_permissions must contain only the real UC Online and Tailscale hosts")
+        raise AssertionError("production host_permissions must contain only the real UC Online and configured service hosts")
     scripts = manifest.get("content_scripts")
     if not isinstance(scripts, list) or len(scripts) != 1:
         raise AssertionError("production manifest must define exactly one content script")
     if scripts[0].get("matches") != [moodle] or scripts[0].get("js") != ["content.js"]:
         raise AssertionError("content.js must match only the real UC Online host")
+    if manifest.get("optional_host_permissions") != APPROVED_OPTIONAL_FRAME_PATTERNS:
+        raise AssertionError("production optional_host_permissions must contain only the reviewed Articulate package host")
 
 class DeploymentPackageTests(unittest.TestCase):
     @classmethod
@@ -44,7 +47,18 @@ class DeploymentPackageTests(unittest.TestCase):
         private_key = Path(cls._build_directory.name) / "pilot-test.pem"
         subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", str(private_key)], check=True, capture_output=True)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-        environment = {**os.environ, "PRIVATE_KEY_PATH": str(private_key), "REVIEW_SERVICE_ORIGIN": "https://fld-mini.tail4ccaba.ts.net", "OPTIONAL_FRAME_PATTERNS": "", "BUILD_COMMIT": commit}
+        optional_patterns = [
+            line.strip()
+            for line in (ROOT / "deploy/config/pilot-optional-frame-patterns.txt").read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        environment = {
+            **os.environ,
+            "PRIVATE_KEY_PATH": str(private_key),
+            "REVIEW_SERVICE_ORIGIN": "https://fld-mini.tail4ccaba.ts.net",
+            "OPTIONAL_FRAME_PATTERNS": ",".join(optional_patterns),
+            "BUILD_COMMIT": commit,
+        }
         subprocess.run([str(ROOT / "deploy/scripts/build-pilot-extension.sh")], cwd=ROOT, env=environment, check=True, capture_output=True, text=True)
 
     def test_compose_is_private_persistent_and_health_checked(self):
@@ -124,7 +138,7 @@ class DeploymentPackageTests(unittest.TestCase):
         self.assertIn("disposable", operations.lower())
         for token in ("CRJU150", "896", "9972", "9976", "118172", "146308", "Reviewer", "LD", "SME"):
             self.assertIn(token, pilot)
-        for token in ("0.5.12", "pilot-builds/moodle-review-extension", "chrome://extensions", "edge://extensions", "exactly one teal review toolbar", "Clear all", "revoke the permission"):
+        for token in ("0.5.30", "pilot-builds/moodle-review-extension", "chrome://extensions", "edge://extensions", "exactly one teal review toolbar", "Clear all", "revoke the permission"):
             self.assertIn(token, pilot)
         for route in (
             "https://my.uconline.ac.nz/course/view.php?id=896",
@@ -143,6 +157,26 @@ class DeploymentPackageTests(unittest.TestCase):
         for token in ("PRIVATE_KEY_PATH", "my.uconline.ac.nz", "REVIEW_SERVICE_ORIGIN", "openssl"):
             self.assertIn(token, script)
         self.assertIn('OPTIONAL_FRAME_PATTERNS="${OPTIONAL_FRAME_PATTERNS-}"', script)
+
+    def test_z_pilot_build_script_accepts_https_quick_tunnel_origin(self):
+        build_directory = tempfile.TemporaryDirectory()
+        try:
+            private_key = Path(build_directory.name) / "pilot-test.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", str(private_key)], check=True, capture_output=True)
+            commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+            environment = {
+                **os.environ,
+                "PRIVATE_KEY_PATH": str(private_key),
+                "REVIEW_SERVICE_ORIGIN": "https://satin-childrens-ellen-jaguar.trycloudflare.com",
+                "OPTIONAL_FRAME_PATTERNS": "",
+                "BUILD_COMMIT": commit,
+            }
+            result = subprocess.run([str(ROOT / "deploy/scripts/build-pilot-extension.sh")], cwd=ROOT, env=environment, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            manifest = json.loads((ROOT / "extension/dist/manifest.json").read_text())
+            self.assertIn("https://satin-childrens-ellen-jaguar.trycloudflare.com/*", manifest["host_permissions"])
+        finally:
+            build_directory.cleanup()
 
     def test_release_script_orders_verification_build_delivery_and_checksums(self):
         script = (ROOT / "deploy/scripts/release-pilot-extension.sh").read_text()
@@ -177,12 +211,17 @@ class DeploymentPackageTests(unittest.TestCase):
         self.assertIn("CONFIGURED_OPTIONAL_FRAME_PATTERNS", script)
         self.assertIn('OPTIONAL_FRAME_PATTERNS="$CONFIGURED_OPTIONAL_FRAME_PATTERNS"', script)
 
-    def test_empty_optional_pattern_config_is_intentional_and_evidence_backed(self):
+    def test_optional_pattern_config_is_exactly_the_observed_rise_connected_package_host(self):
         config = (ROOT / "deploy/config/pilot-optional-frame-patterns.txt").read_text()
-        self.assertIn("INTENTIONALLY EMPTY", config)
-        self.assertIn("CRJU150", config)
-        self.assertIn("my.uconline.ac.nz/mod/scorm/player.php", config)
-        self.assertIn("no verified cross-origin iframe src", config)
+        patterns = [
+            line.strip()
+            for line in config.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(patterns, APPROVED_OPTIONAL_FRAME_PATTERNS)
+        self.assertIn("Articulate Rise Connected Package", config)
+        self.assertIn("supplied", config.lower())
+        self.assertNotIn("https://*.articulateusercontent.com/*", config)
 
     def test_release_script_rechecks_clean_tree_and_unchanged_head_before_publish(self):
         script = (ROOT / "deploy/scripts/release-pilot-extension.sh").read_text()
@@ -231,6 +270,7 @@ class DeploymentPackageTests(unittest.TestCase):
     def test_manifest_validator_rejects_placeholder_or_additional_hosts(self):
         valid = {
             "host_permissions": ["https://my.uconline.ac.nz/*", "https://fld-mini.tail4ccaba.ts.net/*"],
+            "optional_host_permissions": APPROVED_OPTIONAL_FRAME_PATTERNS,
             "content_scripts": [{"matches": ["https://my.uconline.ac.nz/*"], "js": ["content.js"]}],
         }
         assert_production_manifest(valid)
@@ -241,6 +281,14 @@ class DeploymentPackageTests(unittest.TestCase):
             with self.subTest(permissions=permissions):
                 with self.assertRaises(AssertionError):
                     assert_production_manifest({**valid, "host_permissions": permissions})
+        for permissions in (
+            [],
+            ["https://*.articulateusercontent.com/*"],
+            [*APPROVED_OPTIONAL_FRAME_PATTERNS, "https://unreviewed.example/*"],
+        ):
+            with self.subTest(optional_host_permissions=permissions):
+                with self.assertRaises(AssertionError):
+                    assert_production_manifest({**valid, "optional_host_permissions": permissions})
 
     def test_just_built_content_script_executes_as_classic_and_marks_active(self):
         harness = r'''

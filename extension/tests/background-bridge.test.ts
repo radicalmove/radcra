@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Window } from "happy-dom";
 
-import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListPageCommentsBridge, handleResolveCourseBridge, normalizeErrorMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validateCreateCommentMessage, validateCreateEmbeddedCommentMessage, validateDeleteCommentMessage, validateListPageCommentsMessage, validatePageCommentsResponse, validateResolveCourseMessage, validateUploadScreenshotMessage, validateViewerResponse } from "../src/background-bridge.ts";
+import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListPageCommentsBridge, handleRegisterCourseBridge, handleResolveCourseBridge, normalizeErrorMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validateCreateCommentMessage, validateCreateEmbeddedCommentMessage, validateDeleteCommentMessage, validateListPageCommentsMessage, validatePageCommentsResponse, validateRegisterCourseMessage, validateResolveCourseMessage, validateUploadScreenshotMessage, validateViewerResponse } from "../src/background-bridge.ts";
 import type { EmbeddedAnchorClaim } from "../src/embedded-anchor-capabilities.ts";
+import { embeddedPageIdentity } from "../src/scorm-worker.ts";
 
 const capabilityUuid = (n: number) => `123e4567-e89b-42d3-a456-${String(n).padStart(12, "0")}`;
 
@@ -25,7 +27,9 @@ test("embedded create requires this extension frame zero on Moodle and uses clai
     tabId: 7, courseId: capabilityUuid(90), frameId: 12, workerInstanceId: capabilityUuid(91), generation: 3,
     pageUrl: "https://rise.example/lesson/index.html#/one", pageTitle: "One",
     parentActivityUrl: "https://my.uconline.ac.nz/mod/scorm/player.php?a=9", courseUrl: "https://my.uconline.ac.nz/course/view.php?id=896", embeddedLocator: "#/one",
-    anchor: { anchor_type: "visual_pin", css_selector: "#card", relative_x: 0.2, relative_y: 0.8 }, createdAt: 1, expiresAt: 999,
+    anchor: { anchor_type: "visual_pin", css_selector: "#card", relative_x: 0.2, relative_y: 0.8 },
+    interactionContext: { version: 1, kind: "tabs", container: { block_id: "tabs-1", ordinal: 1, fingerprint: "Constitution types" }, item: { ordinal: 2, count: 2, label: "Unwritten", control_key: "unwritten" } },
+    createdAt: 1, expiresAt: 999,
   };
   const message = { type: "CREATE_EMBEDDED_COMMENT", capability: "a".repeat(64), body: "Please revise", category: "general", screenshot_requested: true };
   let created: unknown;
@@ -39,8 +43,40 @@ test("embedded create requires this extension frame zero on Moodle and uses clai
   assert.deepEqual(created, { payload: {
     course_id: claim.courseId, page_url: claim.pageUrl, page_title: claim.pageTitle,
     parent_activity_url: claim.parentActivityUrl, embedded_locator: claim.embeddedLocator,
-    body: "Please revise", category: "general", ...claim.anchor,
+    body: "Please revise", category: "general", ...claim.anchor, interaction_context: claim.interactionContext,
   }, screenshot: true });
+});
+
+test("Connected Package launcher tokens never cross the embedded comment API boundary", async () => {
+  const launcherUrl = "https://packages.articulateusercontent.com/content/example/boot.html#token=synthetic-secret";
+  const window = new Window({ url: launcherUrl });
+  window.document.title = "Connected lesson";
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+  const claim: EmbeddedAnchorClaim = {
+    tabId: 7, courseId: capabilityUuid(90), frameId: 12, workerInstanceId: capabilityUuid(91), generation: 3,
+    pageUrl: identity.pageUrl, pageTitle: identity.pageTitle,
+    parentActivityUrl: "https://my.uconline.ac.nz/mod/scorm/player.php?a=9", courseUrl: "https://my.uconline.ac.nz/course/view.php?id=896", embeddedLocator: identity.embeddedLocator,
+    anchor: { anchor_type: "visual_pin", css_selector: "#card", relative_x: 0.2, relative_y: 0.8 }, interactionContext: null,
+    createdAt: 1, expiresAt: 999,
+  };
+  const message = { type: "CREATE_EMBEDDED_COMMENT", capability: "a".repeat(64), body: "Please revise", category: "general" };
+  let created: unknown;
+
+  await handleCreateEmbeddedCommentBridge(
+    message,
+    { id: "ours", frameId: 0, url: claim.parentActivityUrl, tab: { id: 7 } },
+    {
+      extensionId: "ours", authorizeMoodle: async () => true, expectedCourseId: () => claim.courseId,
+      claim: async () => claim, current: () => true, restore: async () => undefined,
+      create: async (payload: unknown) => { created = payload; return { id: capabilityUuid(8) }; },
+    },
+  );
+
+  assert.equal((created as { embedded_locator: string }).embedded_locator, "/content/example/boot.html");
+  assert.doesNotMatch(JSON.stringify(created), /token|synthetic-secret/i);
 });
 
 test("stale election consumes the claim permanently instead of restoring it", async () => {
@@ -48,7 +84,7 @@ test("stale election consumes the claim permanently instead of restoring it", as
     tabId: 7, courseId: capabilityUuid(90), frameId: 12, workerInstanceId: capabilityUuid(91), generation: 3,
     pageUrl: "https://rise.example/index.html#/one", pageTitle: "One", parentActivityUrl: "https://my.uconline.ac.nz/mod/scorm/player.php?a=9",
     courseUrl: "https://my.uconline.ac.nz/course/view.php?id=896", embeddedLocator: "#/one",
-    anchor: { anchor_type: "text_highlight", selected_quote: "words", prefix: "", suffix: "" }, createdAt: 1, expiresAt: 999,
+    anchor: { anchor_type: "text_highlight", selected_quote: "words", prefix: "", suffix: "" }, interactionContext: null, createdAt: 1, expiresAt: 999,
   };
   const message = { type: "CREATE_EMBEDDED_COMMENT", capability: "a".repeat(64), body: "Fix", category: "general" };
   let available: EmbeddedAnchorClaim | undefined = claim; let restores = 0; let creates = 0;
@@ -64,7 +100,7 @@ test("parent-context mismatch consumes the claim permanently", async () => {
     tabId: 7, courseId: capabilityUuid(90), frameId: 12, workerInstanceId: capabilityUuid(91), generation: 3,
     pageUrl: "https://rise.example/index.html#/one", pageTitle: "One", parentActivityUrl: "https://my.uconline.ac.nz/mod/scorm/player.php?a=9",
     courseUrl: "https://my.uconline.ac.nz/course/view.php?id=896", embeddedLocator: "#/one",
-    anchor: { anchor_type: "visual_pin", css_selector: "#card", relative_x: 0.2, relative_y: 0.5 }, createdAt: 1, expiresAt: 999,
+    anchor: { anchor_type: "visual_pin", css_selector: "#card", relative_x: 0.2, relative_y: 0.5 }, interactionContext: null, createdAt: 1, expiresAt: 999,
   };
   let available: EmbeddedAnchorClaim | undefined = claim; let restores = 0;
   const dependencies = { extensionId: "ours", authorizeMoodle: async () => true, expectedCourseId: () => claim.courseId, claim: async () => { const value = available; available = undefined; return value; }, current: () => true, restore: async () => { restores += 1; available = claim; }, create: async () => ({}) };
@@ -79,7 +115,7 @@ test("only an API create failure restores the claim for one successful retry", a
     tabId: 7, courseId: capabilityUuid(90), frameId: 12, workerInstanceId: capabilityUuid(91), generation: 3,
     pageUrl: "https://rise.example/index.html#/one", pageTitle: "One", parentActivityUrl: "https://my.uconline.ac.nz/mod/scorm/player.php?a=9",
     courseUrl: "https://my.uconline.ac.nz/course/view.php?id=896", embeddedLocator: "#/one",
-    anchor: { anchor_type: "text_highlight", selected_quote: "words", prefix: "", suffix: "" }, createdAt: 1, expiresAt: 999,
+    anchor: { anchor_type: "text_highlight", selected_quote: "words", prefix: "", suffix: "" }, interactionContext: null, createdAt: 1, expiresAt: 999,
   };
   let available: EmbeddedAnchorClaim | undefined = claim; let restores = 0; let attempts = 0;
   const dependencies = { extensionId: "ours", authorizeMoodle: async () => true, expectedCourseId: () => claim.courseId, claim: async () => { const value = available; available = undefined; return value; }, current: () => true, restore: async () => { restores += 1; available = claim; }, create: async () => { attempts += 1; if (attempts === 1) throw new Error("API down"); return { ok: true }; } };
@@ -142,6 +178,23 @@ test("bridge rejects a payload whose course origin differs from the authorized s
   ), /origin/);
   assert.equal(authorizations, 0);
   assert.equal(resolutions, 0);
+});
+
+test("REGISTER_COURSE uses the exact trusted top-frame Moodle envelope and never calls API on rejection", async () => {
+  const payload = { course_url: "https://learn.example/course/view.php?id=7", title: "Law", moodle_course_id: 7 };
+  assert.deepEqual(validateRegisterCourseMessage({ type: "REGISTER_COURSE", payload }), payload);
+  for (const message of [
+    { type: "REGISTER_COURSE", payload: { ...payload, extra: true } },
+    { type: "REGISTER_COURSE", payload: { ...payload, moodle_course_id: "7" } },
+  ]) assert.throws(() => validateRegisterCourseMessage(message), /Invalid REGISTER_COURSE/);
+
+  let registrations = 0;
+  const dependencies = { authorize: async () => true, register: async () => { registrations += 1; return { id: "course-1" }; } };
+  assert.deepEqual(await handleRegisterCourseBridge({ type: "REGISTER_COURSE", payload }, { id: "ours", frameId: 0, url: payload.course_url }, dependencies), { id: "course-1" });
+  await assert.rejects(() => handleRegisterCourseBridge({ type: "REGISTER_COURSE", payload }, { id: "ours", frameId: 1, url: payload.course_url }, dependencies), /frame zero/);
+  await assert.rejects(() => handleRegisterCourseBridge({ type: "REGISTER_COURSE", payload }, { id: "ours", frameId: 0, url: "https://evil.example/course" }, dependencies), /origin/);
+  await assert.rejects(() => handleRegisterCourseBridge({ type: "REGISTER_COURSE", payload }, { id: "external", frameId: 0, url: payload.course_url }, { authorize: async () => false, register: dependencies.register }), /Unauthorized/);
+  assert.equal(registrations, 1);
 });
 
 test("unknown rejection values have safe useful response messages", () => {
@@ -247,7 +300,7 @@ test("LIST_PAGE_COMMENTS derives course from cache and validates API data", asyn
   const result = await handleListPageCommentsBridge({ type: "LIST_PAGE_COMMENTS", page_url: pageUrl }, { id: "ours", url: pageUrl }, {
     authorize: async () => true,
     courseId: () => "00000000-0000-4000-8000-000000000090",
-    list: async (courseId, requestedPage) => { requested = { courseId, pageUrl: requestedPage }; return [{ id: "00000000-0000-4000-8000-000000000001", body: "Feedback", category: "general", status: "open", author: { display_name: "beta@example.test", role: "beta_tester" }, page_url: requestedPage, page_title: "Topic", parent_activity_url: null, embedded_locator: null, anchor_type: "visual_pin", selected_quote: null, prefix: null, suffix: null, css_selector: "#main", dom_selector: null, relative_x: 0.2, relative_y: 0.8, replies: [], status_history: [], capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: true } }]; },
+    list: async (courseId, requestedPage) => { requested = { courseId, pageUrl: requestedPage }; return [{ id: "00000000-0000-4000-8000-000000000001", body: "Feedback", category: "general", status: "open", author: { display_name: "beta@example.test", role: "beta_tester" }, page_url: requestedPage, page_title: "Topic", parent_activity_url: null, embedded_locator: null, interaction_context: null, anchor_type: "visual_pin", selected_quote: null, prefix: null, suffix: null, css_selector: "#main", dom_selector: null, relative_x: 0.2, relative_y: 0.8, replies: [], status_history: [], capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: true } }]; },
   });
   assert.deepEqual(requested, { courseId: "00000000-0000-4000-8000-000000000090", pageUrl });
   assert.equal(result.length, 1);
@@ -256,8 +309,10 @@ test("LIST_PAGE_COMMENTS derives course from cache and validates API data", asyn
 
 test("page comment response rejects extra fields and wrong pages", () => {
   const pageUrl = "https://example.test/page";
-  const base = { id: "00000000-0000-4000-8000-000000000001", body: "Feedback", category: "general", status: "open", author: { display_name: "beta@example.test", role: "beta_tester" }, page_url: pageUrl, page_title: "Page", parent_activity_url: null, embedded_locator: null, anchor_type: "text_highlight", selected_quote: "words", prefix: "before", suffix: "after", css_selector: null, dom_selector: null, relative_x: null, relative_y: null, replies: [], status_history: [], capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: true } };
+  const base = { id: "00000000-0000-4000-8000-000000000001", body: "Feedback", category: "general", status: "open", author: { display_name: "beta@example.test", role: "beta_tester" }, page_url: pageUrl, page_title: "Page", parent_activity_url: null, embedded_locator: null, interaction_context: null, anchor_type: "text_highlight", selected_quote: "words", prefix: "before", suffix: "after", css_selector: null, dom_selector: null, relative_x: null, relative_y: null, replies: [], status_history: [], capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: true } };
   assert.equal(validatePageCommentsResponse([base], pageUrl).length, 1);
+  const { interaction_context: _missingOnOldServer, ...legacy } = base;
+  assert.deepEqual(validatePageCommentsResponse([legacy], pageUrl)[0]?.interaction_context, null);
   assert.throws(() => validatePageCommentsResponse([{ ...base, secret: true }], pageUrl), /Invalid page comments response/);
   assert.throws(() => validatePageCommentsResponse([{ ...base, page_url: "https://example.test/other" }], pageUrl), /Invalid page comments response/);
   assert.throws(() => validatePageCommentsResponse([{ ...base, parent_activity_url: undefined }], pageUrl), /Invalid page comments response/);

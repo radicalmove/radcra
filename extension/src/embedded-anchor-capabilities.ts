@@ -1,3 +1,5 @@
+import { validateRiseInteractionContext, type RiseInteractionContext } from "./rise-interaction-context.ts";
+
 export type EmbeddedAnchor =
   | { anchor_type: "text_highlight"; selected_quote: string; prefix: string; suffix: string }
   | { anchor_type: "visual_pin"; css_selector: string; relative_x: number; relative_y: number };
@@ -14,6 +16,7 @@ export type EmbeddedAnchorBinding = {
   courseUrl: string;
   embeddedLocator: string;
   anchor: EmbeddedAnchor;
+  interactionContext: RiseInteractionContext | null;
 };
 
 export type EmbeddedAnchorClaim = EmbeddedAnchorBinding & { createdAt: number; expiresAt: number };
@@ -47,6 +50,7 @@ function validateBinding(value: EmbeddedAnchorBinding): void {
   if (!value.pageTitle.trim() || value.pageTitle !== value.pageTitle.trim() || value.pageTitle.length > 512
     || value.embeddedLocator.length > 2048 || /[\u0000-\u001f\u007f]/.test(value.embeddedLocator)) throw new Error("Invalid embedded page identity");
   const anchor = value.anchor;
+  if (value.interactionContext !== null && !validateRiseInteractionContext(value.interactionContext)) throw new Error("Invalid embedded interaction context");
   if (anchor.anchor_type === "text_highlight") {
     if (!anchor.selected_quote.trim() || anchor.selected_quote.length > 20_000 || anchor.prefix.length > 2_000 || anchor.suffix.length > 2_000) throw new Error("Invalid embedded text anchor");
   } else if (anchor.anchor_type === "visual_pin") {
@@ -62,7 +66,34 @@ function canonicalAnchor(anchor: EmbeddedAnchor): string {
     : JSON.stringify([anchor.anchor_type, anchor.css_selector, anchor.relative_x, anchor.relative_y]);
 }
 
+function canonicalInteractionContext(context: RiseInteractionContext): string {
+  return JSON.stringify([
+    context.version,
+    context.kind,
+    [
+      context.container.block_id,
+      context.container.ordinal,
+      context.container.fingerprint,
+    ],
+    [
+      context.item.ordinal,
+      context.item.count,
+      context.item.label,
+      context.item.control_key,
+    ],
+  ]);
+}
+
 function canonicalBinding(binding: EmbeddedAnchorBinding): string {
+  return JSON.stringify([
+    binding.tabId, binding.courseId, binding.frameId, binding.workerInstanceId, binding.generation,
+    binding.pageUrl, binding.pageTitle, binding.parentActivityUrl, binding.courseUrl, binding.embeddedLocator,
+    canonicalAnchor(binding.anchor),
+    binding.interactionContext === null ? null : canonicalInteractionContext(binding.interactionContext),
+  ]);
+}
+
+function canonicalLegacyBinding(binding: EmbeddedAnchorBinding): string {
   return JSON.stringify([
     binding.tabId, binding.courseId, binding.frameId, binding.workerInstanceId, binding.generation,
     binding.pageUrl, binding.pageTitle, binding.parentActivityUrl, binding.courseUrl, binding.embeddedLocator,
@@ -85,7 +116,8 @@ function secureToken(): string {
 function validStoredClaim(value: unknown, now: number): value is StoredClaim {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const claim = value as StoredClaim;
-  try { validateBinding(claim); } catch { return false; }
+  const hasInteractionContext = Object.prototype.hasOwnProperty.call(claim, "interactionContext");
+  try { validateBinding(hasInteractionContext ? claim : { ...claim, interactionContext: null }); } catch { return false; }
   return Number.isFinite(claim.createdAt) && Number.isFinite(claim.expiresAt) && claim.expiresAt > now
     && typeof claim.anchorDigest === "string" && /^[0-9a-f]{64}$/.test(claim.anchorDigest);
 }
@@ -157,11 +189,12 @@ export class EmbeddedAnchorCapabilities {
     if (!TOKEN.test(token)) return Promise.resolve(undefined);
     return this.mutate(async (records) => {
       const claim = records[token];
+      const legacy = claim && !Object.prototype.hasOwnProperty.call(claim, "interactionContext");
       if (!claim || claim.tabId !== expected.tabId || claim.courseId !== expected.courseId
-        || claim.anchorDigest !== await sha256(canonicalBinding(claim))) return undefined;
+        || claim.anchorDigest !== await sha256(legacy ? canonicalLegacyBinding(claim) : canonicalBinding(claim))) return undefined;
       delete records[token];
       const { anchorDigest: _digest, ...result } = claim;
-      return result;
+      return { ...result, interactionContext: legacy ? null : result.interactionContext };
     });
   }
 
@@ -194,11 +227,11 @@ export async function issueEmbeddedAnchorFromWorker(
   let senderUrl: URL;
   try { senderUrl = new URL(sender.url ?? ""); } catch { throw new Error("Anchor page origin mismatch"); }
   if (senderUrl.origin !== new URL(event.page_url).origin) throw new Error("Anchor page origin mismatch");
-  const { page_title, embedded_locator, anchor_type, ...anchorFields } = event.payload;
+  const { page_title, embedded_locator, interaction_context, anchor_type, ...anchorFields } = event.payload;
   const anchor = { anchor_type, ...anchorFields } as EmbeddedAnchor;
   return dependencies.capabilities.issue({
     tabId: sender.tab.id, courseId: event.course_id, frameId: sender.frameId, workerInstanceId: event.worker_instance_id,
     generation: event.generation, pageUrl: event.page_url, pageTitle: page_title,
-    parentActivityUrl: context.parent_activity_url, courseUrl: context.course_url, embeddedLocator: embedded_locator, anchor,
+    parentActivityUrl: context.parent_activity_url, courseUrl: context.course_url, embeddedLocator: embedded_locator, anchor, interactionContext: interaction_context,
   });
 }

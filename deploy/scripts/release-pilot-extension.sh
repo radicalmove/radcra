@@ -2,7 +2,7 @@
 set -euo pipefail
 
 : "${PRIVATE_KEY_PATH:?Set PRIVATE_KEY_PATH to an RSA private key outside the repository}"
-: "${REVIEW_SERVICE_ORIGIN:?Set REVIEW_SERVICE_ORIGIN=https://host.tailnet.ts.net}"
+: "${REVIEW_SERVICE_ORIGIN:?Set REVIEW_SERVICE_ORIGIN=https://public-review-host}"
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 OPTIONAL_PATTERN_FILE="$ROOT/deploy/config/pilot-optional-frame-patterns.txt"
@@ -42,10 +42,11 @@ done
 
 (cd "$ROOT" && python3 - <<'PY'
 import json
+import os
 from pathlib import Path
 from tests.test_deployment_package import assert_classic_self_contained_script, assert_production_manifest
 dist = Path("extension/dist")
-assert_production_manifest(json.loads((dist / "manifest.json").read_text()))
+assert_production_manifest(json.loads((dist / "manifest.json").read_text()), os.environ["REVIEW_SERVICE_ORIGIN"])
 assert_classic_self_contained_script((dist / "content.js").read_text())
 print("Fresh production manifest hosts and classic content.js verified")
 PY

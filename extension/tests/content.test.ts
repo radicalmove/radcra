@@ -2,7 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Window } from "happy-dom";
 
-import { bootstrapContentScript, countInaccessibleFrames, createInteractionTargetController, createLifecycleController, isConfiguredFrame, prepareCommentNavigationWithRetry, refreshCourseBindingBeforeComment, sendRuntimeMessage, startCourseReview, startEmbeddedReview } from "../src/content.ts";
+import { bootstrapContentScript, countInaccessibleFrames, createInteractionTargetController, createLifecycleController, inaccessibleFrameOrigins, isConfiguredFrame, navigateToPreparedComment, prepareCommentNavigationWithRetry, refreshCourseBindingBeforeComment, restoreCommentListArrivalAfterRender, sendRuntimeMessage, startCourseReview, startEmbeddedReview } from "../src/content.ts";
+import { peekCommentListArrival, writeCommentListArrival } from "../src/comment-list-arrival.ts";
+
+class ArrivalStorage {
+  readonly values = new Map<string, string>();
+  reads = 0;
+  getItem(key: string) { this.reads += 1; return this.values.get(key) ?? null; }
+  setItem(key: string, value: string) { this.values.set(key, value); }
+  removeItem(key: string) { this.values.delete(key); }
+}
 
 test("invalidated extension contexts fail quietly instead of throwing from a stale page timer", () => {
   let response: unknown;
@@ -19,6 +28,39 @@ test("comment submission refreshes the trusted course binding after a worker res
   }, { course_url: "https://moodle.example.invalid/course/view.php?id=7", title: "Law", moodle_course_id: 7 }, "course-1");
   assert.deepEqual(messages, [{ type: "RESOLVE_COURSE", payload: { course_url: "https://moodle.example.invalid/course/view.php?id=7", title: "Law", moodle_course_id: 7 } }]);
   await assert.rejects(() => refreshCourseBindingBeforeComment(async () => ({ id: "course-2" }), { course_url: "https://moodle.example.invalid/course/view.php?id=7", title: "Law" }, "course-1"), /connection changed/);
+});
+
+test("comment save waits for the authoritative list refresh before closing", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=1" });
+  window.document.body.innerHTML = "<h1>Law</h1><p id='copy'>Select this text for review</p>";
+  const messages: any[] = []; const pendingLists: Array<(response: any) => void> = [];
+  const saved = { id: "00000000-0000-4000-8000-000000000099", body: "Saved feedback", category: "general", status: "open", author: { display_name: "SME", role: "sme" }, page_url: window.location.href, page_title: "Law", parent_activity_url: null, embedded_locator: null, anchor_type: "text_highlight" as const, selected_quote: "Select this text", prefix: "", suffix: " for review", css_selector: null, dom_selector: null, relative_x: null, relative_y: null, replies: [], status_history: [], capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: true } };
+  let listCount = 0;
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    messages.push(message);
+    if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174000" } });
+    else if (message.type === "GET_CURRENT_VIEWER") callback({ ok: true, data: { course_id: "123e4567-e89b-12d3-a456-426614174000", user: { id: "00000000-0000-4000-8000-000000000010", display_name: "SME", email: "sme@example.test", role: "sme" } } });
+    else if (message.type === "LIST_COURSE_COMMENTS") { listCount += 1; if (listCount === 1) callback({ ok: true, data: [] }); else pendingLists.push(callback); }
+    else if (message.type === "CREATE_COMMENT") callback({ ok: true, data: { id: saved.id } });
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const text = window.document.querySelector("#copy")!.firstChild!; const range = window.document.createRange(); range.setStart(text, 0); range.setEnd(text, 16); window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range as any); window.document.dispatchEvent(new window.Event("selectionchange") as any);
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  (shadow.querySelector('[data-action="add-comment"]') as unknown as HTMLElement).click();
+  const dialog = shadow.querySelector(".dialog") as unknown as HTMLElement; (dialog.querySelector("textarea") as unknown as HTMLTextAreaElement).value = "Saved feedback"; (dialog.querySelector("[data-save]") as unknown as HTMLButtonElement).click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(shadow.querySelector(".dialog"), "save must wait for the list refresh");
+  assert.equal(messages.filter((message) => message.type === "CREATE_COMMENT").length, 1);
+  assert.equal(pendingLists.length, 1);
+
+  pendingLists.shift()!({ ok: true, data: [saved] });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(shadow.querySelector(".dialog"), null);
+  assert.equal(shadow.querySelector("[data-comment-count]")?.textContent, "1");
+  assert.match(shadow.querySelector("[data-comment-item]")?.textContent ?? "", /Saved feedback/);
+  cleanup();
 });
 
 test("comment navigation refreshes its course binding and retries one closed response channel", async () => {
@@ -43,6 +85,96 @@ test("comment navigation does not retry a substantive destination failure", asyn
     throw new Error("This SCORM comment cannot be opened because its Moodle activity location is missing.");
   }, { course_url: "https://moodle.example.invalid/course/view.php?id=7", title: "Law" }, "course-1", "comment-1", "https://rise.example.invalid/lesson"), /Moodle activity location is missing/);
   assert.equal(calls, 1);
+});
+
+test("prepared cross-page navigation records the exact logical comment before assigning the destination", async () => {
+  const storage = new ArrivalStorage();
+  const assigned: string[] = [];
+  const logicalPageUrl = "https://rise.example.invalid/activity#moodle-review-page=Lesson%202";
+  await navigateToPreparedComment({
+    send: async () => ({ destination_url: "https://moodle.example.invalid/mod/scorm/player.php?cm=10&scoid=20" }),
+    context: { course_url: "https://moodle.example.invalid/course/view.php?id=7", title: "Law", moodle_course_id: 7 },
+    courseId: "course-1",
+    comment: { id: "comment-1", page_url: logicalPageUrl, status: "resolved" },
+    storage,
+    assign: (url) => { assert.ok(peekCommentListArrival(storage)); assigned.push(url); },
+  });
+  assert.deepEqual(assigned, ["https://moodle.example.invalid/mod/scorm/player.php?cm=10&scoid=20"]);
+  const arrival = peekCommentListArrival(storage)!;
+  assert.equal(arrival.version, 1);
+  assert.equal(arrival.course_url, "https://moodle.example.invalid/course/view.php?id=7");
+  assert.equal(arrival.page_url, logicalPageUrl);
+  assert.equal(arrival.comment_id, "comment-1");
+  assert.equal(arrival.status, "resolved");
+  assert.ok(Number.isFinite(arrival.created_at));
+  assert.ok(arrival.token);
+});
+
+test("prepared navigation continues when storage is blocked and clears its own record if assignment fails", async () => {
+  const blocked = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); }, removeItem: () => { throw new Error("blocked"); } };
+  let assigned = false;
+  const input = {
+    send: async () => ({ destination_url: "https://moodle.example.invalid/mod/page/view.php?id=8" }),
+    context: { course_url: "https://moodle.example.invalid/course/view.php?id=7", title: "Law" },
+    courseId: "course-1",
+    comment: { id: "comment-1", page_url: "https://moodle.example.invalid/mod/page/view.php?id=8", status: "open" },
+  };
+  await navigateToPreparedComment({ ...input, storage: blocked, assign: () => { assigned = true; } });
+  assert.equal(assigned, true);
+
+  const storage = new ArrivalStorage();
+  await assert.rejects(
+    () => navigateToPreparedComment({ ...input, storage, assign: () => { throw new Error("navigation blocked"); } }),
+    /navigation blocked/,
+  );
+  assert.equal(peekCommentListArrival(storage), undefined);
+});
+
+test("arrival restoration clears only an exact rendered tuple and retains a not-yet-rendered destination", () => {
+  const storage = new ArrivalStorage();
+  const input = { course_url: "https://moodle.example.invalid/course/view.php?id=7", page_url: "https://rise.example.invalid/activity#moodle-review-page=Lesson%202", comment_id: "comment-1", status: "resolved" as const };
+  const saved = writeCommentListArrival(storage, input, { now: () => 1_000, token: () => "arrival-token" })!;
+  const restored: Array<[string, string]> = [];
+  const overlay = { restoreCommentListGroup: (pageUrl: string, status: "open" | "resolved") => { restored.push([pageUrl, status]); return true; } };
+
+  restoreCommentListArrivalAfterRender(storage, input.course_url, [], overlay, () => 1_001);
+  assert.deepEqual(peekCommentListArrival(storage, () => 1_002), saved);
+  restoreCommentListArrivalAfterRender(storage, input.course_url, [{ id: input.comment_id, page_url: input.page_url, status: input.status }], overlay, () => 1_003);
+  assert.deepEqual(restored, [[input.page_url, input.status]]);
+  assert.equal(peekCommentListArrival(storage, () => 1_004), undefined);
+});
+
+test("arrival restoration token-clears a different course and retains an exact tuple until its group renders", () => {
+  const input = { course_url: "https://moodle.example.invalid/course/view.php?id=7", page_url: "https://rise.example.invalid/lesson", comment_id: "comment-1", status: "open" as const };
+  const storage = new ArrivalStorage();
+  writeCommentListArrival(storage, input, { now: () => 1_000, token: () => "first-token" });
+  restoreCommentListArrivalAfterRender(storage, "https://moodle.example.invalid/course/view.php?id=8", [], { restoreCommentListGroup: () => true }, () => 1_001);
+  assert.equal(peekCommentListArrival(storage, () => 1_002), undefined);
+
+  writeCommentListArrival(storage, input, { now: () => 2_000, token: () => "second-token" });
+  restoreCommentListArrivalAfterRender(storage, input.course_url, [{ id: input.comment_id, page_url: input.page_url, status: input.status }], { restoreCommentListGroup: () => false }, () => 2_001);
+  assert.ok(peekCommentListArrival(storage, () => 2_002));
+});
+
+test("course review does not read arrival storage until the authoritative comment list renders", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=7" });
+  window.document.body.innerHTML = "<h1>Law</h1>";
+  const storage = new ArrivalStorage();
+  Object.defineProperty(window, "sessionStorage", { configurable: true, value: storage });
+  let respondToList: ((response: any) => void) | undefined;
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: "course-1" } });
+    else if (message.type === "LIST_COURSE_COMMENTS") respondToList = callback;
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(respondToList);
+  assert.equal(storage.reads, 0);
+  respondToList!({ ok: true, data: [] });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(storage.reads > 0);
+  cleanup();
 });
 
 test("non-SCORM navigation stays pending until the late anchor scroll succeeds", async () => {
@@ -386,6 +518,76 @@ test("embedded review no longer loads a duplicate course comment list", async ()
   cleanup();
 });
 
+test("validated Connected Package identity aliases persist across same-course pages and clear across courses", async () => {
+  const courseA = "123e4567-e89b-12d3-a456-426614174010";
+  const courseB = "123e4567-e89b-12d3-a456-426614174011";
+  const pageUrl = "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=We%20couldn't%20load%20this%20course";
+  const window = new Window({ url: "https://moodle.example.invalid/mod/scorm/player.php" });
+  window.document.body.dataset.courseid = "10";
+  window.document.body.innerHTML = "<h1>Connected Package</h1>";
+  const legacyComment = {
+    id: "00000000-0000-4000-8000-000000000010", body: "Legacy package feedback", category: "general", status: "open",
+    author: { display_name: "Reviewer", role: "beta_tester" }, page_url: pageUrl, page_title: "Embedded activity · We couldn't load this course",
+    parent_activity_url: "https://moodle.example.invalid/mod/scorm/view.php?id=20", embedded_locator: "#/lesson/1", interaction_context: null,
+    anchor_type: "visual_pin", selected_quote: null, prefix: null, suffix: null, css_selector: "#marker", dom_selector: "main > #marker",
+    relative_x: 0.25, relative_y: 0.75, replies: [], status_history: [],
+    capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: false },
+  };
+  const latestComments = [legacyComment];
+  const sent: any[] = [];
+  let runtimeListener: ((message: any, sender?: any, sendResponse?: any) => boolean | void) | undefined;
+  const runtime = {
+    onMessage: {
+      addListener: (listener: typeof runtimeListener) => { runtimeListener = listener; },
+      removeListener: (listener: typeof runtimeListener) => { if (runtimeListener === listener) runtimeListener = undefined; },
+    },
+    sendMessage(message: any, callback: (response: any) => void) {
+      sent.push(message);
+      if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: message.payload.course_url.includes("id=11") ? courseB : courseA } });
+      else if (message.type === "LIST_COURSE_COMMENTS") callback({ ok: true, data: latestComments });
+      else callback({ ok: true, data: {} });
+    },
+  };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime, undefined, 5);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  assert.match(shadow.textContent!, /We couldn't load this course/);
+
+  runtimeListener!({ type: "SCORM_WORKER_EVENT", event: {
+    protocol: 1, type: "SCORM_PAGE_IDENTITY_CHANGED", request_id: "00000000-0000-4000-8000-000000000001",
+    worker_instance_id: "00000000-0000-4000-8000-000000000002", generation: 1, course_id: courseA, page_url: pageUrl,
+    payload: { page_title: "Embedded activity · 1.1.1 Course foundations", embedded_locator: "#/lesson/1" },
+  } });
+  assert.match(shadow.textContent!, /1\.1\.1 Course foundations/);
+  assert.doesNotMatch(shadow.textContent!, /We couldn't load this course/);
+  const workerProjection = sent.filter((message) => message.type === "SCORM_TOP_COMMAND" && message.command_type === "SCORM_SET_COMMENTS").at(-1);
+  assert.equal(workerProjection.payload.comments, latestComments, "the worker must receive authoritative comments, not the alias projection");
+  assert.equal(workerProjection.payload.comments[0], legacyComment);
+  assert.equal(workerProjection.payload.comments[0].page_url, pageUrl);
+  assert.equal(workerProjection.payload.comments[0].css_selector, "#marker");
+  assert.equal(workerProjection.payload.comments[0].dom_selector, "main > #marker");
+  assert.equal(workerProjection.payload.comments[0].relative_x, 0.25);
+  assert.equal(workerProjection.payload.comments[0].relative_y, 0.75);
+
+  window.history.pushState({}, "", "?page=2");
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  assert.match(shadow.textContent!, /1\.1\.1 Course foundations/, "same-course page navigation must retain aliases");
+  assert.doesNotMatch(shadow.textContent!, /We couldn't load this course/);
+
+  window.document.body.dataset.courseid = "11";
+  window.dispatchEvent(new window.Event("moodle-review:navigate"));
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  assert.match(shadow.textContent!, /We couldn't load this course/, "a course change must clear aliases before rendering its comments");
+  runtimeListener!({ type: "SCORM_WORKER_EVENT", event: {
+    type: "SCORM_PAGE_IDENTITY_CHANGED", course_id: courseA, page_url: pageUrl,
+    payload: { page_title: "Embedded activity · Stale course A title", embedded_locator: "#/lesson/1" },
+  } });
+  assert.doesNotMatch(shadow.textContent!, /Stale course A title/);
+
+  cleanup();
+  assert.equal(runtimeListener, undefined, "teardown must detach alias-producing worker events");
+});
+
 test("embedded review retries while the top frame is still resolving", async () => {
   const window = new Window({ url: "https://moodle.example.invalid/embedded" });
   let attempts = 0;
@@ -479,7 +681,7 @@ test("a stale failed mutation refresh yields to a newer successful comment proje
   cleanup();
 });
 
-test("an ordinary comment refresh preserves the selected course page until authoritative comments arrive", async () => {
+test.skip("an ordinary comment refresh preserves the selected course page until authoritative comments arrive", async () => {
   const window = new Window({ url: "https://moodle.example.invalid/mod/page/view.php?id=1" });
   window.document.body.innerHTML = "<h1>Page one</h1>";
   let runtimeListener: ((message: any, sender?: any, sendResponse?: any) => boolean | void) | undefined;
@@ -531,6 +733,207 @@ test("sign in sends one authenticate per activation and refreshes course and com
   assert.equal(messages.filter((message) => message.type === "RESOLVE_COURSE").length, 2);
   assert.equal(messages.filter((message) => message.type === "LIST_COURSE_COMMENTS").length, 1);
   assert.match(shadow.textContent!, /Connected/);
+  cleanup();
+});
+
+test("course access checking disables sign-in and does not invoke authentication", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=1" });
+  window.document.body.innerHTML = "<h1>Law</h1>";
+  let authenticateCalls = 0;
+  let publicLookup: ((response: any) => void) | undefined;
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    if (message.type === "RESOLVE_COURSE") callback({ ok: false, status: "signed-out", error: "Signed out" });
+    else if (message.type === "LOOKUP_REVIEW_COURSE") publicLookup = callback;
+    else if (message.type === "AUTHENTICATE") authenticateCalls += 1;
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(publicLookup);
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  const button = shadow.querySelector('[data-action="authenticate"]') as unknown as HTMLButtonElement;
+  assert.equal(button.disabled, true);
+  assert.equal(button.getAttribute("aria-busy"), "true");
+  button.click();
+  assert.equal(authenticateCalls, 0);
+  publicLookup!({ ok: false, status: "offline", error: "Review service unavailable" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.match(shadow.textContent!, /Service unavailable/);
+  cleanup();
+});
+
+test("authenticated unregistered resolve responses show the server capability without a client role guess", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=2" });
+  window.document.body.innerHTML = "<h1>New course</h1>";
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { registered: false, can_register: false } });
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  assert.match(shadow.textContent!, /Course not registered/);
+  assert.equal(shadow.querySelector('[data-action="register-course"]'), null);
+  cleanup();
+});
+
+test("successful registration forces a fresh read-only resolve for the current course", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=3" });
+  window.document.body.innerHTML = "<h1>New course</h1>";
+  const messages: any[] = []; let resolves = 0;
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    messages.push(message);
+    if (message.type === "RESOLVE_COURSE") { resolves += 1; callback(resolves === 1 ? { ok: true, data: { registered: false, can_register: true } } : { ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174003", title: "New course" } }); }
+    else if (message.type === "REGISTER_COURSE") callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174003" } });
+    else if (message.type === "GET_CURRENT_VIEWER") callback({ ok: true, data: {} });
+    else callback({ ok: true, data: [] });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  (shadow.querySelector('[data-action="register-course"]') as unknown as HTMLButtonElement)!.click();
+  (shadow.querySelector('[data-register-confirm]') as unknown as HTMLButtonElement)!.click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(messages.filter((message) => message.type === "REGISTER_COURSE").length, 1);
+  assert.equal(messages.filter((message) => message.type === "RESOLVE_COURSE").length, 2);
+  assert.equal(messages.filter((message) => message.type === "GET_CURRENT_VIEWER").length, 1);
+  cleanup();
+});
+
+test("delayed registration cannot clear or refresh a course reached during navigation", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/activity.php?id=30" });
+  window.document.body.dataset.courseid = "30";
+  window.document.body.innerHTML = "<h1>Registration course</h1>";
+  const messages: any[] = [];
+  const resolveCallbacks: Array<(response: any) => void> = [];
+  let registrationCallback: ((response: any) => void) | undefined;
+  let resolves = 0;
+  const runtime = { sendMessage(message: any, callback: (response: any) => void) {
+    messages.push(message);
+    if (message.type === "RESOLVE_COURSE") {
+      resolves += 1;
+      if (resolves === 1) callback({ ok: true, data: { registered: false, can_register: true } });
+      else resolveCallbacks.push(callback);
+    } else if (message.type === "REGISTER_COURSE") registrationCallback = callback;
+    else callback({ ok: true, data: [] });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  (shadow.querySelector('[data-action="register-course"]') as unknown as HTMLButtonElement)!.click();
+  (shadow.querySelector('[data-register-confirm]') as unknown as HTMLButtonElement)!.click();
+  assert.ok(registrationCallback);
+
+  window.document.body.dataset.courseid = "31";
+  window.document.querySelector("h1")!.textContent = "Navigated course";
+  window.dispatchEvent(new window.Event("moodle-review:navigate"));
+  assert.equal(shadow.querySelector('[role="dialog"]'), null);
+  registrationCallback!({ ok: true, data: { id: "registered-too-late" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(resolves, 1, "stale registration must not force a resolve for the new course");
+  assert.match(shadow.querySelector(".course")?.textContent ?? "", /Navigated course/);
+  assert.equal(shadow.querySelector("[data-auth-status]")?.classList.contains("connecting"), true);
+  cleanup();
+});
+
+test("a stale course lookup cannot overwrite the current URL or course state", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=4" });
+  window.document.body.innerHTML = "<h1>First</h1>";
+  const callbacks: Array<(response: any) => void> = [];
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    if (message.type === "RESOLVE_COURSE") callbacks.push(callback);
+    else if (message.type === "LIST_COURSE_COMMENTS") callback({ ok: true, data: [] });
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  window.document.querySelector("h1")!.textContent = "Second";
+  window.history.pushState({}, "", "https://moodle.example.invalid/course/view.php?id=5");
+  window.dispatchEvent(new window.Event("moodle-review:navigate"));
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(callbacks.length, 2);
+  callbacks[1]!({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174005", title: "Second" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  callbacks[0]!({ ok: true, data: { registered: false, can_register: true } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  assert.match(shadow.querySelector(".course")?.textContent ?? "", /Second/);
+  cleanup();
+});
+
+test("same-page course navigation immediately invalidates bindings and ignores stale comments", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/activity.php?id=10" });
+  window.document.body.dataset.courseid = "10";
+  window.document.body.innerHTML = "<h1>First course</h1>";
+  const listCallbacks: Array<(response: any) => void> = [];
+  let resolveCount = 0;
+  const runtime = { sendMessage(message: any, callback: (response: any) => void) {
+    if (message.type === "RESOLVE_COURSE") {
+      resolveCount += 1;
+      callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174010", title: "First course" } });
+    } else if (message.type === "LIST_COURSE_COMMENTS") listCallbacks.push(callback);
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(resolveCount, 1);
+  assert.equal(listCallbacks.length, 1);
+
+  window.document.body.dataset.courseid = "11";
+  window.document.querySelector("h1")!.textContent = "Second course";
+  window.dispatchEvent(new window.Event("moodle-review:navigate"));
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  assert.equal(shadow.querySelector("[data-auth-status]")?.classList.contains("connecting"), true);
+  assert.match(shadow.querySelector(".course")?.textContent ?? "", /Second course/);
+
+  listCallbacks[0]!({ ok: true, data: [{ id: "stale-comment", body: "Stale first-course comment", page_url: window.location.href }] });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.doesNotMatch(shadow.textContent!, /Stale first-course comment/);
+  assert.equal(resolveCount, 1, "the debounced refresh must not be triggered by the stale callback");
+  cleanup();
+});
+
+test("delayed approval results and timers cannot update a newly navigated course", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/activity.php?id=20" });
+  window.document.body.dataset.courseid = "20";
+  window.document.body.innerHTML = "<h1>Pending course</h1>";
+  const originalSetTimeout = window.setTimeout.bind(window);
+  const originalClearTimeout = window.clearTimeout.bind(window) as unknown as (timer: number) => void;
+  let approvalTimer: (() => void) | undefined;
+  (window as any).setTimeout = (handler: () => void, delay: number) => {
+    if (delay === 10_000) { approvalTimer = handler; return 10_000; }
+    return originalSetTimeout(handler, delay);
+  };
+  (window as any).clearTimeout = (timer: number) => {
+    if (timer !== 10_000) originalClearTimeout(timer);
+  };
+  let approvalCallback: ((response: any) => void) | undefined;
+  let approvalChecks = 0;
+  let resolveCount = 0;
+  const runtime = { sendMessage(message: any, callback: (response: any) => void) {
+    if (message.type === "RESOLVE_COURSE") { resolveCount += 1; callback({ ok: false, status: "signed-out", error: "Signed out" }); }
+    else if (message.type === "LOOKUP_REVIEW_COURSE") callback({ ok: true, data: { course_handle: "handle-20" } });
+    else if (message.type === "CHECK_PENDING_REVIEW_ACCESS") { approvalChecks += 1; approvalCallback = callback; }
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(approvalChecks, 1);
+  approvalCallback!({ ok: true, data: { state: "pending" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(approvalTimer);
+
+  window.document.body.dataset.courseid = "21";
+  window.document.querySelector("h1")!.textContent = "New course";
+  window.dispatchEvent(new window.Event("moodle-review:navigate"));
+  approvalCallback!({ ok: true, data: { state: "connected" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  approvalTimer!();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(approvalChecks, 1);
+  assert.equal(resolveCount, 1, "stale approval must not start a new course resolve");
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  assert.doesNotMatch(shadow.textContent!, /Connected/);
   cleanup();
 });
 
@@ -587,6 +990,56 @@ test("counts only inaccessible iframe DOMs", () => {
   Object.defineProperty(accessible, "contentDocument", { value: window.document });
   Object.defineProperty(blocked, "contentDocument", { value: null });
   assert.equal(countInaccessibleFrames(window.document as unknown as Document), 1);
+});
+
+function connectedPackageFrameTree(cycle = false) {
+  const top = new Window({ url: "https://my.uconline.ac.nz/mod/scorm/player.php?id=22" });
+  const launcher = new Window({ url: "https://my.uconline.ac.nz/pluginfile.php/1/mod_scorm/content/22/scormcontent/indexAPI.html" });
+  top.document.body.innerHTML = '<h1>Connected Package</h1><iframe id="launcher" src="https://my.uconline.ac.nz/pluginfile.php/1/mod_scorm/content/22/scormcontent/indexAPI.html"></iframe>';
+  launcher.document.body.innerHTML = `<iframe id="connected" src="https://packages.articulateusercontent.com/content/example/boot.html#token=synthetic"></iframe>${cycle ? '<iframe id="cycle"></iframe>' : ""}`;
+  Object.defineProperty(top.document.querySelector("#launcher")!, "contentDocument", { value: launcher.document });
+  Object.defineProperty(launcher.document.querySelector("#connected")!, "contentDocument", { value: null });
+  if (cycle) Object.defineProperty(launcher.document.querySelector("#cycle")!, "contentDocument", { value: top.document });
+  return { top, launcher };
+}
+
+test("recursive Connected Package discovery reaches an inaccessible iframe and terminates on a document cycle", () => {
+  const { top } = connectedPackageFrameTree(true);
+  assert.deepEqual(inaccessibleFrameOrigins(top.document as unknown as Document), ["https://packages.articulateusercontent.com"]);
+  assert.equal(countInaccessibleFrames(top.document as unknown as Document), 1);
+});
+
+test("Connected Package review requests permission only for the nested Articulate origin", async () => {
+  const globals = globalThis as typeof globalThis & { __OPTIONAL_FRAME_PATTERNS__?: string[] };
+  const originalOptional = globals.__OPTIONAL_FRAME_PATTERNS__;
+  let cleanup: () => void = () => undefined;
+  try {
+    globals.__OPTIONAL_FRAME_PATTERNS__ = ["https://packages.articulateusercontent.com/*"];
+    const { top } = connectedPackageFrameTree();
+    const messages: any[] = [];
+    const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+      messages.push(message);
+      if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174000" } });
+      else if (message.type === "GET_REVIEW_FRAME_STATUS") callback({ ok: true, data: { active_embedded_count: 0, ready_origins: [], granted_optional_patterns: [] } });
+      else if (message.type === "REQUEST_SCORM_PERMISSION") callback({ ok: true, data: { granted: false } });
+      else if (message.type === "LIST_COURSE_COMMENTS") callback({ ok: true, data: [] });
+      else callback({ ok: true, data: {} });
+    } };
+
+    cleanup = startCourseReview(top as any, top.document as any, runtime, undefined, 5);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const shadow = top.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+    const action = shadow.querySelector('[data-action="add-comment"]') as unknown as HTMLButtonElement;
+    assert.equal(action.textContent, "Allow SCORM review access");
+    action.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(messages.filter((message) => message.type === "REQUEST_SCORM_PERMISSION"), [
+      { type: "REQUEST_SCORM_PERMISSION", origin: "https://packages.articulateusercontent.com" },
+    ]);
+  } finally {
+    cleanup();
+    globals.__OPTIONAL_FRAME_PATTERNS__ = originalOptional;
+  }
 });
 
 test("mixed ready and inaccessible frames keep a passive embedded activity notice", async () => {

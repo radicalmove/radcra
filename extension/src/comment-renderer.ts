@@ -8,6 +8,7 @@ export type UnresolvedAnchor = { id: string; label: string; quote?: string };
 
 export type CommentRenderer = {
   setComments(comments: PageComment[]): void;
+  setVisibleCommentIds?(commentIds: ReadonlySet<string> | null): void;
   setStatusFilter(filter: "open" | "resolved"): void;
   orderedCommentIds(): string[];
   takeToContext(commentId: string): boolean;
@@ -138,6 +139,7 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
   let applyComments: (next: PageComment[]) => void;
   let mutationDepth = 0;
   let statusFilter: "open" | "resolved" = "open";
+  let visibleCommentIds: ReadonlySet<string> | null = null;
   const repositioners = new Set<() => void>();
   let repositionFrame: number | undefined;
   let repositionListening = false;
@@ -155,20 +157,39 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
     }
     return undefined;
   };
-  const scrollCommentIntoView = (comment: PageComment) => {
+  const nearestVerticalScroller = (node: Node) => {
+    const view = document.defaultView;
+    let candidate: HTMLElement | null = node.nodeType === 1 ? node as HTMLElement : node.parentElement;
+    while (candidate) {
+      const overflowY = view?.getComputedStyle(candidate).overflowY ?? "";
+      if (candidate.scrollHeight > candidate.clientHeight + 1 && /^(auto|scroll|overlay)$/.test(overflowY)) return candidate;
+      candidate = candidate.parentElement;
+    }
+    return null;
+  };
+  const anchorGeometry = (comment: PageComment): { y: number; scroller: HTMLElement | null; range?: Range } | undefined => {
     if (comment.anchor_type === "text_highlight" && comment.selected_quote) {
       const recovered = recoverTextAnchor(document, { selected_quote: comment.selected_quote, prefix: comment.prefix ?? "", suffix: comment.suffix ?? "" });
-      if (recovered.status === "resolved") (recovered.range.commonAncestorContainer.nodeType === 1 ? recovered.range.commonAncestorContainer as HTMLElement : recovered.range.commonAncestorContainer.parentElement)?.scrollIntoView?.({ block: "center", behavior: "smooth" });
-      return;
+      if (recovered.status !== "resolved") return undefined;
+      const rect = recovered.range.getBoundingClientRect();
+      return { y: (rect.top + rect.bottom) / 2, scroller: nearestVerticalScroller(recovered.range.startContainer), range: recovered.range };
     }
     if (comment.css_selector && comment.relative_x !== null && comment.relative_y !== null) {
       const recovered = recoverPinAnchor(document, { css_selector: comment.css_selector, relative_x: comment.relative_x, relative_y: comment.relative_y });
-      if (recovered.status === "resolved") {
-        const view = document.defaultView;
-        if (view && view.top === view) view.scrollBy({ top: recovered.y - view.innerHeight / 2, behavior: "smooth" });
-        else recovered.element.scrollIntoView?.({ block: "center", inline: "center", behavior: "smooth" });
-      }
+      if (recovered.status !== "resolved") return undefined;
+      return { y: recovered.y, scroller: nearestVerticalScroller(recovered.element) };
     }
+    return undefined;
+  };
+  const scrollCommentIntoView = (comment: PageComment) => {
+    const geometry = anchorGeometry(comment);
+    if (!geometry) return;
+    if (geometry.scroller) {
+      const scrollerRect = geometry.scroller.getBoundingClientRect();
+      const top = geometry.y - (scrollerRect.top + geometry.scroller.clientTop + geometry.scroller.clientHeight / 2);
+      if (typeof geometry.scroller.scrollBy === "function") geometry.scroller.scrollBy({ top, behavior: "smooth" });
+      else geometry.scroller.scrollTop += top;
+    } else document.defaultView?.scrollBy({ top: geometry.y - (document.defaultView?.innerHeight ?? 600) / 2, behavior: "smooth" });
   };
 
   const closeThread = (flushProjection = true) => {
@@ -198,17 +219,20 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
     }
   };
 
-  const openThread = (comment: PageComment, index: number, marker: HTMLElement) => {
+  const openThread = (comment: PageComment, index: number, marker: HTMLElement, toggleExisting = true) => {
     if (activeThreadId && activeThreadId !== comment.id && pendingProjection) {
       const requestedId = comment.id; const next = pendingProjection; pendingProjection = undefined;
       applyComments(next);
       const refreshedComment = comments.get(requestedId); const refreshedMarker = markers.get(requestedId);
-      if (refreshedComment && refreshedMarker) openThread(refreshedComment, Array.from(comments.keys()).indexOf(requestedId), refreshedMarker);
+      if (refreshedComment && refreshedMarker) openThread(refreshedComment, Array.from(comments.keys()).indexOf(requestedId), refreshedMarker, toggleExisting);
       else deferredThreadId = requestedId;
       return;
     }
     deferredThreadId = undefined;
-    if (activeThreadId === comment.id && root.querySelector("[data-thread-popover]")) { closeThread(); marker.focus(); return; }
+    if (activeThreadId === comment.id && root.querySelector("[data-thread-popover]")) {
+      if (toggleExisting) { closeThread(); marker.focus(); }
+      return;
+    }
     closeThread(false);
     activeThreadId = comment.id; marker.setAttribute("aria-expanded", "true"); marker.style.background = "#b85812"; marker.style.borderColor = "#7b3509";
     const article = document.createElement("article"); article.dataset.threadPopover = "true"; article.tabIndex = -1;
@@ -310,8 +334,16 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
     const navigate = async (target: PageComment | undefined) => {
       if (!target) return;
       article.querySelector("[data-navigation-error]")?.remove();
-      if (target.page_url === pageUrl) { closeThread(); document.defaultView?.setTimeout(() => { (root.host as HTMLElement).isConnected && (markers.get(target.id) ? (() => { scrollCommentIntoView(target); const targetMarker = markers.get(target.id)!; targetMarker.focus({ preventScroll: true }); openThread(target, Array.from(comments.keys()).indexOf(target.id), targetMarker); })() : undefined); }, 0); }
-      else {
+      if (target.page_url === pageUrl && markers.has(target.id)) {
+        closeThread();
+        document.defaultView?.setTimeout(() => {
+          if (!(root.host as HTMLElement).isConnected || !markers.has(target.id)) return;
+          scrollCommentIntoView(target);
+          const targetMarker = markers.get(target.id)!;
+          targetMarker.focus({ preventScroll: true });
+          openThread(target, Array.from(comments.keys()).indexOf(target.id), targetMarker);
+        }, 0);
+      } else {
         try { await options.navigateToComment?.(target.id, target.page_url); }
         catch (error) { const message = document.createElement("p"); message.dataset.navigationError = "true"; message.className = "error"; message.setAttribute("role", "status"); message.textContent = error instanceof Error && error.message ? error.message : "Unable to open the next course page."; navigation.before(message); }
       }
@@ -331,10 +363,34 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
       const preferred = right + popoverWidth <= width - 8 && !overlapsPanel(right) ? right : left;
       article.style.left = `${preferred}px`; article.style.top = `${Math.max(8, Math.min(height - popoverHeight - 8, rect.top))}px`;
     };
-    article.style.cssText += ";position:fixed;pointer-events:auto;z-index:2147483647;width:min(360px,calc(100vw - 16px));max-height:min(620px,calc(100vh - 16px));overflow-y:auto;overflow-x:visible;background:white;border:4px solid #28c4c2;border-radius:10px;padding:14px;box-shadow:0 8px 28px #0006";
+    article.style.cssText += ";box-sizing:border-box;position:fixed;pointer-events:auto;z-index:2147483647;width:min(360px,calc(100vw - 16px));max-height:min(620px,calc(100vh - 16px));overflow-y:auto;overflow-x:visible;background:white;border:4px solid #28c4c2;border-radius:10px;padding:14px;box-shadow:0 8px 28px #0006";
     root.append(article); repositioners.add(position); startRepositioning(); position();
     popoverCleanup = () => { repositioners.delete(position); article.remove(); };
-    article.focus();
+    article.focus({ preventScroll: true });
+  };
+
+  const contextIsVisible = (commentId: string) => {
+    const comment = comments.get(commentId);
+    const marker = markers.get(commentId);
+    const article = activeThreadId === commentId ? root.querySelector<HTMLElement>("[data-thread-popover]") : null;
+    if (!comment || !marker || marker.hidden || !article || article.hidden) return false;
+    const width = document.defaultView?.innerWidth ?? 800;
+    const height = document.defaultView?.innerHeight ?? 600;
+    const withinViewport = (rect: DOMRect) => rect.top >= 0 && rect.left >= 0 && rect.bottom <= height && rect.right <= width;
+    if (!withinViewport(marker.getBoundingClientRect()) || !withinViewport(article.getBoundingClientRect())) return false;
+    const geometry = anchorGeometry(comment);
+    if (!geometry) return false;
+    const midpoint = geometry.scroller
+      ? geometry.scroller.getBoundingClientRect().top + geometry.scroller.clientTop + geometry.scroller.clientHeight / 2
+      : height / 2;
+    if (Math.abs(geometry.y - midpoint) > 24) return false;
+    if (geometry.range && geometry.scroller) {
+      const rangeRect = geometry.range.getBoundingClientRect();
+      const scrollerRect = geometry.scroller.getBoundingClientRect();
+      const scrollportTop = scrollerRect.top + geometry.scroller.clientTop;
+      if (rangeRect.top < scrollportTop || rangeRect.bottom > scrollportTop + geometry.scroller.clientHeight) return false;
+    }
+    return true;
   };
 
   const clear = () => { closeThread(false); for (const cleanup of cleanups) cleanup(); cleanups = []; stopRepositioning(); markers.clear(); comments.clear(); };
@@ -350,7 +406,7 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
       clear();
       projectedComments = [...next];
       root.querySelectorAll("[data-recovery-status], [data-recovery-quote]").forEach((node) => node.remove());
-      const localAll = next.filter((comment) => comment.page_url === pageUrl);
+      const localAll = next.filter((comment) => comment.page_url === pageUrl && (!visibleCommentIds || visibleCommentIds.has(comment.id)));
       const local = localAll.filter((comment) => statusFilter === "resolved" ? comment.status === "resolved" : comment.status !== "resolved");
       const localOrder = new Map(localAll.map((comment, index) => ({ comment, index, position: anchorPosition(comment) })).sort((left, right) => {
         if (left.position && right.position) return left.position.top - right.position.top || left.position.left - right.position.left || left.index - right.index;
@@ -387,6 +443,9 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
   };
 
   return {
+    setVisibleCommentIds(commentIds) {
+      visibleCommentIds = commentIds ? new Set(commentIds) : null;
+    },
     setComments(next) {
       if (activeThreadId && root.querySelector("[data-thread-popover]")) {
         if (mutationDepth > 0 || root.querySelector("[data-edit-composer],[data-reply-composer]")) { pendingProjection = [...next]; return; }
@@ -425,14 +484,23 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
         this.setComments(snapshot);
         comment = comments.get(commentId); marker = markers.get(commentId);
       }
+      if (comment && marker && !anchorGeometry(comment)) {
+        this.setComments([...projectedComments]);
+        comment = comments.get(commentId); marker = markers.get(commentId);
+      }
       if (!comment || !marker) {
         root.querySelectorAll(`[data-recovery-status="${commentId}"], [data-recovery-quote="${commentId}"]`).forEach((node) => node.remove());
         const status = document.createElement("p"); status.dataset.recoveryStatus = commentId; status.setAttribute("role", "status"); status.textContent = "The correct page is open, but the original content could not be found. Manually locate the quoted text below; the review tool will keep trying to reconnect this comment.";
         const quote = document.createElement("blockquote"); quote.dataset.recoveryQuote = commentId; quote.textContent = comment?.selected_quote || (comment ? `${comment.page_title} · ${comment.body}` : "Comment context unavailable"); root.append(status, quote);
         return false;
       }
+      const view = document.defaultView;
+      const topLevel = Boolean(view && view.top === view);
+      if (!topLevel && contextIsVisible(commentId)) return true;
       scrollCommentIntoView(comment);
-      marker.focus({ preventScroll: true }); openThread(comment, Array.from(comments.keys()).indexOf(commentId), marker); return true;
+      marker.focus({ preventScroll: true });
+      openThread(comment, Array.from(comments.keys()).indexOf(commentId), marker, false);
+      return topLevel || contextIsVisible(commentId);
     },
     destroy() { pendingProjection = undefined; deferredThreadId = undefined; clear(); projectedComments = []; courseOpenComments = []; physicalOrderIds = []; options.onUnresolvedAnchors?.([]); ownedRoot?.dispose(); },
   };

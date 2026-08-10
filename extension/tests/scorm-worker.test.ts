@@ -4,7 +4,7 @@ import { Window } from "happy-dom";
 
 import type { PageComment } from "../src/background-bridge.ts";
 import type { CommentRenderer } from "../src/comment-renderer.ts";
-import { createScormWorker } from "../src/scorm-worker.ts";
+import { createScormWorker, embeddedPageIdentity } from "../src/scorm-worker.ts";
 import { validateScormAckFor, type ScormCommand, type ScormEvent } from "../src/scorm-protocol.ts";
 import { COMMENT_MARKER_CURSOR } from "../src/ui/comment-cursor.ts";
 
@@ -38,21 +38,25 @@ function selectText(window: Window, text: Text, start: number, end: number) {
   window.document.dispatchEvent(new window.Event("selectionchange"));
 }
 
-function createHarness(navigate?: (destination: URL, mode: "hash" | "route") => boolean, isTrustedActivation?: (event: Event) => boolean) {
-  const window = new Window({ url: "https://rise.example/activity#/lesson/1" });
+function createHarness(navigate?: (destination: URL, mode: "hash" | "route") => boolean, isTrustedActivation?: (event: Event) => boolean, url = "https://rise.example/activity#/lesson/1", contextResults: boolean[] = []) {
+  const window = new Window({ url });
   window.document.title = "Lesson 1";
   window.document.body.innerHTML = "<main><h1>Lesson 1</h1><p id='copy'>Meaningful Rise lesson content.</p><button id='area'>Area</button></main>";
   const events: ScormEvent[] = [];
   let refresh: (() => void) | undefined;
   let tornDown = false;
   const projections: PageComment[][] = [];
+  let visibleCommentIds: ReadonlySet<string> | null = null;
   let rendererDestroyed = 0;
   let takenToContext = "";
-  const createRenderer = (_document: Document, _pageUrl: string): CommentRenderer => ({
-    setComments: (comments) => { projections.push(comments); },
+  const createRenderer = (_document: Document, rendererPageUrl: string): CommentRenderer => ({
+    setVisibleCommentIds: (commentIds) => { visibleCommentIds = commentIds; },
+    setComments: (comments) => {
+      projections.push(comments.filter((comment) => comment.page_url !== rendererPageUrl || !visibleCommentIds || visibleCommentIds.has(comment.id)));
+    },
     setStatusFilter: () => {},
     orderedCommentIds: () => [],
-    takeToContext: (commentId) => { takenToContext = commentId; return true; },
+    takeToContext: (commentId) => { takenToContext = commentId; return contextResults.length ? contextResults.shift()! : true; },
     destroy: () => { rendererDestroyed += 1; },
   });
   const worker = createScormWorker({
@@ -69,6 +73,189 @@ function createHarness(navigate?: (destination: URL, mode: "hash" | "route") => 
   });
   return { window, events, projections, worker, refresh: () => refresh?.(), rendererDestroyed: () => rendererDestroyed, tornDown: () => tornDown, takenToContext: () => takenToContext };
 }
+
+test("Connected Package launcher tokens never enter worker identities or captured events", () => {
+  const launcherUrl = "https://packages.articulateusercontent.com/content/example/boot.html#token=synthetic-secret";
+  const { window, events, worker } = createHarness(undefined, undefined, launcherUrl);
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+
+  assert.doesNotMatch(identity.pageUrl, /token|synthetic-secret/i);
+  assert.equal(identity.embeddedLocator, "/content/example/boot.html");
+
+  assert.equal(worker.handleCommand(command(window, "SCORM_START_MARKER", {})).ok, true);
+  (window.document.querySelector("#area") as unknown as HTMLElement).dispatchEvent(new window.MouseEvent("click", { bubbles: true, clientX: 1, clientY: 1 }) as unknown as Event);
+  const serializedEvents = JSON.stringify([...worker.initialEvents(), ...events]);
+  assert.doesNotMatch(serializedEvents, /token|synthetic-secret/i);
+  worker.destroy();
+});
+
+test("ordinary Rise hashes remain embedded locators", () => {
+  const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html#/lessons/one" });
+  window.document.title = "Lesson One";
+
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+
+  assert.equal(identity.embeddedLocator, "#/lessons/one");
+});
+
+test("Connected Package display titles use the rendered heading without changing the legacy page URL", () => {
+  const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html" });
+  const document = window.document as unknown as Document;
+  window.document.body.innerHTML = `
+    <h1>We couldn't load this course</h1>
+    <h1>1.1.1 Course foundations and defining crime and deviance</h1>`;
+  const headings = document.querySelectorAll<HTMLElement>("h1");
+  headings[0].getClientRects = () => [] as unknown as DOMRectList;
+  headings[1].getClientRects = () => [{ width: 640, height: 48 }] as unknown as DOMRectList;
+
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+
+  assert.equal(identity.pageTitle, "Embedded activity · 1.1.1 Course foundations and defining crime and deviance");
+  assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=We%20couldn't%20load%20this%20course");
+});
+
+test("Connected Package display titles skip rendered empty headings", () => {
+  const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html" });
+  const document = window.document as unknown as Document;
+  window.document.title = "Document fallback";
+  window.document.body.innerHTML = `
+    <h1> </h1>
+    <h1>Rendered course heading</h1>`;
+  for (const heading of Array.from(document.querySelectorAll<HTMLElement>("h1"))) {
+    heading.getClientRects = () => [{ width: 640, height: 48 }] as unknown as DOMRectList;
+  }
+
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+
+  assert.equal(identity.pageTitle, "Embedded activity · Rendered course heading");
+  assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=Document%20fallback");
+});
+
+for (const [description, attribute] of [
+  ["hidden", "hidden"],
+  ["aria-hidden=true", 'aria-hidden="true"'],
+  ["display:none", 'style="display: none"'],
+  ["visibility:hidden", 'style="visibility: hidden"'],
+  ["opacity:0", 'style="opacity: 0"'],
+] as const) {
+  test(`Connected Package display titles skip headings hidden via ${description}`, () => {
+    const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html" });
+    const document = window.document as unknown as Document;
+    window.document.body.innerHTML = `
+      <h1 ${attribute}>Hidden fallback</h1>
+      <h1>Rendered course heading</h1>`;
+    for (const heading of Array.from(document.querySelectorAll<HTMLElement>("h1"))) {
+      heading.getClientRects = () => [{ width: 640, height: 48 }] as unknown as DOMRectList;
+    }
+
+    const identity = embeddedPageIdentity(
+      window as unknown as globalThis.Window & typeof globalThis,
+      window.document as unknown as Document,
+    );
+
+    assert.equal(identity.pageTitle, "Embedded activity · Rendered course heading");
+    assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=Hidden%20fallback");
+  });
+}
+
+for (const [description, attribute] of [
+  ["opacity:0", 'style="opacity: 0"'],
+  ["aria-hidden=true", 'aria-hidden="true"'],
+] as const) {
+  test(`Connected Package display titles skip headings concealed by an ancestor with ${description}`, () => {
+    const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html" });
+    const document = window.document as unknown as Document;
+    window.document.body.innerHTML = `
+      <section ${attribute}><h1>Ancestor-concealed heading</h1></section>
+      <h1>Rendered course heading</h1>`;
+    for (const heading of Array.from(document.querySelectorAll<HTMLElement>("h1"))) {
+      heading.getClientRects = () => [{ width: 640, height: 48 }] as unknown as DOMRectList;
+    }
+
+    const identity = embeddedPageIdentity(
+      window as unknown as globalThis.Window & typeof globalThis,
+      window.document as unknown as Document,
+    );
+
+    assert.equal(identity.pageTitle, "Embedded activity · Rendered course heading");
+    assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=Ancestor-concealed%20heading");
+  });
+}
+
+test("Connected Package display titles accept a visible heading that overrides a hidden ancestor", () => {
+  const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html" });
+  const document = window.document as unknown as Document;
+  window.document.title = "Document fallback";
+  window.document.body.innerHTML = `
+    <section style="visibility: hidden"><h1 style="visibility: visible">Visibility override heading</h1></section>
+    <h1>Later rendered heading</h1>`;
+  for (const heading of Array.from(document.querySelectorAll<HTMLElement>("h1"))) {
+    heading.getClientRects = () => [{ width: 640, height: 48 }] as unknown as DOMRectList;
+  }
+
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+
+  assert.equal(identity.pageTitle, "Embedded activity · Visibility override heading");
+  assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=Visibility%20override%20heading");
+});
+
+for (const [description, documentTitle, expectedDisplayLabel] of [
+  ["document title", "Document fallback", "Document fallback"],
+  ["Current page", " ", "Current page"],
+] as const) {
+  test(`Connected Package display titles fall back to ${description} when no rendered non-empty heading exists`, () => {
+    const window = new Window({ url: "https://packages.articulateusercontent.com/content/example/boot.html" });
+    const document = window.document as unknown as Document;
+    window.document.title = documentTitle;
+    window.document.body.innerHTML = "<h1 hidden>Hidden legacy heading</h1><h1> </h1>";
+    for (const heading of Array.from(document.querySelectorAll<HTMLElement>("h1"))) {
+      heading.getClientRects = () => [] as unknown as DOMRectList;
+    }
+
+    const identity = embeddedPageIdentity(
+      window as unknown as globalThis.Window & typeof globalThis,
+      window.document as unknown as Document,
+    );
+
+    assert.equal(identity.pageTitle, `Embedded activity · ${expectedDisplayLabel}`);
+    assert.equal(identity.pageUrl, "https://packages.articulateusercontent.com/content/example/boot.html#moodle-review-page=Hidden%20legacy%20heading");
+  });
+}
+
+test("non-Articulate pages retain the exact legacy first-h1 identity even when that heading is hidden", () => {
+  const window = new Window({ url: "https://rise.example/activity" });
+  const document = window.document as unknown as Document;
+  window.document.title = "Document title";
+  window.document.body.innerHTML = `
+    <h1 hidden>Legacy first heading</h1>
+    <h1>Rendered course heading</h1>`;
+  const headings = document.querySelectorAll<HTMLElement>("h1");
+  headings[0].getClientRects = () => [] as unknown as DOMRectList;
+  headings[1].getClientRects = () => [{ width: 640, height: 48 }] as unknown as DOMRectList;
+
+  const identity = embeddedPageIdentity(
+    window as unknown as globalThis.Window & typeof globalThis,
+    window.document as unknown as Document,
+  );
+
+  assert.equal(identity.pageTitle, "Embedded activity · Legacy first heading");
+  assert.equal(identity.pageUrl, "https://rise.example/activity#moodle-review-page=Legacy%20first%20heading");
+});
 
 test("embedded worker mounts no review toolbar host", () => {
   const { window, worker } = createHarness();
@@ -94,6 +281,7 @@ test("selectionchange caches a valid range and start-selection consumes its stab
     selected_quote: "Meaningful",
     prefix: "Lesson 1",
     suffix: " Rise lesson content.Area",
+    interaction_context: null,
   });
   assert.equal(captured?.page_url, pageIdentity(window).pageUrl);
   assert.deepEqual(events.at(-1)?.payload, { has_selection: false });
@@ -129,6 +317,140 @@ test("a new valid selection replaces the previously cached Rise selection", () =
   worker.destroy();
 });
 
+test("highlight capture retains the owning Rise tab context from the live Range", () => {
+  const { window, events, worker } = createHarness();
+  window.document.querySelector("main")!.innerHTML = `
+    <section data-block-id="tabs-1" aria-label="Constitution types">
+      <div role="tablist">
+        <button role="tab" aria-controls="written">Written</button>
+        <button role="tab" aria-controls="unwritten" aria-selected="true">Unwritten</button>
+      </div>
+      <div id="written" role="tabpanel" hidden>Written copy</div>
+      <div id="unwritten" role="tabpanel"><p id="tab-copy">Flexible constitution</p></div>
+    </section>`;
+  const text = window.document.querySelector("#tab-copy")!.firstChild as unknown as Text;
+  selectText(window, text, 0, 8);
+  assert.equal(worker.handleCommand(command(window, "SCORM_START_SELECTION", {})).ok, true);
+  const captured = events.find((event) => event.type === "SCORM_ANCHOR_CAPTURED");
+  assert.deepEqual(captured?.type === "SCORM_ANCHOR_CAPTURED" ? captured.payload.interaction_context : null, {
+    version: 1, kind: "tabs",
+    container: { block_id: "tabs-1", ordinal: 1, fingerprint: "Constitution types" },
+    item: { ordinal: 2, count: 2, label: "Unwritten", control_key: "unwritten" },
+  });
+  worker.destroy();
+});
+
+test("restore interaction activates a projected Rise process step and follows later non-dot state changes", async () => {
+  const { window, projections, worker } = createHarness();
+  const document = window.document as unknown as Document;
+  window.document.querySelector("main")!.innerHTML = `
+    <section data-block-id="process-1">
+      <div class="carousel" role="region" aria-label="Participants">
+        <div class="carousel-slide"><h2>Government</h2></div>
+        <div class="carousel-slide" hidden><h2>Criminal justice agencies</h2><p>Target</p></div>
+        <button class="carousel-controls-item-btn" aria-label="Go to slide 1" aria-current="true"></button>
+        <button class="carousel-controls-item-btn" aria-label="Go to slide 2" aria-current="false"></button>
+      </div>
+    </section>`;
+  const slides = Array.from(document.querySelectorAll<HTMLElement>(".carousel-slide"));
+  const controls = Array.from(document.querySelectorAll<HTMLButtonElement>(".carousel-controls-item-btn"));
+  controls[1].addEventListener("click", () => {
+    controls[0].setAttribute("aria-current", "false"); controls[1].setAttribute("aria-current", "true");
+    slides[0].hidden = true; slides[1].hidden = false;
+  });
+  const currentId = "00000000-0000-4000-8000-000000000011";
+  const comment: PageComment = {
+    id: currentId, body: "Fix", category: "general", status: "open", author: { display_name: "Reviewer", role: "beta_tester" },
+    page_url: pageIdentity(window).pageUrl, page_title: "Embedded activity · Lesson 1", parent_activity_url: null, embedded_locator: null,
+    interaction_context: { version: 1, kind: "process", container: { block_id: "process-1", ordinal: 1, fingerprint: "Participants" }, item: { ordinal: 2, count: 2, label: "Criminal justice agencies", control_key: "Go to slide 2" } },
+    anchor_type: "visual_pin", selected_quote: null, prefix: null, suffix: null, css_selector: "#area", dom_selector: null, relative_x: .5, relative_y: .5,
+    replies: [], status_history: [], capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: false },
+  };
+  assert.equal(worker.handleCommand(command(window, "SCORM_SET_COMMENTS", { comments: [comment] })).ok, true);
+  assert.deepEqual(projections.at(-1), [], "the step-2 marker stays hidden while step 1 is active");
+  const restore = worker.handleCommand({ ...command(window, "SCORM_RESTORE_INTERACTION", { comment_id: currentId }), request_id: "423e4567-e89b-42d3-a456-426614174000" });
+  assert.equal(restore.ok, true);
+  assert.equal(controls[1].getAttribute("aria-current"), "true");
+  assert.equal(slides[1].hidden, false);
+  assert.deepEqual(projections.at(-1)?.map(({ id }) => id), [currentId]);
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+
+  controls[0].setAttribute("aria-current", "true");
+  controls[1].setAttribute("aria-current", "false");
+  slides[0].hidden = false;
+  slides[1].hidden = true;
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  assert.deepEqual(projections.at(-1), [], "a previous/next or swipe state change hides the step-2 marker");
+  worker.destroy();
+});
+
+test("projects only comments for the active Rise tab and refreshes after restoring or manually changing tabs", async () => {
+  const { window, projections, worker } = createHarness();
+  const document = window.document as unknown as Document;
+  window.document.querySelector("main")!.innerHTML = `
+    <h2>Trade-offs: stability versus flexibility</h2>
+    <section data-block-id="cmq675swk02a207op9se1ay8q" class="noOutline">
+      <div role="tablist" class="blocks-tabs__header">
+        <button role="tab" aria-controls="written" aria-selected="true">Written (codified)</button>
+        <button role="tab" aria-controls="unwritten" aria-selected="false">Unwritten (uncodified)</button>
+      </div>
+      <div id="written" role="tabpanel" class="blocks-tabs__content-item blocks-tabs__content-item--active">Written copy</div>
+      <div id="unwritten" role="tabpanel" class="blocks-tabs__content-item">Unwritten copy</div>
+    </section>`;
+  const controls = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=tab]"));
+  controls.forEach((control) => control.addEventListener("click", () => {
+    controls.forEach((candidate) => candidate.setAttribute("aria-selected", String(candidate === control)));
+  }));
+
+  const pageUrl = pageIdentity(window).pageUrl;
+  const makeComment = (id: string, body: string, interaction_context: PageComment["interaction_context"]): PageComment => ({
+    id, body, category: "general", status: "open", author: { display_name: "Reviewer", role: "beta_tester" },
+    page_url: pageUrl, page_title: "Embedded activity · Lesson 1", parent_activity_url: null, embedded_locator: null,
+    interaction_context, anchor_type: "visual_pin", selected_quote: null, prefix: null, suffix: null,
+    css_selector: "#area", dom_selector: null, relative_x: .5, relative_y: .5,
+    replies: [], status_history: [], capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: false },
+  });
+  const ordinaryId = "00000000-0000-4000-8000-000000000071";
+  const writtenId = "00000000-0000-4000-8000-000000000072";
+  const unwrittenId = "00000000-0000-4000-8000-000000000073";
+  const container = {
+    block_id: "cmq675swk02a207op9se1ay8q",
+    ordinal: 1,
+    fingerprint: "Written (codified) | Unwritten (uncodified)",
+  };
+  const comments = [
+    makeComment(ordinaryId, "Outside tabs", null),
+    makeComment(writtenId, "Written tab", {
+      version: 1, kind: "tabs", container,
+      item: { ordinal: 1, count: 2, label: "Written (codified)", control_key: "written" },
+    }),
+    makeComment(unwrittenId, "Unwritten tab", {
+      version: 1, kind: "tabs", container,
+      item: { ordinal: 2, count: 2, label: "Unwritten (uncodified)", control_key: "unwritten" },
+    }),
+  ];
+
+  assert.equal(worker.handleCommand(command(window, "SCORM_SET_COMMENTS", { comments })).ok, true);
+  assert.deepEqual(projections.at(-1)?.map(({ id }) => id), [ordinaryId, writtenId]);
+
+  const restore = worker.handleCommand({
+    ...command(window, "SCORM_RESTORE_INTERACTION", { comment_id: unwrittenId }),
+    request_id: "423e4567-e89b-42d3-a456-426614174000",
+  });
+  assert.equal(restore.ok, true);
+  assert.deepEqual(projections.at(-1)?.map(({ id }) => id), [ordinaryId, unwrittenId]);
+
+  controls[0].click();
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  assert.deepEqual(projections.at(-1)?.map(({ id }) => id), [ordinaryId, writtenId]);
+
+  controls[0].setAttribute("aria-selected", "false");
+  controls[1].setAttribute("aria-selected", "true");
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  assert.deepEqual(projections.at(-1)?.map(({ id }) => id), [ordinaryId, unwrittenId], "keyboard-driven tab state is observed without a click");
+  worker.destroy();
+});
+
 test("marker mode changes the cursor, captures one stable pin, and cancel removes the mode", () => {
   const { window, events, worker } = createHarness();
   const area = window.document.querySelector("#area") as unknown as HTMLElement;
@@ -138,7 +460,7 @@ test("marker mode changes the cursor, captures one stable pin, and cancel remove
   assert.equal(window.document.documentElement.style.cursor, COMMENT_MARKER_CURSOR);
   area.dispatchEvent(new window.MouseEvent("click", { bubbles: true, clientX: 60, clientY: 30 }) as any);
   const captured = events.find((event) => event.type === "SCORM_ANCHOR_CAPTURED");
-  assert.deepEqual(captured?.payload, { page_title: "Embedded activity · Lesson 1", embedded_locator: "#/lesson/1", anchor_type: "visual_pin", css_selector: "#area", relative_x: 0.5, relative_y: 0.25 });
+  assert.deepEqual(captured?.payload, { page_title: "Embedded activity · Lesson 1", embedded_locator: "#/lesson/1", anchor_type: "visual_pin", css_selector: "#area", relative_x: 0.5, relative_y: 0.25, interaction_context: null });
   assert.equal(window.document.documentElement.style.cursor, "");
 
   worker.handleCommand({ ...command(window, "SCORM_START_MARKER", {}), request_id: "423e4567-e89b-42d3-a456-426614174000" });
@@ -186,7 +508,7 @@ test("comment renderer receives whole-course comments while take-to-context rema
   const other = "https://rise.example/activity#moodle-review-page=Lesson%202";
   const makeComment = (id: string, pageUrl: string): PageComment => ({
     id, body: "Feedback", category: "general", status: "open", author: { display_name: "Reviewer", role: "beta_tester" },
-    page_url: pageUrl, page_title: "Embedded activity · Lesson 1", parent_activity_url: null, embedded_locator: null, anchor_type: "visual_pin", selected_quote: null, prefix: null, suffix: null,
+    page_url: pageUrl, page_title: "Embedded activity · Lesson 1", parent_activity_url: null, embedded_locator: null, interaction_context: null, anchor_type: "visual_pin", selected_quote: null, prefix: null, suffix: null,
     css_selector: "#area", dom_selector: null, relative_x: 0.5, relative_y: 0.5, replies: [], status_history: [],
     capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: false },
   });
@@ -208,6 +530,26 @@ test("take-to-context cannot open a comment before its exact worker projection a
   assert.equal(acknowledgement.ok, false);
   assert.equal(acknowledgement.ok ? undefined : acknowledgement.error_code, "COMMENT_NOT_FOUND");
   assert.equal(takenToContext(), "");
+  worker.destroy();
+});
+
+test("take-to-context remains retryable until the renderer reports visible context", () => {
+  const { window, worker } = createHarness(undefined, undefined, undefined, [false, true]);
+  const commentId = "00000000-0000-4000-8000-000000000091";
+  const current = pageIdentity(window).pageUrl;
+  const projected: PageComment = {
+    id: commentId, body: "Feedback", category: "general", status: "open", author: { display_name: "Reviewer", role: "beta_tester" },
+    page_url: current, page_title: "Embedded activity · Lesson 1", parent_activity_url: null, embedded_locator: null, interaction_context: null, anchor_type: "visual_pin", selected_quote: null, prefix: null, suffix: null,
+    css_selector: "#area", dom_selector: null, relative_x: 0.5, relative_y: 0.5, replies: [], status_history: [],
+    capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: false },
+  };
+  assert.equal(worker.handleCommand(command(window, "SCORM_SET_COMMENTS", { comments: [projected] })).ok, true);
+
+  const first = worker.handleCommand({ ...command(window, "SCORM_TAKE_TO_CONTEXT", { comment_id: commentId }), request_id: "423e4567-e89b-42d3-a456-426614174000" });
+  const second = worker.handleCommand({ ...command(window, "SCORM_TAKE_TO_CONTEXT", { comment_id: commentId }), request_id: "523e4567-e89b-42d3-a456-426614174000" });
+  assert.equal(first.ok, false);
+  assert.equal(first.ok ? undefined : first.error_code, "COMMENT_NOT_FOUND");
+  assert.equal(second.ok, true);
   worker.destroy();
 });
 

@@ -1,5 +1,7 @@
 export type ResolveCoursePayload = { course_url: string; title: string; moodle_course_id?: number };
-export type CreateCommentPayload = { course_id: string; page_url: string; page_title: string; body: string; category: string; anchor_type: "text_highlight" | "visual_pin"; selected_quote?: string; prefix?: string; suffix?: string; css_selector?: string; dom_selector?: string; relative_x?: number; relative_y?: number };
+export type RegisterCoursePayload = ResolveCoursePayload;
+import { validateRiseInteractionContext, type RiseInteractionContext } from "./rise-interaction-context.ts";
+export type CreateCommentPayload = { course_id: string; page_url: string; page_title: string; body: string; category: string; anchor_type: "text_highlight" | "visual_pin"; selected_quote?: string; prefix?: string; suffix?: string; css_selector?: string; dom_selector?: string; relative_x?: number; relative_y?: number; interaction_context?: RiseInteractionContext | null };
 export type EmbeddedCreateCommentPayload = CreateCommentPayload & { parent_activity_url: string; embedded_locator: string };
 import type { EmbeddedAnchorClaim } from "./embedded-anchor-capabilities.ts";
 export type UploadScreenshotPayload = { comment_id: string; data_url: string };
@@ -7,7 +9,7 @@ export type CancelScreenshotPayload = { comment_id: string };
 export type ViewerIdentity = { course_id: string; user: { id: string; display_name: string | null; email: string; role: string } };
 type PublicAuthor = { display_name: string; role: string };
 export type CommentCapabilities = { can_reply: boolean; can_edit?: boolean; can_change_status: boolean; can_share_with_sme: boolean; can_delete: boolean; allowed_statuses?: string[] };
-export type PageComment = { id: string; body: string; category: string; status: string; author: PublicAuthor; page_url: string; page_title: string; parent_activity_url: string | null; embedded_locator: string | null; anchor_type: "text_highlight" | "visual_pin"; selected_quote: string | null; prefix: string | null; suffix: string | null; css_selector: string | null; dom_selector: string | null; relative_x: number | null; relative_y: number | null; replies: Array<{ id: string; body: string; author: PublicAuthor }>; status_history: Array<{ status: string; created_at: string; actor: string }>; capabilities: CommentCapabilities };
+export type PageComment = { id: string; body: string; category: string; status: string; author: PublicAuthor; page_url: string; page_title: string; parent_activity_url: string | null; embedded_locator: string | null; interaction_context?: RiseInteractionContext | null; anchor_type: "text_highlight" | "visual_pin"; selected_quote: string | null; prefix: string | null; suffix: string | null; css_selector: string | null; dom_selector: string | null; relative_x: number | null; relative_y: number | null; replies: Array<{ id: string; body: string; author: PublicAuthor }>; status_history: Array<{ status: string; created_at: string; actor: string }>; capabilities: CommentCapabilities };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function normalizeErrorMessage(error: unknown): string {
@@ -43,19 +45,21 @@ const exactKeys = (value: Record<string, unknown>, keys: string[]) => Object.key
 export function validatePageCommentsResponse(value: unknown, requestedPageUrl?: string): PageComment[] {
   const invalid = (): never => { throw new Error("Invalid page comments response"); };
   if (!Array.isArray(value) || value.length > 500) return invalid();
-  const commentKeys = ["id", "body", "category", "status", "author", "page_url", "page_title", "parent_activity_url", "embedded_locator", "anchor_type", "selected_quote", "prefix", "suffix", "css_selector", "dom_selector", "relative_x", "relative_y", "replies", "status_history", "capabilities"];
+  const commentKeys = ["id", "body", "category", "status", "author", "page_url", "page_title", "parent_activity_url", "embedded_locator", "interaction_context", "anchor_type", "selected_quote", "prefix", "suffix", "css_selector", "dom_selector", "relative_x", "relative_y", "replies", "status_history", "capabilities"];
   const roles = ["beta_tester", "sme", "ld_dcd", "admin"];
   const statuses = ["open", "in_progress", "awaiting_sme", "resolved", "deferred"];
   return value.map((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return invalid();
     const row = entry as Record<string, unknown>;
+    const hasInteractionContext = Object.prototype.hasOwnProperty.call(row, "interaction_context");
     const author = row.author as Record<string, unknown>;
     const capabilities = row.capabilities as Record<string, unknown>;
-    if (!exactKeys(row, commentKeys) || !uuid.test(row.id as string) || !author || !exactKeys(author, ["display_name", "role"]) || !bounded(author.display_name, 100) || !(author.display_name as string).trim() || !roles.includes(author.role as string) || (requestedPageUrl !== undefined && row.page_url !== requestedPageUrl) || !exactHttpUrl(row.page_url) || !bounded(row.body, 10000) || !(row.body as string).trim() || !bounded(row.page_title, 512) || !(row.page_title as string).trim() || !statuses.includes(row.status as string) || !bounded(row.category, 64)) return invalid();
+    if (!(exactKeys(row, commentKeys) || (!hasInteractionContext && exactKeys(row, commentKeys.filter((key) => key !== "interaction_context")))) || !uuid.test(row.id as string) || !author || !exactKeys(author, ["display_name", "role"]) || !bounded(author.display_name, 100) || !(author.display_name as string).trim() || !roles.includes(author.role as string) || (requestedPageUrl !== undefined && row.page_url !== requestedPageUrl) || !exactHttpUrl(row.page_url) || !bounded(row.body, 10000) || !(row.body as string).trim() || !bounded(row.page_title, 512) || !(row.page_title as string).trim() || !statuses.includes(row.status as string) || !bounded(row.category, 64)) return invalid();
     if (!capabilities || ["can_reply", "can_change_status", "can_share_with_sme", "can_delete"].some((key) => typeof capabilities[key] !== "boolean") || (capabilities.can_edit !== undefined && typeof capabilities.can_edit !== "boolean") || (capabilities.allowed_statuses !== undefined && (!Array.isArray(capabilities.allowed_statuses) || capabilities.allowed_statuses.some((value) => !statuses.includes(value as string))))) return invalid();
     const pairedNavigation = row.parent_activity_url === null && row.embedded_locator === null;
     const validNavigation = exactHttpsUrl(row.parent_activity_url) && validEmbeddedLocator(row.embedded_locator);
     if (!pairedNavigation && !validNavigation) return invalid();
+    if (hasInteractionContext && !(row.interaction_context === null || validateRiseInteractionContext(row.interaction_context))) return invalid();
     if (!["text_highlight", "visual_pin"].includes(row.anchor_type as string) || !bounded(row.selected_quote, 20000, true) || !bounded(row.prefix, 2000, true) || !bounded(row.suffix, 2000, true) || !bounded(row.css_selector, 4000, true) || !bounded(row.dom_selector, 4000, true)) return invalid();
     for (const coordinate of [row.relative_x, row.relative_y]) if (coordinate !== null && (typeof coordinate !== "number" || !Number.isFinite(coordinate) || coordinate < 0 || coordinate > 1)) return invalid();
     if (!Array.isArray(row.replies) || row.replies.length > 1000 || !Array.isArray(row.status_history) || row.status_history.length > 1000) return invalid();
@@ -68,7 +72,7 @@ export function validatePageCommentsResponse(value: unknown, requestedPageUrl?: 
       if (!item || typeof item !== "object" || Array.isArray(item)) return invalid(); const event = item as Record<string, unknown>;
       if (!exactKeys(event, ["status", "created_at", "actor"]) || !statuses.includes(event.status as string) || !bounded(event.created_at, 64) || !bounded(event.actor, 100)) return invalid();
     }
-    return row as PageComment;
+    return { ...row, interaction_context: hasInteractionContext ? row.interaction_context : null } as PageComment;
   });
 }
 
@@ -205,6 +209,7 @@ export async function handleCreateEmbeddedCommentBridge(message: unknown, sender
     course_id: claim.courseId, page_url: claim.pageUrl, page_title: claim.pageTitle,
     parent_activity_url: claim.parentActivityUrl, embedded_locator: claim.embeddedLocator,
     body: composition.body, category: composition.category, ...claim.anchor,
+    interaction_context: claim.interactionContext,
   };
   try {
     return await dependencies.create(payload, composition.screenshotRequested === true);
@@ -261,6 +266,15 @@ export function validateResolveCourseMessage(message: unknown): ResolveCoursePay
   return { course_url: payload.course_url, title: payload.title, ...(own(payload, "moodle_course_id") ? { moodle_course_id: payload.moodle_course_id as number } : {}) };
 }
 
+export function validateRegisterCourseMessage(message: unknown): RegisterCoursePayload {
+  const invalid = () => { throw new Error("Invalid REGISTER_COURSE message"); };
+  if (!message || typeof message !== "object" || Array.isArray(message)) return invalid();
+  const record = message as Record<string, unknown>;
+  if (!exactKeys(record, ["type", "payload"]) || record.type !== "REGISTER_COURSE") return invalid();
+  try { return validateResolveCourseMessage({ type: "RESOLVE_COURSE", payload: record.payload }); }
+  catch { return invalid(); }
+}
+
 function matches(url: string, pattern: string): boolean {
   const match = /^(\*|http|https):\/\/([^/]+)(\/.*)$/.exec(pattern);
   if (!match) return false;
@@ -297,4 +311,18 @@ export async function handleResolveCourseBridge(
   if (courseUrl.origin !== senderUrl.origin) throw new Error("RESOLVE_COURSE course origin must match sender origin");
   if (!await dependencies.authorize(sender)) throw new Error("Unauthorized RESOLVE_COURSE sender");
   return dependencies.resolve(payload);
+}
+
+export async function handleRegisterCourseBridge(
+  message: unknown,
+  sender: { id?: string; url?: string; frameId?: number },
+  dependencies: { authorize(sender: { id?: string; url?: string; frameId?: number }): Promise<boolean>; register(payload: RegisterCoursePayload): Promise<unknown> },
+): Promise<unknown> {
+  const payload = validateRegisterCourseMessage(message);
+  if (sender.frameId !== 0) throw new Error("Unauthorized REGISTER_COURSE sender: frame zero required");
+  let senderUrl: URL;
+  try { senderUrl = new URL(sender.url ?? ""); } catch { throw new Error("Unauthorized REGISTER_COURSE sender"); }
+  if (new URL(payload.course_url).origin !== senderUrl.origin) throw new Error("REGISTER_COURSE course origin must match sender origin");
+  if (!await dependencies.authorize(sender)) throw new Error("Unauthorized REGISTER_COURSE sender");
+  return dependencies.register(payload);
 }

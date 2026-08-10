@@ -138,6 +138,7 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
   let deferredThreadId: string | undefined;
   let applyComments: (next: PageComment[]) => void;
   let mutationDepth = 0;
+  let activeEmbeddedContextId: string | undefined;
   let statusFilter: "open" | "resolved" = "open";
   let visibleCommentIds: ReadonlySet<string> | null = null;
   const repositioners = new Set<() => void>();
@@ -181,15 +182,30 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
     }
     return undefined;
   };
-  const scrollCommentIntoView = (comment: PageComment) => {
+  const scrollMoodleCommentIntoView = (comment: PageComment) => {
+    if (comment.anchor_type === "text_highlight" && comment.selected_quote) {
+      const recovered = recoverTextAnchor(document, { selected_quote: comment.selected_quote, prefix: comment.prefix ?? "", suffix: comment.suffix ?? "" });
+      if (recovered.status !== "resolved") return;
+      const owner = recovered.range.commonAncestorContainer.nodeType === 1
+        ? recovered.range.commonAncestorContainer as HTMLElement
+        : recovered.range.commonAncestorContainer.parentElement;
+      owner?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      return;
+    }
+    if (comment.css_selector && comment.relative_x !== null && comment.relative_y !== null) {
+      const recovered = recoverPinAnchor(document, { css_selector: comment.css_selector, relative_x: comment.relative_x, relative_y: comment.relative_y });
+      if (recovered.status === "resolved") recovered.element.scrollIntoView?.({ block: "center", inline: "center", behavior: "smooth" });
+    }
+  };
+  const scrollEmbeddedCommentIntoView = (comment: PageComment, behavior: ScrollBehavior) => {
     const geometry = anchorGeometry(comment);
     if (!geometry) return;
     if (geometry.scroller) {
       const scrollerRect = geometry.scroller.getBoundingClientRect();
       const top = geometry.y - (scrollerRect.top + geometry.scroller.clientTop + geometry.scroller.clientHeight / 2);
-      if (typeof geometry.scroller.scrollBy === "function") geometry.scroller.scrollBy({ top, behavior: "smooth" });
+      if (typeof geometry.scroller.scrollBy === "function") geometry.scroller.scrollBy({ top, behavior });
       else geometry.scroller.scrollTop += top;
-    } else document.defaultView?.scrollBy({ top: geometry.y - (document.defaultView?.innerHeight ?? 600) / 2, behavior: "smooth" });
+    } else document.defaultView?.scrollBy({ top: geometry.y - (document.defaultView?.innerHeight ?? 600) / 2, behavior });
   };
 
   const closeThread = (flushProjection = true) => {
@@ -338,7 +354,14 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
         closeThread();
         document.defaultView?.setTimeout(() => {
           if (!(root.host as HTMLElement).isConnected || !markers.has(target.id)) return;
-          scrollCommentIntoView(target);
+          const view = document.defaultView;
+          if (view && view.top === view) {
+            activeEmbeddedContextId = undefined;
+            scrollMoodleCommentIntoView(target);
+          } else {
+            activeEmbeddedContextId = target.id;
+            scrollEmbeddedCommentIntoView(target, "smooth");
+          }
           const targetMarker = markers.get(target.id)!;
           targetMarker.focus({ preventScroll: true });
           openThread(target, Array.from(comments.keys()).indexOf(target.id), targetMarker);
@@ -496,12 +519,21 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
       }
       const view = document.defaultView;
       const topLevel = Boolean(view && view.top === view);
-      if (!topLevel && contextIsVisible(commentId)) return true;
-      scrollCommentIntoView(comment);
+      if (topLevel) {
+        activeEmbeddedContextId = undefined;
+        scrollMoodleCommentIntoView(comment);
+      } else {
+        if (contextIsVisible(commentId)) { activeEmbeddedContextId = undefined; return true; }
+        const behavior: ScrollBehavior = activeEmbeddedContextId === commentId ? "auto" : "smooth";
+        activeEmbeddedContextId = commentId;
+        scrollEmbeddedCommentIntoView(comment, behavior);
+      }
       marker.focus({ preventScroll: true });
       openThread(comment, Array.from(comments.keys()).indexOf(commentId), marker, false);
-      return topLevel || contextIsVisible(commentId);
+      const complete = topLevel || contextIsVisible(commentId);
+      if (complete) activeEmbeddedContextId = undefined;
+      return complete;
     },
-    destroy() { pendingProjection = undefined; deferredThreadId = undefined; clear(); projectedComments = []; courseOpenComments = []; physicalOrderIds = []; options.onUnresolvedAnchors?.([]); ownedRoot?.dispose(); },
+    destroy() { pendingProjection = undefined; deferredThreadId = undefined; activeEmbeddedContextId = undefined; clear(); projectedComments = []; courseOpenComments = []; physicalOrderIds = []; options.onUnresolvedAnchors?.([]); ownedRoot?.dispose(); },
   };
 }

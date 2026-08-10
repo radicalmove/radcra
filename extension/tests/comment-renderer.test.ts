@@ -345,14 +345,13 @@ test("previous and next navigate through open comments across the whole course",
 });
 
 test("previous and next follow anchor order on the current page and scroll into context", async () => {
-  const { window, document } = setup();
+  const { document } = setup();
   const positions = [["early", 20], ["middle", 120], ["late", 220]] as const;
-  Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
-  const scrolls: ScrollToOptions[] = [];
-  window.scrollBy = ((options: ScrollToOptions) => { scrolls.push(options); }) as typeof window.scrollBy;
+  const scrolls: Array<[string, ScrollIntoViewOptions]> = [];
   for (const [id, top] of positions) {
     const target = document.createElement("div"); target.id = id;
     target.getBoundingClientRect = () => ({ x: 10, y: top, left: 10, top, right: 110, bottom: top + 40, width: 100, height: 40, toJSON() {} });
+    target.scrollIntoView = ((options?: boolean | ScrollIntoViewOptions) => { if (options && typeof options !== "boolean") scrolls.push([id, options]); }) as typeof target.scrollIntoView;
     document.body.append(target);
   }
   const early = comment({ id: "00000000-0000-4000-8000-000000000031", body: "Early", css_selector: "#early" });
@@ -368,26 +367,43 @@ test("previous and next follow anchor order on the current page and scroll into 
 
   assert.equal(root.querySelector<HTMLElement>("[data-thread-popover] div")?.textContent, "Early");
   assert.equal(root.querySelector<HTMLElement>("[data-thread-position]")?.textContent, "Comment 1 of 3");
-  assert.deepEqual(scrolls, [{ top: -260, behavior: "smooth" }]);
+  assert.deepEqual(scrolls, [["early", { block: "center", inline: "center", behavior: "smooth" }]]);
 });
 
-test("Moodle context completes immediately after scrolling to the exact visual-pin coordinate", () => {
+test("Moodle context uses native centred scrolling for a recovered text highlight", () => {
+  const { window, document } = setup();
+  const paragraph = document.createElement("p"); paragraph.textContent = "Before Moodle target after"; document.body.append(paragraph);
+  let elementScroll: ScrollIntoViewOptions | undefined;
+  paragraph.scrollIntoView = ((options?: boolean | ScrollIntoViewOptions) => { if (options && typeof options !== "boolean") elementScroll = options; }) as typeof paragraph.scrollIntoView;
+  let windowScrolls = 0;
+  window.scrollBy = (() => { windowScrolls += 1; }) as typeof window.scrollBy;
+  const targetComment = comment({ anchor_type: "text_highlight", selected_quote: "Moodle target", prefix: "Before ", suffix: " after", css_selector: null, relative_x: null, relative_y: null });
+  const renderer = createCommentRenderer(document, pageUrl); renderer.setComments([targetComment]);
+
+  const completed = renderer.takeToContext(targetComment.id);
+
+  renderer.destroy();
+  assert.equal(completed, true);
+  assert.deepEqual(elementScroll, { block: "center", behavior: "smooth" });
+  assert.equal(windowScrolls, 0);
+});
+
+test("Moodle context uses native centred scrolling for a recovered visual pin", () => {
   const { window, document } = setup();
   const target = document.querySelector<HTMLElement>("#target")!;
   target.getBoundingClientRect = () => ({ x: 0, y: -1200, left: 0, top: -1200, right: 1000, bottom: 800, width: 1000, height: 2000, toJSON() {} });
-  let elementScrolls = 0;
-  target.scrollIntoView = () => { elementScrolls += 1; };
-  Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
-  const windowScrolls: ScrollToOptions[] = [];
-  window.scrollBy = ((options: ScrollToOptions) => { windowScrolls.push(options); }) as typeof window.scrollBy;
+  let elementScroll: ScrollIntoViewOptions | undefined;
+  target.scrollIntoView = ((options?: boolean | ScrollIntoViewOptions) => { if (options && typeof options !== "boolean") elementScroll = options; }) as typeof target.scrollIntoView;
+  let windowScrolls = 0;
+  window.scrollBy = (() => { windowScrolls += 1; }) as typeof window.scrollBy;
   const renderer = createCommentRenderer(document, pageUrl);
   const targetComment = comment({ relative_x: 0.5, relative_y: 0.1 });
   renderer.setComments([targetComment]);
 
   assert.equal(renderer.takeToContext(targetComment.id), true, "top-level Moodle must not wait for an embedded retry cycle");
 
-  assert.deepEqual(windowScrolls, [{ top: -1300, behavior: "smooth" }]);
-  assert.equal(elementScrolls, 0);
+  assert.deepEqual(elementScroll, { block: "center", inline: "center", behavior: "smooth" });
+  assert.equal(windowScrolls, 0);
   renderer.destroy();
 });
 
@@ -468,6 +484,37 @@ test("SCORM text context settles at centre using the viewport fallback", () => {
   assert.equal(first, false);
   assert.deepEqual(scrolls, [{ top: 210, behavior: "smooth" }]);
   assert.equal(second, true);
+});
+
+test("SCORM correction is immediate but a later fresh navigation starts smoothly", () => {
+  const { window, document } = setup();
+  Object.defineProperty(window, "top", { configurable: true, value: {} });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+  const paragraph = document.createElement("p"); paragraph.textContent = "Before correction target after"; document.body.append(paragraph);
+  let rangeTop = 500;
+  const originalCreateRange = document.createRange.bind(document);
+  document.createRange = (() => {
+    const range = originalCreateRange();
+    range.getBoundingClientRect = () => ({ x: 100, y: rangeTop, left: 100, top: rangeTop, right: 240, bottom: rangeTop + 20, width: 140, height: 20, toJSON() {} });
+    range.getClientRects = () => [range.getBoundingClientRect()] as unknown as DOMRectList;
+    return range;
+  }) as typeof document.createRange;
+  const scrolls: ScrollToOptions[] = [];
+  window.scrollBy = ((options: ScrollToOptions) => { scrolls.push(options); }) as typeof window.scrollBy;
+  const targetComment = comment({ anchor_type: "text_highlight", selected_quote: "correction target", prefix: "Before ", suffix: " after", css_selector: null, relative_x: null, relative_y: null });
+  const renderer = createCommentRenderer(document, pageUrl); renderer.setComments([targetComment]);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-highlight]")!;
+  marker.getBoundingClientRect = () => ({ x: 100, y: rangeTop + 24, left: 100, top: rangeTop + 24, right: 138, bottom: rangeTop + 62, width: 38, height: 38, toJSON() {} });
+
+  assert.equal(renderer.takeToContext(targetComment.id), false);
+  assert.equal(renderer.takeToContext(targetComment.id), false);
+  rangeTop = 290;
+  assert.equal(renderer.takeToContext(targetComment.id), true);
+  rangeTop = 500;
+  assert.equal(renderer.takeToContext(targetComment.id), false);
+
+  renderer.destroy();
+  assert.deepEqual(scrolls.map((entry) => entry.behavior), ["smooth", "auto", "smooth"]);
 });
 
 test("SCORM pin context settles at centre in a nested scrollport", async () => {

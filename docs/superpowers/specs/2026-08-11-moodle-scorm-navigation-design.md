@@ -12,7 +12,7 @@ Version 0.5.30 used native `scrollIntoView({ block: "center" })` for Moodle text
 
 `comment-renderer.ts` will explicitly branch by browsing context.
 
-- In the top-level Moodle document, a recovered text range will scroll its owning element with native centered `scrollIntoView`. A recovered visual pin will scroll its recovered target element with native centered `scrollIntoView`. The renderer will then focus the marker without scrolling, open the requested thread, and acknowledge completion immediately.
+- In the top-level Moodle document, a recovered text range will scroll its owning element with native `scrollIntoView({ block: "center", behavior: "smooth" })`. A recovered visual pin will scroll its recovered target element with native `scrollIntoView({ block: "center", inline: "center", behavior: "smooth" })`. These are the exact v0.5.30 options. The renderer will then focus the marker without scrolling, open the requested thread, and acknowledge completion immediately.
 - In an embedded SCORM document, navigation will retain exact range/pin geometry, nearest nested scrollport detection, midpoint settling, and retry-until-visible completion.
 - The first SCORM positioning request may remain smooth. If a retry finds that a correction is still needed for the same requested context, that correction will use immediate scrolling. This prevents two independently animated movements while retaining exact final centering.
 - Missing anchors remain retryable/unresolved exactly as they are now. Interaction restoration, page/locator navigation, marker visibility, and thread placement remain unchanged.

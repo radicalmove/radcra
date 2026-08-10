@@ -17,7 +17,7 @@
 
 - [ ] Add a top-level Moodle text-anchor test asserting the recovered range owner receives `scrollIntoView({ block: "center", behavior: "smooth" })` and `window.scrollBy` is not called.
 - [ ] Replace the current top-level pin expectation with `recovered.element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" })` and no `window.scrollBy`.
-- [ ] Add an embedded SCORM test that invokes the same unresolved context twice and expects the first exact scroll to use `behavior: "smooth"` and the correction to use `behavior: "auto"`.
+- [ ] Add an embedded SCORM test that invokes the same unresolved context twice and expects the first exact scroll to use `behavior: "smooth"` and the correction to use `behavior: "auto"`; after simulated completion, move it away and assert a later fresh navigation to the same comment starts with `behavior: "smooth"` again.
 - [ ] Run `cd extension && node --test --test-concurrency=1 --test-name-pattern='Moodle context uses native|SCORM correction' tests/comment-renderer.test.ts`; expect assertion failures against the current coordinate-only/smooth-only implementation.
 
 ### Task 2: Implement context-specific scrolling
@@ -28,7 +28,7 @@
 
 - [ ] Add a top-level Moodle helper that recovers the exact anchor and calls native centred `scrollIntoView` on the text owner or pin element.
 - [ ] Keep `anchorGeometry`, nearest nested scroller detection, midpoint visibility, and exact deltas exclusive to embedded SCORM navigation.
-- [ ] Track the last embedded context request ID. Use `behavior: "smooth"` for a new request and `behavior: "auto"` for repeat corrections of that request; clear this state when a different context is requested or the renderer is destroyed.
+- [ ] Track the active embedded context request ID. Use `behavior: "smooth"` for a new request and `behavior: "auto"` for repeat corrections of that active request; clear this state when navigation is acknowledged complete, a different context is requested, or the renderer is destroyed.
 - [ ] Keep marker focus with `preventScroll`, idempotent thread opening, missing-anchor recovery, and immediate top-level completion unchanged.
 - [ ] Re-run the focused test command and expect pass.
 - [ ] Run `cd extension && node --test --test-concurrency=1 tests/comment-renderer.test.ts`; expect zero failures.

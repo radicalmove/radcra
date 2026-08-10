@@ -167,31 +167,29 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
     }
     return null;
   };
-  const scrollCommentIntoView = (comment: PageComment) => {
+  const anchorGeometry = (comment: PageComment): { y: number; scroller: HTMLElement | null; range?: Range } | undefined => {
     if (comment.anchor_type === "text_highlight" && comment.selected_quote) {
       const recovered = recoverTextAnchor(document, { selected_quote: comment.selected_quote, prefix: comment.prefix ?? "", suffix: comment.suffix ?? "" });
-      if (recovered.status === "resolved") {
-        const view = document.defaultView;
-        const rangeRect = recovered.range.getBoundingClientRect();
-        const rangeCenter = (rangeRect.top + rangeRect.bottom) / 2;
-        const scroller = nearestVerticalScroller(recovered.range.startContainer);
-        if (scroller) {
-          const scrollerRect = scroller.getBoundingClientRect();
-          const top = rangeCenter - (scrollerRect.top + scroller.clientTop + scroller.clientHeight / 2);
-          if (typeof scroller.scrollBy === "function") scroller.scrollBy({ top, behavior: "smooth" });
-          else scroller.scrollTop += top;
-        } else if (view) view.scrollBy({ top: rangeCenter - view.innerHeight / 2, behavior: "smooth" });
-      }
-      return;
+      if (recovered.status !== "resolved") return undefined;
+      const rect = recovered.range.getBoundingClientRect();
+      return { y: (rect.top + rect.bottom) / 2, scroller: nearestVerticalScroller(recovered.range.startContainer), range: recovered.range };
     }
     if (comment.css_selector && comment.relative_x !== null && comment.relative_y !== null) {
       const recovered = recoverPinAnchor(document, { css_selector: comment.css_selector, relative_x: comment.relative_x, relative_y: comment.relative_y });
-      if (recovered.status === "resolved") {
-        const view = document.defaultView;
-        if (view && view.top === view) view.scrollBy({ top: recovered.y - view.innerHeight / 2, behavior: "smooth" });
-        else recovered.element.scrollIntoView?.({ block: "center", inline: "center", behavior: "smooth" });
-      }
+      if (recovered.status !== "resolved") return undefined;
+      return { y: recovered.y, scroller: nearestVerticalScroller(recovered.element) };
     }
+    return undefined;
+  };
+  const scrollCommentIntoView = (comment: PageComment) => {
+    const geometry = anchorGeometry(comment);
+    if (!geometry) return;
+    if (geometry.scroller) {
+      const scrollerRect = geometry.scroller.getBoundingClientRect();
+      const top = geometry.y - (scrollerRect.top + geometry.scroller.clientTop + geometry.scroller.clientHeight / 2);
+      if (typeof geometry.scroller.scrollBy === "function") geometry.scroller.scrollBy({ top, behavior: "smooth" });
+      else geometry.scroller.scrollTop += top;
+    } else document.defaultView?.scrollBy({ top: geometry.y - (document.defaultView?.innerHeight ?? 600) / 2, behavior: "smooth" });
   };
 
   const closeThread = (flushProjection = true) => {
@@ -380,16 +378,17 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
     const height = document.defaultView?.innerHeight ?? 600;
     const withinViewport = (rect: DOMRect) => rect.top >= 0 && rect.left >= 0 && rect.bottom <= height && rect.right <= width;
     if (!withinViewport(marker.getBoundingClientRect()) || !withinViewport(article.getBoundingClientRect())) return false;
-    if (comment.anchor_type === "text_highlight" && comment.selected_quote) {
-      const recovered = recoverTextAnchor(document, { selected_quote: comment.selected_quote, prefix: comment.prefix ?? "", suffix: comment.suffix ?? "" });
-      if (recovered.status !== "resolved") return false;
-      const scroller = nearestVerticalScroller(recovered.range.startContainer);
-      if (scroller) {
-        const rangeRect = recovered.range.getBoundingClientRect();
-        const scrollerRect = scroller.getBoundingClientRect();
-        const scrollportTop = scrollerRect.top + scroller.clientTop;
-        if (rangeRect.top < scrollportTop || rangeRect.bottom > scrollportTop + scroller.clientHeight) return false;
-      }
+    const geometry = anchorGeometry(comment);
+    if (!geometry) return false;
+    const midpoint = geometry.scroller
+      ? geometry.scroller.getBoundingClientRect().top + geometry.scroller.clientTop + geometry.scroller.clientHeight / 2
+      : height / 2;
+    if (Math.abs(geometry.y - midpoint) > 24) return false;
+    if (geometry.range && geometry.scroller) {
+      const rangeRect = geometry.range.getBoundingClientRect();
+      const scrollerRect = geometry.scroller.getBoundingClientRect();
+      const scrollportTop = scrollerRect.top + geometry.scroller.clientTop;
+      if (rangeRect.top < scrollportTop || rangeRect.bottom > scrollportTop + geometry.scroller.clientHeight) return false;
     }
     return true;
   };
@@ -485,17 +484,23 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
         this.setComments(snapshot);
         comment = comments.get(commentId); marker = markers.get(commentId);
       }
+      if (comment && marker && !anchorGeometry(comment)) {
+        this.setComments([...projectedComments]);
+        comment = comments.get(commentId); marker = markers.get(commentId);
+      }
       if (!comment || !marker) {
         root.querySelectorAll(`[data-recovery-status="${commentId}"], [data-recovery-quote="${commentId}"]`).forEach((node) => node.remove());
         const status = document.createElement("p"); status.dataset.recoveryStatus = commentId; status.setAttribute("role", "status"); status.textContent = "The correct page is open, but the original content could not be found. Manually locate the quoted text below; the review tool will keep trying to reconnect this comment.";
         const quote = document.createElement("blockquote"); quote.dataset.recoveryQuote = commentId; quote.textContent = comment?.selected_quote || (comment ? `${comment.page_title} · ${comment.body}` : "Comment context unavailable"); root.append(status, quote);
         return false;
       }
-      if (contextIsVisible(commentId)) return true;
+      const view = document.defaultView;
+      const topLevel = Boolean(view && view.top === view);
+      if (!topLevel && contextIsVisible(commentId)) return true;
       scrollCommentIntoView(comment);
       marker.focus({ preventScroll: true });
       openThread(comment, Array.from(comments.keys()).indexOf(commentId), marker, false);
-      return contextIsVisible(commentId);
+      return topLevel || contextIsVisible(commentId);
     },
     destroy() { pendingProjection = undefined; deferredThreadId = undefined; clear(); projectedComments = []; courseOpenComments = []; physicalOrderIds = []; options.onUnresolvedAnchors?.([]); ownedRoot?.dispose(); },
   };

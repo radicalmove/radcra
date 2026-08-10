@@ -359,7 +359,7 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
             activeEmbeddedContextId = undefined;
             scrollMoodleCommentIntoView(target);
           } else {
-            activeEmbeddedContextId = target.id;
+            activeEmbeddedContextId = undefined;
             scrollEmbeddedCommentIntoView(target, "smooth");
           }
           const targetMarker = markers.get(target.id)!;

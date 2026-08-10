@@ -327,10 +327,11 @@ test("take to context retries a late text anchor and reports an accessible failu
     range.getClientRects = () => [rect] as unknown as DOMRectList;
     return range;
   }) as typeof document.createRange;
-  const contentScrolls: ScrollToOptions[] = [];
-  window.scrollBy = ((options: ScrollToOptions) => { contentScrolls.push(options); }) as typeof window.scrollBy;
+  const paragraph = document.querySelector<HTMLElement>("p")!;
+  const contentScrolls: ScrollIntoViewOptions[] = [];
+  paragraph.scrollIntoView = ((options?: boolean | ScrollIntoViewOptions) => { if (options && typeof options !== "boolean") contentScrolls.push(options); }) as typeof paragraph.scrollIntoView;
   assert.equal(overlay.takeToContext(storedHighlight.id), true);
-  assert.deepEqual(contentScrolls, [{ top: 110 - window.innerHeight / 2, behavior: "smooth" }], "navigation must centre the exact recovered text range");
+  assert.deepEqual(contentScrolls, [{ block: "center", behavior: "smooth" }], "Moodle navigation must use native centred scrolling");
   assert.ok(document.querySelector("[data-moodle-review-stored-highlight]"));
   (document.getElementById(`moodle-review-highlight-${storedHighlight.id}`) as HTMLElement).click();
   document.querySelector("p")!.remove(); overlay.setPageComments([storedHighlight]);

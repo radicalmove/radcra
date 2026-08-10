@@ -575,7 +575,8 @@ test("next scrolls a visual pin through its nested SCORM scroll container", asyn
   Object.defineProperties(scroller, { clientHeight: { value: 600 }, scrollHeight: { value: 2000 } });
   scroller.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, toJSON() {} });
   const later = document.createElement("div"); later.id = "later-in-scorm";
-  later.getBoundingClientRect = () => ({ x: 10, y: 720, left: 10, top: 720, right: 210, bottom: 820, width: 200, height: 100, toJSON() {} });
+  let laterTop = 720;
+  later.getBoundingClientRect = () => ({ x: 10, y: laterTop, left: 10, top: laterTop, right: 210, bottom: laterTop + 100, width: 200, height: 100, toJSON() {} });
   scroller.append(later); document.body.append(scroller);
   const scrolls: ScrollToOptions[] = [];
   scroller.scrollBy = ((options?: ScrollToOptions | number) => { if (options && typeof options !== "number") scrolls.push(options); }) as typeof scroller.scrollBy;
@@ -588,8 +589,10 @@ test("next scrolls a visual pin through its nested SCORM scroll container", asyn
 
   root.querySelector<HTMLButtonElement>('[data-thread-navigation] [data-direction="next"]')!.click();
   await settle();
+  laterTop = 1000;
+  renderer.takeToContext(second.id);
 
-  assert.deepEqual(scrolls, [{ top: 470, behavior: "smooth" }]);
+  assert.deepEqual(scrolls, [{ top: 470, behavior: "smooth" }, { top: 750, behavior: "smooth" }], "a fresh jump after Previous/Next must start smoothly");
   assert.equal(root.querySelector<HTMLElement>("[data-thread-position]")?.textContent, "Comment 2 of 2");
 });
 

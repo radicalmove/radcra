@@ -1,10 +1,14 @@
 import hashlib
+import json
+import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from PIL import Image
+from deploy.scripts.store_package import package_store, report_path_for
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,6 +88,190 @@ class StoreReadinessTests(unittest.TestCase):
     def test_release_workflow_runs_store_readiness_suite(self):
         workflow = (ROOT / ".github" / "workflows" / "release-extension.yml").read_text()
         self.assertIn("tests/test_store_readiness.py", workflow)
+
+    def readiness_fixture(self, target: Path, *, screenshot: bool = False):
+        for relative in ("README.md", "docs/privacy-policy.md", "docs/chrome-web-store-listing.md", "docs/chrome-web-store-reviewer-guide.md", "site/index.html", "site/privacy/index.html", "site/support/index.html", "site/latest.json", "store-assets/README.md", "store-assets/radcra-promo-440x280.png", "extension/public/manifest.json", "tests/fixtures/store-public-key.txt"):
+            source = ROOT / relative
+            destination = target / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+        (target / "extension/package.json").write_text('{"version":"0.5.36"}\n')
+        if screenshot:
+            Image.new("RGB", (1280, 800), "white").save(target / "store-assets/radcra-screenshot-1280x800.png")
+        dist = target / "dist"
+        (dist / "icons").mkdir(parents=True)
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=target, text=True).strip()
+        (dist / "background.js").write_text(f"/* build {commit} service https://fld-mini.tail4ccaba.ts.net */\n")
+        (dist / "content.js").write_text(f"/* build {commit} */\n")
+        for size in (16, 48, 128):
+            shutil.copy2(ROOT / f"extension/public/icons/icon{size}.png", dist / f"icons/icon{size}.png")
+        manifest = json.loads((target / "extension/public/manifest.json").read_text())
+        manifest.update(version="0.5.36", host_permissions=["https://my.uconline.ac.nz/*", "https://fld-mini.tail4ccaba.ts.net/*", "https://radicalmove.github.io/radcra/*"], optional_host_permissions=["https://packages.articulateusercontent.com/*"])
+        manifest["content_scripts"][0]["matches"] = ["https://my.uconline.ac.nz/*"]
+        (dist / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        package = target / "radcra.zip"
+        package_store(dist, package, "0.5.36", "radicalmove/radcra", commit)
+        checksum = target / "radcra.zip.sha256"
+        checksum.write_text(f"{hashlib.sha256(package.read_bytes()).hexdigest()}  {package.name}\n")
+        return report_path_for(package), checksum
+
+    def run_readiness(self, root: Path, report: Path, checksum: Path, mode="fixture", screenshot=None):
+        command = ["python3", str(ROOT / "deploy/scripts/store_readiness.py"), "--mode", mode, "--root", str(root), "--package-report", str(report), "--checksum", str(checksum)]
+        if screenshot is not None:
+            command.extend(["--screenshot", str(screenshot)])
+        result = subprocess.run(command, text=True, capture_output=True)
+        return result, json.loads(result.stdout)
+
+    def test_fixture_readiness_allows_only_manual_screenshot_gap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "fixture@example.test"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Fixture"], cwd=root, check=True)
+            (root / "seed").write_text("seed")
+            subprocess.run(["git", "add", "seed"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "seed"], cwd=root, check=True)
+            report, checksum = self.readiness_fixture(root)
+            result, output = self.run_readiness(root, report, checksum)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(list(output), ["schema_version", "mode", "ready", "manual_screenshot_required", "checks", "errors"])
+            self.assertTrue(output["ready"])
+            self.assertTrue(output["manual_screenshot_required"])
+            self.assertEqual(list(output["checks"]), ["identity", "public_site", "privacy_disclosure", "support", "promo", "screenshot", "package", "checksum", "production_inputs"])
+            self.assertFalse(output["checks"]["screenshot"])
+            self.assertFalse(output["checks"]["production_inputs"])
+            self.assertEqual(output["errors"], ["screenshot_missing"])
+
+    def test_submission_rejects_fixture_key_and_requires_all_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "fixture@example.test"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Fixture"], cwd=root, check=True)
+            (root / "seed").write_text("seed")
+            subprocess.run(["git", "add", "seed"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "seed"], cwd=root, check=True)
+            report, checksum = self.readiness_fixture(root, screenshot=True)
+            result, output = self.run_readiness(root, report, checksum, "submission")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output["ready"])
+            self.assertFalse(output["checks"]["production_inputs"])
+            self.assertEqual(output["errors"], sorted(output["errors"]))
+            self.assertIn("production_public_key_not_unique", output["errors"])
+
+    def test_readiness_rejects_every_non_runtime_zip_member(self):
+        for unexpected in ("listing-art.png", "README.txt", "SOURCE.MAP"):
+            with self.subTest(unexpected=unexpected), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+                subprocess.run(["git", "config", "user.email", "fixture@example.test"], cwd=root, check=True)
+                subprocess.run(["git", "config", "user.name", "Fixture"], cwd=root, check=True)
+                (root / "seed").write_text("seed")
+                subprocess.run(["git", "add", "seed"], cwd=root, check=True)
+                subprocess.run(["git", "commit", "-qm", "seed"], cwd=root, check=True)
+                report_path, checksum = self.readiness_fixture(root)
+                archive_path = root / "radcra.zip"
+                with zipfile.ZipFile(archive_path) as archive:
+                    members = {name: archive.read(name) for name in archive.namelist()}
+                members[unexpected] = b"unexpected"
+                with zipfile.ZipFile(archive_path, "w") as archive:
+                    for name, contents in sorted(members.items()):
+                        archive.writestr(name, contents)
+                report = json.loads(report_path.read_text())
+                report["files"] = sorted([*report["files"], unexpected])
+                report["zip_sha256"] = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+                report_path.write_text(json.dumps(report))
+                checksum.write_text(f"{report['zip_sha256']}  {archive_path.name}\n")
+                result, output = self.run_readiness(root, report_path, checksum)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output["checks"]["package"])
+                self.assertIn("package_invalid", output["errors"])
+
+    def test_readiness_independently_rejects_tampered_report_origin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "fixture@example.test"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Fixture"], cwd=root, check=True)
+            (root / "seed").write_text("seed")
+            subprocess.run(["git", "add", "seed"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "seed"], cwd=root, check=True)
+            report_path, checksum = self.readiness_fixture(root)
+            report = json.loads(report_path.read_text())
+            report["review_service_origin"] = "https://different.valid-service.nz"
+            report_path.write_text(json.dumps(report))
+            result, output = self.run_readiness(root, report_path, checksum)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output["checks"]["package"])
+            self.assertIn("package_invalid", output["errors"])
+
+    def test_readiness_independently_rejects_archived_runtime_commit_tampering(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "fixture@example.test"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Fixture"], cwd=root, check=True)
+            (root / "seed").write_text("seed")
+            subprocess.run(["git", "add", "seed"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "seed"], cwd=root, check=True)
+            report_path, checksum = self.readiness_fixture(root)
+            archive_path = root / "radcra.zip"
+            with zipfile.ZipFile(archive_path) as archive:
+                members = {name: archive.read(name) for name in archive.namelist()}
+            members["content.js"] = b"/* runtime diagnostic removed */\n"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                for name, contents in sorted(members.items()):
+                    archive.writestr(name, contents)
+            report = json.loads(report_path.read_text())
+            report["zip_sha256"] = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            report_path.write_text(json.dumps(report))
+            checksum.write_text(f"{report['zip_sha256']}  {archive_path.name}\n")
+            result, output = self.run_readiness(root, report_path, checksum)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output["checks"]["package"])
+            self.assertIn("package_invalid", output["errors"])
+
+    def test_readiness_rejects_service_origin_missing_from_archived_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "fixture@example.test"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Fixture"], cwd=root, check=True)
+            (root / "seed").write_text("seed")
+            subprocess.run(["git", "add", "seed"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "seed"], cwd=root, check=True)
+            report_path, checksum = self.readiness_fixture(root)
+            archive_path = root / "radcra.zip"
+            with zipfile.ZipFile(archive_path) as archive:
+                members = {name: archive.read(name) for name in archive.namelist()}
+            members["background.js"] = members["background.js"].replace(b"https://fld-mini.tail4ccaba.ts.net", b"https://other-service.govt.nz")
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                for name, contents in sorted(members.items()):
+                    archive.writestr(name, contents)
+            report = json.loads(report_path.read_text())
+            report["zip_sha256"] = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            report_path.write_text(json.dumps(report))
+            checksum.write_text(f"{report['zip_sha256']}  {archive_path.name}\n")
+            result, output = self.run_readiness(root, report_path, checksum)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output["checks"]["package"])
+            self.assertIn("package_invalid", output["errors"])
+
+    def test_readiness_fails_closed_when_root_fixture_public_key_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "fixture@example.test"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Fixture"], cwd=root, check=True)
+            (root / "seed").write_text("seed")
+            subprocess.run(["git", "add", "seed"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "seed"], cwd=root, check=True)
+            report_path, checksum = self.readiness_fixture(root)
+            (root / "tests/fixtures/store-public-key.txt").unlink()
+            result, output = self.run_readiness(root, report_path, checksum)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output["checks"]["production_inputs"])
+            self.assertIn("fixture_public_key_missing", output["errors"])
 
 
 if __name__ == "__main__":

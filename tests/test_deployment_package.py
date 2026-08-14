@@ -9,7 +9,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED_OPTIONAL_FRAME_PATTERNS = ["https://packages.articulateusercontent.com/*"]
-UPDATE_METADATA_HOST_PERMISSION = "https://radicalmove.github.io/Beta-testing-app/*"
+UPDATE_METADATA_HOST_PERMISSION = "https://radicalmove.github.io/radcra/*"
 
 
 def assert_classic_self_contained_script(source: str) -> None:

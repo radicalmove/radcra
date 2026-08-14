@@ -15,24 +15,26 @@ from deploy.scripts.store_package import (
 
 
 class StorePackageTests(unittest.TestCase):
+    BUILD_COMMIT = "0123456789abcdef0123456789abcdef01234567"
     def fixture(self, root: Path, *, version: str = "0.5.35") -> Path:
         dist = root / "dist"
         (dist / "icons").mkdir(parents=True)
-        (dist / "background.js").write_text("self.background = true;\n")
-        (dist / "content.js").write_text("(() => { document.documentElement.dataset.active = 'yes'; })();\n")
+        (dist / "background.js").write_text(f"self.background = true;/*{self.BUILD_COMMIT}|https://fld-mini.tail4ccaba.ts.net*/\n")
+        (dist / "content.js").write_text(f"(() => {{ document.documentElement.dataset.active = 'yes'; }})();/*{self.BUILD_COMMIT}*/\n")
         manifest = {
             "manifest_version": 3,
-            "name": "RADCRA — Course Review (BETA)",
+            "name": "RADCRA - Course Review App (BETA)",
             "version": version,
             "description": "Review Moodle pages. THIS EXTENSION IS FOR BETA TESTING.",
             "icons": {"16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png"},
-            "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A",
+            "key": (Path(__file__).parent / "fixtures/store-public-key.txt").read_text().strip(),
             "permissions": ["storage"],
             "host_permissions": [
                 "https://my.uconline.ac.nz/*",
-                "https://review.example.test/*",
-                "https://radicalmove.github.io/Beta-testing-app/*",
+                "https://fld-mini.tail4ccaba.ts.net/*",
+                "https://radicalmove.github.io/radcra/*",
             ],
+            "optional_host_permissions": ["https://packages.articulateusercontent.com/*"],
             "background": {"service_worker": "background.js"},
             "content_scripts": [{"matches": ["https://my.uconline.ac.nz/*"], "js": ["content.js"]}],
         }
@@ -46,9 +48,9 @@ class StorePackageTests(unittest.TestCase):
             root = Path(directory)
             dist = self.fixture(root)
             output = root / "radcra-web-store-v0.5.35.zip"
-            first = package_store(dist, output, "0.5.35", "radicalmove/Beta-testing-app")
+            first = package_store(dist, output, "0.5.35", "radicalmove/radcra", self.BUILD_COMMIT)
             first_bytes = output.read_bytes()
-            second = package_store(dist, output, "0.5.35", "radicalmove/Beta-testing-app")
+            second = package_store(dist, output, "0.5.35", "radicalmove/radcra", self.BUILD_COMMIT)
             self.assertEqual(first, second)
             self.assertEqual(first_bytes, output.read_bytes())
             self.assertEqual(report_path_for(output), output.with_suffix(".report.json"))
@@ -59,18 +61,25 @@ class StorePackageTests(unittest.TestCase):
                 self.assertTrue(all(not name.startswith("moodle-review-extension/") for name in archive.namelist()))
             report = json.loads(report_path_for(output).read_text())
             self.assertEqual(report["version"], "0.5.35")
-            self.assertEqual(report["repository"], "radicalmove/Beta-testing-app")
+            self.assertEqual(report["repository"], "radicalmove/radcra")
             self.assertEqual(report["zip_sha256"], hashlib.sha256(first_bytes).hexdigest())
+            self.assertEqual(report["build_mode"], "production")
+            self.assertEqual(report["build_commit"], self.BUILD_COMMIT)
+            self.assertEqual(report["moodle_patterns"], ["https://my.uconline.ac.nz/*"])
+            self.assertEqual(report["optional_frame_patterns"], ["https://packages.articulateusercontent.com/*"])
+            self.assertEqual(report["review_service_origin"], "https://fld-mini.tail4ccaba.ts.net")
+            self.assertEqual(report["manifest_sha256"], hashlib.sha256((dist / "manifest.json").read_bytes()).hexdigest())
+            self.assertEqual(report["public_key_sha256"], hashlib.sha256(__import__("base64").b64decode(json.loads((dist / "manifest.json").read_text())["key"])).hexdigest())
 
     def test_validator_rejects_release_metadata_private_keys_maps_and_remote_code(self):
-        bad_files = ("RELEASE.json", "source.js.map", "pilot-private.pem")
+        bad_files = ("RELEASE.json", "source.js.map", "SOURCE.MAP", "pilot-private.pem", "listing-art.png", "README.txt")
         for bad_file in bad_files:
             with self.subTest(bad_file=bad_file), tempfile.TemporaryDirectory() as directory:
                 dist = self.fixture(Path(directory))
                 path = dist / bad_file
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("not package content")
-                with self.assertRaisesRegex(ValueError, "(release metadata|source map|private key)"):
+                with self.assertRaisesRegex(ValueError, "(not an allowed runtime file|release metadata|source map|private key)"):
                     validate_store_directory(dist, "0.5.35")
         with tempfile.TemporaryDirectory() as directory:
             dist = self.fixture(Path(directory))
@@ -92,7 +101,7 @@ class StorePackageTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "version"):
                 validate_store_directory(dist, "0.5.35")
 
-    def test_cli_requires_repository_and_writes_report(self):
+    def test_cli_defaults_to_radicalmove_radcra_and_writes_report(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             dist = self.fixture(root)
@@ -107,8 +116,8 @@ class StorePackageTests(unittest.TestCase):
                     str(output),
                     "--version",
                     "0.5.35",
-                    "--repository",
-                    "radicalmove/Beta-testing-app",
+                    "--build-commit",
+                    self.BUILD_COMMIT,
                 ],
                 cwd=Path(__file__).resolve().parents[1],
                 text=True,
@@ -117,6 +126,16 @@ class StorePackageTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(output.is_file())
             self.assertTrue(report_path_for(output).is_file())
+
+    def test_package_rejects_wrong_repository_or_missing_runtime_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dist = self.fixture(root)
+            with self.assertRaisesRegex(ValueError, "repository"):
+                package_store(dist, root / "bad.zip", "0.5.35", "radicalmove/Beta-testing-app", self.BUILD_COMMIT)
+            (dist / "content.js").write_text("no diagnostic")
+            with self.assertRaisesRegex(ValueError, "build commit"):
+                package_store(dist, root / "bad.zip", "0.5.35", "radicalmove/radcra", self.BUILD_COMMIT)
 
 
 if __name__ == "__main__":

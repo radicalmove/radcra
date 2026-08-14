@@ -9,6 +9,7 @@ small JSON report alongside the ZIP for release verification.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import re
@@ -17,7 +18,9 @@ import zipfile
 from pathlib import Path
 
 
-UPDATE_HOST = "https://radicalmove.github.io/Beta-testing-app/*"
+UPDATE_HOST = "https://radicalmove.github.io/radcra/*"
+REPOSITORY = "radicalmove/radcra"
+STORE_NAME = "RADCRA - Course Review App (BETA)"
 STORE_FILES = (
     "background.js",
     "content.js",
@@ -66,8 +69,8 @@ def _validate_manifest(dist: Path, version: str, files: set[str]) -> dict:
         raise ValueError("manifest must be Manifest V3")
     if manifest.get("version") != version:
         raise ValueError(f"manifest version does not match requested version {version}")
-    if not isinstance(manifest.get("name"), str) or not manifest["name"].startswith("RADCRA"):
-        raise ValueError("manifest name must identify RADCRA")
+    if manifest.get("name") != STORE_NAME:
+        raise ValueError(f"manifest name must be {STORE_NAME}")
     if "THIS EXTENSION IS FOR BETA TESTING" not in str(manifest.get("description", "")):
         raise ValueError("manifest description must contain the beta-testing disclosure")
     icons = manifest.get("icons")
@@ -78,8 +81,14 @@ def _validate_manifest(dist: Path, version: str, files: set[str]) -> dict:
     if not isinstance(permissions, list) or UPDATE_HOST not in permissions:
         raise ValueError("manifest must include the fixed GitHub Pages update host")
     for permission in permissions:
-        if not isinstance(permission, str) or ".invalid" in permission or "example.invalid" in permission:
+        if not isinstance(permission, str) or re.search(r"(?:\.invalid|\.test|\.example)(?:[:/]|$)|localhost|127\.0\.0\.1", permission, re.I):
             raise ValueError("manifest contains a placeholder host permission")
+    try:
+        key = base64.b64decode(manifest["key"], validate=True)
+        if base64.b64encode(key).decode("ascii") != manifest["key"] or len(key) < 256 or not key.startswith(b"\x30"):
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("manifest public key must be canonical RSA SPKI DER base64") from None
     return manifest
 
 
@@ -99,15 +108,28 @@ def validate_store_directory(dist: Path, version: str) -> list[str]:
     files = _all_files(dist)
     if not files:
         raise ValueError("distribution directory is empty")
+    unexpected = sorted(set(files) - set(STORE_FILES))
+    missing = sorted(set(STORE_FILES) - set(files))
+    if unexpected or missing:
+        details = []
+        if unexpected:
+            details.append(f"not an allowed runtime file: {', '.join(unexpected)}")
+        if missing:
+            details.append(f"required runtime file missing: {', '.join(missing)}")
+        raise ValueError("; ".join(details))
     for name in files:
         path = Path(name)
         lower = name.lower()
         if path.suffix == ".map":
             raise ValueError(f"source map is not allowed in Web Store package: {name}")
+        if path.suffix.lower() in {".zip", ".crx"}:
+            raise ValueError(f"nested archive is not allowed in Web Store package: {name}")
         if name in {"RELEASE.json", "SHA256SUMS"} or lower.endswith(".report.json"):
             raise ValueError(f"release metadata is not allowed in Web Store package: {name}")
         if _PRIVATE_KEY.search(name):
             raise ValueError(f"private key is not allowed in Web Store package: {name}")
+        if re.search(r"(?:^|[-_.])key(?:[-_.]|$)", path.name, re.I):
+            raise ValueError(f"key file is not allowed in Web Store package: {name}")
         if path.is_absolute() or ".." in path.parts:
             raise ValueError(f"unsafe package path: {name}")
     _validate_manifest(dist, version, set(files))
@@ -130,19 +152,42 @@ def _write_deterministic_zip(dist: Path, output: Path, files: list[str]) -> None
             archive.writestr(info, (dist / name).read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
 
 
-def package_store(dist: Path, output: Path, version: str, repository: str) -> dict:
+def package_store(dist: Path, output: Path, version: str, repository: str, build_commit: str) -> dict:
     """Validate *dist*, create deterministic *output*, and return its report."""
 
-    if not repository or repository.strip() != repository or "/" not in repository:
-        raise ValueError("repository must be an owner/name value")
+    if repository != REPOSITORY:
+        raise ValueError(f"repository must be {REPOSITORY}")
+    if not re.fullmatch(r"[0-9a-f]{40}", build_commit):
+        raise ValueError("build commit must be a full lowercase commit")
     files = validate_store_directory(Path(dist), version)
+    for runtime in ("background.js", "content.js"):
+        if build_commit not in (Path(dist) / runtime).read_text(encoding="utf-8"):
+            raise ValueError(f"full build commit is missing from runtime diagnostics: {runtime}")
     files = sorted(files)
     _write_deterministic_zip(Path(dist), Path(output), files)
     zip_bytes = Path(output).read_bytes()
+    manifest_bytes = (Path(dist) / "manifest.json").read_bytes()
+    manifest = json.loads(manifest_bytes)
+    host_permissions = manifest["host_permissions"]
+    moodle_patterns = manifest["content_scripts"][0]["matches"]
+    service_patterns = [item for item in host_permissions if item not in moodle_patterns and item != UPDATE_HOST]
+    if len(service_patterns) != 1:
+        raise ValueError("manifest must contain exactly one review service origin")
+    review_service_origin = service_patterns[0][:-2]
+    if review_service_origin not in (Path(dist) / "background.js").read_text(encoding="utf-8"):
+        raise ValueError("review service origin is missing from background runtime evidence")
+    public_key = base64.b64decode(manifest["key"], validate=True)
     report = {
         "schema_version": 1,
         "version": version,
         "repository": repository,
+        "build_mode": "production",
+        "build_commit": build_commit,
+        "moodle_patterns": moodle_patterns,
+        "optional_frame_patterns": manifest.get("optional_host_permissions", []),
+        "review_service_origin": review_service_origin,
+        "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "public_key_sha256": hashlib.sha256(public_key).hexdigest(),
         "files": files,
         "zip_sha256": hashlib.sha256(zip_bytes).hexdigest(),
     }
@@ -155,9 +200,10 @@ def main() -> None:
     parser.add_argument("--dist", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--version", required=True)
-    parser.add_argument("--repository", required=True)
+    parser.add_argument("--repository", default=REPOSITORY)
+    parser.add_argument("--build-commit", required=True)
     args = parser.parse_args()
-    report = package_store(args.dist, args.output, args.version, args.repository)
+    report = package_store(args.dist, args.output, args.version, args.repository, args.build_commit)
     print(json.dumps(report, sort_keys=True))
 
 

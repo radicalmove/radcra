@@ -1106,7 +1106,7 @@ test("an acknowledged policy allows SCORM launch registration after the launch-p
   window.fetch = (async () => {
     fetches += 1;
     return { ok: true, url: "https://moodle.example.invalid/mod/scorm/view.php?id=22", text: async () => `<form method="post" action="https://moodle.example.invalid/mod/scorm/player.php"><input name="mode" value="normal"><input name="scoid" value="1"><input name="cm" value="22"><input name="currentorg" value="rise"></form>` } as Response;
-  }) as typeof window.fetch;
+  }) as unknown as typeof window.fetch;
   const messages: any[] = [];
   const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
     messages.push(message);

@@ -53,7 +53,7 @@ class PublicReleaseSiteTests(unittest.TestCase):
             "EXTENSION_PRIVATE_KEY_PEM",
             "REVIEW_SERVICE_ORIGIN",
             "BUILD_COMMIT: ${{ github.sha }}",
-            "BUILD_COMMIT=\"${{ github.sha }}\"",
+            "BUILD_COMMIT=${{ github.sha }}",
             "chmod 600",
             "trap cleanup EXIT",
             "rm -f -- \"$key_file\"",

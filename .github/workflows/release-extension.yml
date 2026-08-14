@@ -91,7 +91,7 @@ jobs:
           PRIVATE_KEY_PATH="$key_file" \
             REVIEW_SERVICE_ORIGIN="$REVIEW_SERVICE_ORIGIN" \
             OPTIONAL_FRAME_PATTERNS="$(awk 'NF && $1 !~ /^#/ { printf "%s%s", separator, $0; separator="," }' deploy/config/pilot-optional-frame-patterns.txt)" \
-            BUILD_COMMIT="${{ github.sha }}" \
+            BUILD_COMMIT=${{ github.sha }} \
             deploy/scripts/build-pilot-extension.sh
           test -f extension/dist/manifest.json
           test -f extension/dist/icons/icon16.png

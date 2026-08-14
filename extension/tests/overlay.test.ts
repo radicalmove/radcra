@@ -42,6 +42,9 @@ test("fresh policy state shows a blocking disclosure before any sign-in control"
   const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
   const disclosure = shadow.querySelector<HTMLElement>(".policy-disclosure")!;
   assert.match(disclosure.textContent ?? "", /Limited Use/);
+  for (const category of ["reviewer name, email, role", "credentials", "course/page URLs", "selected text", "visual anchors", "comments, replies, statuses", "optional screenshots and attachments submitted only at the reviewer's request", "reliability, and error diagnostics"]) assert.match(disclosure.textContent ?? "", new RegExp(category));
+  assert.match(disclosure.textContent ?? "", /authorised course-team members/i);
+  assert.match(disclosure.textContent ?? "", /operator staff do not routinely read/i);
   assert.equal(disclosure.querySelector("a")?.getAttribute("href"), "https://radicalmove.github.io/radcra/privacy/");
   assert.doesNotMatch(disclosure.innerHTML, /Beta-testing-app/);
   assert.equal(shadow.querySelector('[data-action="authenticate"]'), null);

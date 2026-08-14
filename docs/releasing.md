@@ -1,11 +1,11 @@
 # RADCRA release process
 
-RADCRA publishes two distinct artifacts for version `0.5.35` and later:
+RADCRA publishes two distinct artifacts for version `0.5.36` and later:
 
 - `radcra-web-store-v<version>.zip` — root-level `manifest.json` package uploaded as a private Chrome Web Store item.
 - `moodle-review-extension-v<version>-chrome-edge.zip` — nested `moodle-review-extension/` pilot archive for Chrome/Edge Developer mode.
 
-The public download page is https://radicalmove.github.io/Beta-testing-app/. The privacy policy is https://radicalmove.github.io/Beta-testing-app/privacy/, support is https://github.com/radicalmove/Beta-testing-app/issues, and update metadata is https://radicalmove.github.io/Beta-testing-app/latest.json.
+The public homepage is https://radicalmove.github.io/radcra/. The privacy policy is https://radicalmove.github.io/radcra/privacy/, support is https://radicalmove.github.io/radcra/support/, update metadata is https://radicalmove.github.io/radcra/latest.json, and the repository is https://github.com/radicalmove/radcra. Public contact: rcadavies@gmail.com.
 
 ## Local release
 
@@ -32,9 +32,9 @@ The `latest.json` schema is exactly:
 ```json
 {
   "schema_version": 1,
-  "version": "0.5.35",
-  "release_url": "https://github.com/radicalmove/Beta-testing-app/releases/tag/v0.5.35",
-  "download_url": "https://github.com/radicalmove/Beta-testing-app/releases/download/v0.5.35/radcra-web-store-v0.5.35.zip",
+  "version": "0.5.36",
+  "release_url": "https://github.com/radicalmove/radcra/releases/tag/v0.5.36",
+  "download_url": "https://radicalmove.github.io/radcra/",
   "published_at": "2026-08-14T00:00:00Z"
 }
 ```

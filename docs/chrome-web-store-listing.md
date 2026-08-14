@@ -1,52 +1,64 @@
 # Chrome Web Store listing — private beta
 
-Use this copy for the RADCRA private Chrome Web Store item. Do not publish the item publicly or add testers without explicit release approval.
+Use this exact copy for the private trusted-testers item.
 
 ## Listing fields
 
-**Name:** `RADCRA — Course Review (BETA)`
+**Name:** `RADCRA - Course Review App (BETA)`
 
-**Short description:** `Review configured Moodle course pages with comments, highlights, and review markers.`
+**Short description:** `Review configured Moodle course pages with contextual comments and markers.`
+
+**Category recommendation:** Productivity (Education if Productivity is unavailable).
 
 **Detailed description:**
 
-> **THIS EXTENSION IS FOR BETA TESTING.** RADCRA is a browser-level course-review tool for authorised reviewers. On configured Moodle course pages, a reviewer can highlight text, place an area marker, write a comment, reply to a thread, change its status, and navigate back to the exact course context. Approved embedded Rise/SCORM content can be reviewed when the reviewer grants its optional host permission. The extension does not change Moodle content.
+> **THIS EXTENSION IS FOR BETA TESTING.** RADCRA helps authorised course-team reviewers record, discuss, navigate to, and resolve contextual feedback on configured Moodle pages and optionally approved Rise/SCORM content. It supports selected-text and area comments, replies, statuses, exact-context navigation, and reviewer-requested screenshots or attachments. It never changes Moodle content.
 >
-> RADCRA sends review identity, course/page context, selected text, comments, replies, statuses, and explicitly requested screenshots/attachments to the configured review service so authorised course teams can discuss and resolve feedback. See the [privacy policy](https://radicalmove.github.io/Beta-testing-app/privacy/) before use. Support is available through the [project issue tracker](https://github.com/radicalmove/Beta-testing-app/issues).
+> RADCRA handles reviewer name, email, role, and approval status; authentication, session, reconnect, and device credentials; course/page URLs and activity/SCORM identifiers, titles, and current location; comments, replies, statuses, timestamps, selected text, visual anchors, and optional screenshots and attachments submitted only at the reviewer's request; and browser/build, navigation, reliability, and error diagnostics. Authorised course-team members may read course-review content. Service operator staff do not routinely read it and may access specific data only on explicit user request about that data, for security or abuse, or legal obligation. Internal operational or improvement use is limited to aggregated and anonymised data.
 >
-> Release metadata is read from `https://radicalmove.github.io/Beta-testing-app/latest.json`. That permission is used only to read JSON version metadata; it never reads Moodle page content, downloads code, executes remote code, or replaces the extension. Chrome Web Store installations update through Chrome. Unpacked pilot installations are updated manually by replacing the folder and pressing Reload.
+> GitHub Pages receives ordinary request metadata: IP address, user agent, request time, and requested path. RADCRA sends it no Moodle content, review content, credentials, or tokens. See https://radicalmove.github.io/radcra/privacy/ and https://radicalmove.github.io/radcra/support/.
 
-**Single purpose:** Help an authorised reviewer record, discuss, navigate, and resolve contextual feedback on configured Moodle course pages.
+**Single purpose:** `Help an authorised reviewer record, discuss, navigate, and resolve contextual feedback on configured Moodle course pages.`
 
-**Category suggestion:** Productivity (or Education if the dashboard offers that category).
+## Permission and host justifications
 
-## Permission justifications
-
-| Permission/host | Justification shown to the reviewer |
+| Permission/host | Justification |
 | --- | --- |
-| `identity` | Starts the approved reviewer sign-in flow and receives a one-time callback; dashboard cookies are not used as API credentials. |
-| `storage` | Keeps the short-lived session, trusted reviewer access state, panel preferences, and versioned privacy acknowledgement in the extension-owned storage boundaries. |
-| `scripting` | Coordinates the review overlay and exact comment navigation in configured Moodle pages and explicitly approved embedded frames. |
-| `tabs` | Reads the active tab URL/title needed to bind a review action to its current Moodle page and to display a safe navigation target. |
-| `https://my.uconline.ac.nz/*` (production host) | Runs the overlay only on the configured Moodle course host. No `<all_urls>` permission is used. |
-| configured review-service host | Sends authenticated review operations to the service configured for this private beta. The exact origin is supplied during the production build. |
-| `https://radicalmove.github.io/*` | Reads only the fixed `latest.json` release metadata endpoint for a user-requested or rate-limited update check. It does not read page content. |
-| optional Rise/SCORM match patterns | Requested only after a reviewer opens an approved embedded activity, so unrelated sites do not receive access. |
+| `identity` | Opens the approved reviewer authentication flow and validates its exact callback. |
+| `storage` | Stores bounded session/access and reconnect state and optional-host coordination, panel preferences, update-check state, and policy acknowledgement. |
+| `scripting` | Registers and injects the packaged content script only on approved optional embedded hosts. |
+| `webNavigation` | Observes trusted top-level navigation and enumerates the current-tab frame hierarchy. |
+| configured Moodle host patterns | Runs RADCRA only on approved Moodle origins; no `<all_urls>` access. |
+| configured HTTPS review-service origin | Sends authenticated course-review operations to the configured service. |
+| `https://radicalmove.github.io/radcra/*` | Reads strictly validated `latest.json` version metadata. It reads no Moodle content or credentials and cannot supply executable behaviour. |
+| optional Rise/SCORM host patterns | Requested by user action only for an approved embedded activity; denial preserves the parent-page path. |
 
-The extension does not request a private key, `downloads`, or broad web access. It does not execute remotely hosted JavaScript.
+No `downloads`, `<all_urls>`, or private-key permission is requested.
 
-## Privacy practices answers
+## Privacy dashboard choices
 
-- **Chrome Web Store Limited Use:** RADCRA's use of data complies with the Chrome Web Store User Data Policy, including the Limited Use requirements. User data is used only to provide or improve the single course-review purpose.
-- **Does the extension handle user data?** Yes. It handles reviewer identity/email and session material, Moodle/course/page URLs and titles, selected text, comments/replies/status, optional screenshots or attachments, and operational logs.
-- **Is the data sold or used for advertising/creditworthiness?** No.
-- **Purpose:** The data is used only to provide and support the single course-review purpose. It is sent to the configured review service and the Moodle site already being reviewed.
-- **Human access:** Limited to people who need it to operate, support, or improve the authorised beta review service.
-- **Privacy policy URL:** https://radicalmove.github.io/Beta-testing-app/privacy/
-- **Support URL:** https://github.com/radicalmove/Beta-testing-app/issues
+| Dashboard category | Choice | Declaration |
+| --- | --- | --- |
+| Personally identifiable information | Yes | reviewer name, email, role, approval and membership identifiers |
+| Health information | No | not requested; educational course content is Website content |
+| Financial and payment information | No | not collected |
+| Authentication information | Yes | short-lived tokens and reconnect/device credentials |
+| Personal communications | Yes | comments, replies, statuses and intentionally attached files |
+| Location | No | not collected |
+| Web history | Yes | configured Moodle/course/page/SCORM URLs used for context navigation |
+| User activity | Yes | review actions and bounded navigation/reliability diagnostics |
+| Website content | Yes | selected text, titles, visual anchors, requested screenshots and course context |
 
-## Private-beta distribution
+**Remote code:** `No`. RADCRA neither downloads nor executes remote code; GitHub metadata never controls executable behaviour.
 
-Upload the root-level `radcra-web-store-v<version>.zip` from a tagged GitHub Release, set distribution to private, and add only approved trusted testers. The package has `manifest.json` at its root. Keep the nested `moodle-review-extension-v<version>-chrome-edge.zip` as the developer fallback; it is not the Web Store upload package.
+Certify every Limited Use statement: data is not sold; is not used or transferred outside the single purpose; is not used or transferred for creditworthiness or lending; is not used for personalised advertising; and transfers and human access are limited to disclosed permitted cases. RADCRA complies with the Chrome Web Store User Data Policy, including Limited Use.
 
-Before the first submission, compare the dashboard public key with the accepted pilot public key byte-for-byte after canonical base64/DER normalisation. Copy the dashboard Item ID and compare it with the unpacked `chrome://extensions` ID. If the identity differs, stop and follow the documented migration; never silently publish a second identity. Register only the exact `chrome.identity.getRedirectURL()` value with the review service.
+**Homepage:** https://radicalmove.github.io/radcra/
+
+**Privacy:** https://radicalmove.github.io/radcra/privacy/
+
+**Support:** https://radicalmove.github.io/radcra/support/
+
+**Update metadata:** https://radicalmove.github.io/radcra/latest.json
+
+Distribute only to approved private trusted testers. Supply reviewer credentials and private URLs only in Store Test instructions or another approved private channel. Upload the exact root-level `radcra-web-store-v0.5.36.zip`; compare the Store Item ID and public key with the accepted pilot identity before submission.

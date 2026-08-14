@@ -9,6 +9,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED_OPTIONAL_FRAME_PATTERNS = ["https://packages.articulateusercontent.com/*"]
+UPDATE_METADATA_HOST_PERMISSION = "https://radicalmove.github.io/Beta-testing-app/*"
 
 
 def assert_classic_self_contained_script(source: str) -> None:
@@ -28,8 +29,8 @@ def assert_classic_self_contained_script(source: str) -> None:
 def assert_production_manifest(manifest: dict, service_origin: str = "https://fld-mini.tail4ccaba.ts.net") -> None:
     moodle = "https://my.uconline.ac.nz/*"
     service = f"{service_origin.rstrip('/')}/*"
-    if manifest.get("host_permissions") != [moodle, service]:
-        raise AssertionError("production host_permissions must contain only the real UC Online and configured service hosts")
+    if manifest.get("host_permissions") != [moodle, service, UPDATE_METADATA_HOST_PERMISSION]:
+        raise AssertionError("production host_permissions must contain the real UC Online, configured service, and fixed update hosts in order")
     scripts = manifest.get("content_scripts")
     if not isinstance(scripts, list) or len(scripts) != 1:
         raise AssertionError("production manifest must define exactly one content script")
@@ -269,14 +270,16 @@ class DeploymentPackageTests(unittest.TestCase):
 
     def test_manifest_validator_rejects_placeholder_or_additional_hosts(self):
         valid = {
-            "host_permissions": ["https://my.uconline.ac.nz/*", "https://fld-mini.tail4ccaba.ts.net/*"],
+            "host_permissions": ["https://my.uconline.ac.nz/*", "https://fld-mini.tail4ccaba.ts.net/*", UPDATE_METADATA_HOST_PERMISSION],
             "optional_host_permissions": APPROVED_OPTIONAL_FRAME_PATTERNS,
             "content_scripts": [{"matches": ["https://my.uconline.ac.nz/*"], "js": ["content.js"]}],
         }
         assert_production_manifest(valid)
         for permissions in (
             ["https://moodle.example.invalid/*", "https://fld-mini.tail4ccaba.ts.net/*"],
-            ["https://my.uconline.ac.nz/*", "https://fld-mini.tail4ccaba.ts.net/*", "https://extra.example/*"],
+            ["https://my.uconline.ac.nz/*", "https://fld-mini.tail4ccaba.ts.net/*"],
+            ["https://my.uconline.ac.nz/*", UPDATE_METADATA_HOST_PERMISSION, "https://fld-mini.tail4ccaba.ts.net/*"],
+            ["https://my.uconline.ac.nz/*", "https://fld-mini.tail4ccaba.ts.net/*", UPDATE_METADATA_HOST_PERMISSION, "https://extra.example/*"],
         ):
             with self.subTest(permissions=permissions):
                 with self.assertRaises(AssertionError):

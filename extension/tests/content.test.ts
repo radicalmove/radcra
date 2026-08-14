@@ -13,6 +13,14 @@ class ArrivalStorage {
   removeItem(key: string) { this.values.delete(key); }
 }
 
+const ACKNOWLEDGED_POLICY_RESPONSE = { ok: true, data: { acknowledged: true, policy_version: "2026-08-14" } };
+function acknowledgedRuntime<T extends { sendMessage: (message: any, callback: (response: any) => void) => void }>(runtime: T): T {
+  return { ...runtime, sendMessage: (message: any, callback: (response: any) => void) => {
+    if (message?.type === "GET_POLICY_STATUS") { callback(ACKNOWLEDGED_POLICY_RESPONSE); return; }
+    runtime.sendMessage(message, callback);
+  } } as T;
+}
+
 test("invalidated extension contexts fail quietly instead of throwing from a stale page timer", () => {
   let response: unknown;
   const sent = sendRuntimeMessage({ sendMessage: () => { throw new Error("Extension context invalidated."); } }, { type: "HEARTBEAT" }, (value) => { response = value; });
@@ -44,7 +52,7 @@ test("comment save waits for the authoritative list refresh before closing", asy
     else if (message.type === "CREATE_COMMENT") callback({ ok: true, data: { id: saved.id } });
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime);
+  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   const text = window.document.querySelector("#copy")!.firstChild!; const range = window.document.createRange(); range.setStart(text, 0); range.setEnd(text, 16); window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range as any); window.document.dispatchEvent(new window.Event("selectionchange") as any);
   const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
@@ -167,7 +175,7 @@ test("course review does not read arrival storage until the authoritative commen
     else if (message.type === "LIST_COURSE_COMMENTS") respondToList = callback;
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.ok(respondToList);
   assert.equal(storage.reads, 0);
@@ -195,7 +203,7 @@ test("non-SCORM navigation stays pending until the late anchor scroll succeeds",
     else if (message.type === "COMPLETE_COMMENT_NAVIGATION") { completed = true; callback({ ok: true, data: {} }); }
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime);
+  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(completed, false);
   assert.ok(timers.length > 0, "an unresolved navigation must schedule another attempt");
@@ -287,13 +295,13 @@ test("bootstrap wired to the real start entry tears down the old overlay instanc
   const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=1" });
   window.document.body.innerHTML = "<h1>Law</h1>";
   let messages = 0;
-  const runtime = { sendMessage: (_message: unknown, callback: (response: { ok: boolean }) => void) => { messages += 1; callback({ ok: true }); } };
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => { messages += 1; callback(message.type === "RESOLVE_COURSE" ? { ok: true, data: { registered: false, can_register: false } } : { ok: true }); } };
   const options = {
     url: window.location.href,
     document: window.document as unknown as Document,
     moodlePatterns: ["https://moodle.example.invalid/*"],
     optionalFramePatterns: [] as string[],
-    inject: () => startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime),
+    inject: () => startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, acknowledgedRuntime(runtime)),
   };
 
   await bootstrapContentScript(options);
@@ -302,7 +310,7 @@ test("bootstrap wired to the real start entry tears down the old overlay instanc
 
   assert.equal(window.document.querySelectorAll("#moodle-course-review-overlay").length, 1);
   assert.notEqual(window.history.pushState, firstHistoryPatch);
-  assert.equal(messages, 4, "each fresh content instance checks local policy before resolving the course");
+  assert.equal(messages, 2, "each fresh content instance checks local policy before resolving the course");
 });
 
 test("real content-script startup does not require chrome.permissions", async () => {
@@ -395,7 +403,7 @@ test("embedded review stays dormant until the coordinator activates its toolbar-
       else { if (message.type === "REGISTER_REVIEW_FRAME") workerInstanceId = message.worker_instance_id; callback({ ok: true, data: {} }); }
     },
   };
-  const cleanup = startEmbeddedReview(window as any, window.document as any, runtime as any);
+  const cleanup = startEmbeddedReview(window as any, window.document as any, acknowledgedRuntime(runtime as any));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(window.document.documentElement.getAttribute("data-moodle-review-registration"), "registered");
   assert.match(window.document.documentElement.getAttribute("data-moodle-review-capabilities") ?? "", /"contentBearing":true/);
@@ -427,7 +435,7 @@ test("embedded review re-registers after a background worker restart interval", 
       else { if (message.type === "REGISTER_REVIEW_FRAME") registrations.push(message); callback({ ok: true, data: {} }); }
     },
   };
-  const cleanup = startEmbeddedReview(window as any, window.document as any, runtime as any, 0, 5);
+  const cleanup = startEmbeddedReview(window as any, window.document as any, acknowledgedRuntime(runtime as any), 0, 5);
   await new Promise((resolve) => setTimeout(resolve, 18));
   assert.ok(contextRequests >= 2);
   assert.ok(registrations.length >= 2);
@@ -450,7 +458,7 @@ test("embedded review obtains trusted course context and updates its hash identi
     if ((message as any).type === "GET_REVIEW_CONTEXT") callback({ ok: true, data: { course_id: "123e4567-e89b-12d3-a456-426614174000", course_title: "Law", parent_activity_url: "https://learn.example/mod/scorm/player.php?cmid=22" } });
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startEmbeddedReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime);
+  const cleanup = startEmbeddedReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(window.document.querySelector("#moodle-course-review-overlay"), null);
   window.location.hash = "/lesson/2"; window.document.title = "Lesson 2"; window.dispatchEvent(new window.Event("hashchange"));
@@ -469,7 +477,7 @@ test("elected SCORM worker publishes initial identity and selection before ready
     if (message.type === "GET_REVIEW_CONTEXT") callback({ ok: true, data: { course_id: "123e4567-e89b-12d3-a456-426614174000", course_title: "Law", parent_activity_url: "https://learn.example/mod/scorm/player.php?cmid=22" } });
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startEmbeddedReview(window as any, window.document as any, runtime as any, 0);
+  const cleanup = startEmbeddedReview(window as any, window.document as any, acknowledgedRuntime(runtime as any), 0);
   await new Promise((resolve) => setTimeout(resolve, 0));
   const workerInstanceId = messages.find((message) => message.type === "REGISTER_REVIEW_FRAME")?.worker_instance_id;
   listener!({ type: "ACTIVATE_REVIEW_FRAME", worker_instance_id: workerInstanceId, generation: 1 }, {}, () => undefined);
@@ -551,7 +559,7 @@ test("embedded review no longer loads a duplicate course comment list", async ()
     else if (message.type === "LIST_COURSE_COMMENTS") callback({ ok: true, data: [comment] });
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startEmbeddedReview(window as any, window.document as any, runtime);
+  const cleanup = startEmbeddedReview(window as any, window.document as any, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(window.document.querySelector("#moodle-course-review-overlay"), null);
   assert.equal(messages.some((message: any) => message.type === "LIST_COURSE_COMMENTS"), false);
@@ -588,7 +596,7 @@ test("validated Connected Package identity aliases persist across same-course pa
       else callback({ ok: true, data: {} });
     },
   };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime, undefined, 5);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime), undefined, 5);
   await new Promise((resolve) => setTimeout(resolve, 0));
   const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
   assert.match(shadow.textContent!, /We couldn't load this course/);
@@ -635,7 +643,7 @@ test("embedded review retries while the top frame is still resolving", async () 
     if (message.type === "GET_REVIEW_CONTEXT") { attempts += 1; callback(attempts === 1 ? { ok: false, error: "Review context unavailable" } : { ok: true, data: { course_id: "123e4567-e89b-12d3-a456-426614174000", course_title: "Law", parent_activity_url: "https://moodle.example/mod/scorm/player.php?cmid=22" } }); return; }
     callback({ ok: true, data: {} });
   } };
-  const cleanup = startEmbeddedReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime, 0);
+  const cleanup = startEmbeddedReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, acknowledgedRuntime(runtime), 0);
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(attempts, 3);
   assert.equal(window.document.querySelector("#moodle-course-review-overlay"), null);
@@ -649,7 +657,7 @@ test("embedded review retries while the course is not yet bound to the tab", asy
     if (message.type === "GET_REVIEW_CONTEXT") { attempts += 1; callback(attempts === 1 ? { ok: false, error: "Course is not bound to tab" } : { ok: true, data: { course_id: "123e4567-e89b-12d3-a456-426614174000", course_title: "Law", parent_activity_url: "https://moodle.example/mod/scorm/player.php?cmid=22" } }); return; }
     callback({ ok: true, data: {} });
   } };
-  const cleanup = startEmbeddedReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime, 0);
+  const cleanup = startEmbeddedReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, acknowledgedRuntime(runtime), 0);
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(attempts, 3);
   assert.equal(window.document.querySelector("#moodle-course-review-overlay"), null);
@@ -666,7 +674,7 @@ test("top navigation immediately removes stored markers before delayed responses
     else if (message.type === "LIST_COURSE_COMMENTS") lists.push(callback);
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime);
+  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0)); lists[0]!({ ok: true, data: [comment] }); await new Promise((resolve) => setTimeout(resolve, 0));
   assert.ok(window.document.querySelector("[data-moodle-review-stored-highlight]"));
   window.history.pushState({}, "", "/mod/page/view.php?id=2");
@@ -690,7 +698,7 @@ for (const mutation of [
     else if (message.type === "LIST_COURSE_COMMENTS") { listCount += 1; callback(listCount === 1 ? { ok: true, data: [comment] } : { ok: false, error: "List unavailable" }); }
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime);
+  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0)); const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot! as unknown as ShadowRoot;
   assert.ok(window.document.querySelector("[data-moodle-review-stored-highlight]"));
   shadow.querySelector<HTMLElement>('[data-action="panel"]')!.click(); shadow.querySelector<HTMLButtonElement>(`[data-comment-action="${mutation.action}"]`)!.click(); shadow.querySelector<HTMLButtonElement>("[data-confirm-action]")!.click(); await new Promise((resolve) => setTimeout(resolve, 0)); if (mutation.action === "status") { delayedRefresh?.(); await new Promise((resolve) => setTimeout(resolve, 0)); }
@@ -712,7 +720,7 @@ test("a stale failed mutation refresh yields to a newer successful comment proje
     else if (message.type === "LIST_COURSE_COMMENTS") { if (mutationSaved && !rejectListA) rejectListA = callback; else callback({ ok: true, data: mutationSaved ? [newer] : [base] }); }
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime); await new Promise((resolve) => setTimeout(resolve, 0));
+  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, acknowledgedRuntime(runtime)); await new Promise((resolve) => setTimeout(resolve, 0));
   const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot! as unknown as ShadowRoot; shadow.querySelector<HTMLElement>('[data-action="panel"]')!.click(); shadow.querySelector<HTMLButtonElement>('[data-comment-action="status"]')!.click(); shadow.querySelector<HTMLButtonElement>("[data-confirm-action]")!.click(); await new Promise((resolve) => setTimeout(resolve, 0)); delayedRefresh?.(); await new Promise((resolve) => setTimeout(resolve, 0)); assert.ok(rejectListA);
   runtimeListener!({ type: "SCORM_WORKER_EVENT", event: { type: "SCORM_COMMENTS_CHANGED" } }); await new Promise((resolve) => setTimeout(resolve, 0));
   assert.match(shadow.querySelector<HTMLButtonElement>("[data-comment-item]")!.textContent!, /Newer projection/);
@@ -733,7 +741,7 @@ test.skip("an ordinary comment refresh preserves the selected course page until 
     else if (message.type === "LIST_COURSE_COMMENTS") pendingLists.push(callback);
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime);
+  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   pendingLists.shift()!({ ok: true, data: [firstPage, secondPage] });
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -762,7 +770,7 @@ test("sign in sends one authenticate per activation and refreshes course and com
     else if (message.type === "LIST_COURSE_COMMENTS") callback({ ok: true, data: [] });
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime);
+  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
   const signIn = shadow.querySelector('[data-action="authenticate"]') as unknown as HTMLElement;
@@ -787,7 +795,7 @@ test("course access checking disables sign-in and does not invoke authentication
     else if (message.type === "AUTHENTICATE") authenticateCalls += 1;
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.ok(publicLookup);
   const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
@@ -809,7 +817,7 @@ test("authenticated unregistered resolve responses show the server capability wi
     if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { registered: false, can_register: false } });
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
   assert.match(shadow.textContent!, /Course not registered/);
@@ -828,7 +836,7 @@ test("successful registration forces a fresh read-only resolve for the current c
     else if (message.type === "GET_CURRENT_VIEWER") callback({ ok: true, data: {} });
     else callback({ ok: true, data: [] });
   } };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
   (shadow.querySelector('[data-action="register-course"]') as unknown as HTMLButtonElement)!.click();
@@ -857,7 +865,7 @@ test("delayed registration cannot clear or refresh a course reached during navig
     } else if (message.type === "REGISTER_COURSE") registrationCallback = callback;
     else callback({ ok: true, data: [] });
   } };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
   (shadow.querySelector('[data-action="register-course"]') as unknown as HTMLButtonElement)!.click();
@@ -885,7 +893,7 @@ test("a stale course lookup cannot overwrite the current URL or course state", a
     else if (message.type === "LIST_COURSE_COMMENTS") callback({ ok: true, data: [] });
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime));
   window.document.querySelector("h1")!.textContent = "Second";
   window.history.pushState({}, "", "https://moodle.example.invalid/course/view.php?id=5");
   window.dispatchEvent(new window.Event("moodle-review:navigate"));
@@ -913,7 +921,7 @@ test("same-page course navigation immediately invalidates bindings and ignores s
     } else if (message.type === "LIST_COURSE_COMMENTS") listCallbacks.push(callback);
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(resolveCount, 1);
   assert.equal(listCallbacks.length, 1);
@@ -955,7 +963,7 @@ test("delayed approval results and timers cannot update a newly navigated course
     else if (message.type === "CHECK_PENDING_REVIEW_ACCESS") { approvalChecks += 1; approvalCallback = callback; }
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(approvalChecks, 1);
@@ -987,7 +995,7 @@ test("pending course access is checked automatically and connects without anothe
     else if (message.type === "CHECK_PENDING_REVIEW_ACCESS") { checks += 1; callback({ ok: true, data: { state: approved ? "connected" : "pending" } }); }
     else callback({ ok: true, data: [] });
   } };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 0));
   const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
   assert.equal(checks, 1);
@@ -1011,7 +1019,7 @@ test("authentication maps cancellation, failure, pending, offline, and session e
   for (const [authResponse, expected] of cases) {
     const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=1" }); window.document.body.innerHTML = "<h1>Law</h1>";
     const runtime = { sendMessage: (message: any, callback: (response: any) => void) => callback(message.type === "GET_POLICY_STATUS" ? { ok: true, data: { acknowledged: true, policy_version: "2026-08-14" } } : message.type === "AUTHENTICATE" ? authResponse : { ok: false, status: "signed-out", error: "Signed out" }) };
-    const cleanup = startCourseReview(window as any, window.document as any, runtime); await new Promise((resolve) => setTimeout(resolve, 0));
+    const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime)); await new Promise((resolve) => setTimeout(resolve, 0));
     const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!; (shadow.querySelector('[data-action="authenticate"]') as unknown as HTMLElement).click(); await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(shadow.querySelector("[data-status-message]")?.textContent, expected); cleanup();
   }
@@ -1066,7 +1074,7 @@ test("Connected Package review requests permission only for the nested Articulat
       else callback({ ok: true, data: {} });
     } };
 
-    cleanup = startCourseReview(top as any, top.document as any, runtime, undefined, 5);
+    cleanup = startCourseReview(top as any, top.document as any, acknowledgedRuntime(runtime), undefined, 5);
     await new Promise((resolve) => setTimeout(resolve, 20));
     const shadow = top.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
     const action = shadow.querySelector('[data-action="add-comment"]') as unknown as HTMLButtonElement;
@@ -1095,7 +1103,7 @@ test("mixed ready and inaccessible frames keep a passive embedded activity notic
     else if (message.type === "GET_REVIEW_FRAME_STATUS") callback({ ok: true, data: { ready_count: 1 } });
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, runtime);
+  const cleanup = startCourseReview(window as unknown as globalThis.Window & typeof globalThis, window.document as unknown as Document, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 280));
   const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot! as unknown as ShadowRoot;
   assert.doesNotMatch(shadow.textContent!, /Embedded activity detected/);
@@ -1112,7 +1120,7 @@ test("ready embedded activity leaves the single parent toolbar visible", async (
     else if (message.type === "GET_REVIEW_FRAME_STATUS") callback({ ok: true, data: { ready_origins: ["https://rise.example.invalid"] } });
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime));
   await new Promise((resolve) => setTimeout(resolve, 280));
   assert.equal((window.document.querySelector("#moodle-course-review-overlay") as unknown as HTMLElement).hidden, false);
   cleanup();
@@ -1188,7 +1196,7 @@ test("late SCORM worker ownership never hides the Moodle toolbar", async () => {
     else if (message.type === "GET_REVIEW_FRAME_STATUS") { checks += 1; callback({ ok: true, data: { active_embedded_count: checks >= 2 ? 1 : 0 } }); }
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime, undefined, 5);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime), undefined, 5);
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.ok(checks >= 2);
   assert.notEqual((window.document.querySelector("#moodle-course-review-overlay") as unknown as HTMLElement).style.getPropertyValue("display"), "none");
@@ -1206,7 +1214,7 @@ test("a legacy descendant overlay cannot hide the Moodle toolbar", async () => {
     else if (message.type === "GET_REVIEW_FRAME_STATUS") callback({ ok: true, data: { active_embedded_count: 0 } });
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime, undefined, 5);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime), undefined, 5);
   await new Promise((resolve) => setTimeout(resolve, 15));
   assert.notEqual((window.document.querySelector("#moodle-course-review-overlay") as unknown as HTMLElement).style.getPropertyValue("display"), "none");
   cleanup();
@@ -1221,7 +1229,7 @@ test("the Moodle toolbar remains visible on the dedicated SCORM player route", a
     else if (message.type === "GET_REVIEW_FRAME_STATUS") callback({ ok: true, data: { active_embedded_count: 0, ready_origins: [] } });
     else callback({ ok: true, data: {} });
   } };
-  const cleanup = startCourseReview(window as any, window.document as any, runtime, undefined, 5);
+  const cleanup = startCourseReview(window as any, window.document as any, acknowledgedRuntime(runtime), undefined, 5);
   await new Promise((resolve) => setTimeout(resolve, 15));
   assert.notEqual((window.document.querySelector("#moodle-course-review-overlay") as unknown as HTMLElement).style.getPropertyValue("display"), "none");
   cleanup();

@@ -89,6 +89,7 @@ class StoreReadinessTests(unittest.TestCase):
     def test_release_workflow_runs_store_readiness_suite(self):
         workflow = (ROOT / ".github" / "workflows" / "release-extension.yml").read_text()
         self.assertIn("tests/test_store_readiness.py", workflow)
+        self.assertIn("tests/test_release_artifacts.py", workflow)
 
     def test_tagged_release_builds_and_gates_exact_store_evidence_before_publish(self):
         workflow = (ROOT / ".github" / "workflows" / "release-extension.yml").read_text()

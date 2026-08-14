@@ -86,7 +86,7 @@ jobs:
         working-directory: server
 
       - name: Run deployment, store, and public-site tests
-        run: python3 -m unittest tests/test_deployment_package.py tests/test_store_package.py tests/test_public_release_site.py tests/test_store_readiness.py
+        run: python3 -m unittest tests/test_deployment_package.py tests/test_store_package.py tests/test_public_release_site.py tests/test_release_artifacts.py tests/test_store_readiness.py
 
       # The PEM exists only for this step. Keeping key creation, build, and
       # cleanup in one step makes the EXIT trap cover every use of the secret.

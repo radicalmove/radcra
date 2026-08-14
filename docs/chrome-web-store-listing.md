@@ -37,6 +37,7 @@ The extension does not request a private key, `downloads`, or broad web access. 
 
 ## Privacy practices answers
 
+- **Chrome Web Store Limited Use:** RADCRA's use of data complies with the Chrome Web Store User Data Policy, including the Limited Use requirements. User data is used only to provide or improve the single course-review purpose.
 - **Does the extension handle user data?** Yes. It handles reviewer identity/email and session material, Moodle/course/page URLs and titles, selected text, comments/replies/status, optional screenshots or attachments, and operational logs.
 - **Is the data sold or used for advertising/creditworthiness?** No.
 - **Purpose:** The data is used only to provide and support the single course-review purpose. It is sent to the configured review service and the Moodle site already being reviewed.

@@ -1078,6 +1078,49 @@ test("ready embedded activity leaves the single parent toolbar visible", async (
   cleanup();
 });
 
+test("an unacknowledged policy prevents SCORM launch-page fetches", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/mod/scorm/player.php?id=22" });
+  window.document.body.innerHTML = '<h1>SCORM activity</h1><main data-cmid="22"></main>';
+  window.document.body.dataset.cmid = "22";
+  let fetches = 0;
+  window.fetch = (async () => { fetches += 1; throw new Error("launch page must not be fetched"); }) as typeof window.fetch;
+  const messages: unknown[] = [];
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    messages.push(message);
+    if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174000" } });
+    else if (message.type === "GET_POLICY_STATUS") callback({ ok: true, data: { acknowledged: false, policy_version: "2026-08-14" } });
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(fetches, 0);
+  assert.equal(messages.some((message: any) => message.type === "REGISTER_SCORM_LAUNCH"), false);
+  cleanup();
+});
+
+test("an acknowledged policy allows SCORM launch registration after the launch-page fetch", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/mod/scorm/player.php?id=22" });
+  window.document.body.innerHTML = '<h1>SCORM activity</h1><main data-cmid="22"></main>';
+  window.document.body.dataset.cmid = "22";
+  let fetches = 0;
+  window.fetch = (async () => {
+    fetches += 1;
+    return { ok: true, url: "https://moodle.example.invalid/mod/scorm/view.php?id=22", text: async () => `<form method="post" action="https://moodle.example.invalid/mod/scorm/player.php"><input name="mode" value="normal"><input name="scoid" value="1"><input name="cm" value="22"><input name="currentorg" value="rise"></form>` } as Response;
+  }) as typeof window.fetch;
+  const messages: any[] = [];
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    messages.push(message);
+    if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174000" } });
+    else if (message.type === "GET_POLICY_STATUS") callback({ ok: true, data: { acknowledged: true, policy_version: "2026-08-14" } });
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(fetches, 1);
+  assert.equal(messages.some((message) => message.type === "REGISTER_SCORM_LAUNCH"), true);
+  cleanup();
+});
+
 test("active embedded worker leaves the parent toolbar visible through an accessible SCORM wrapper", async () => {
   const window = new Window({ url: "https://moodle.example.invalid/mod/scorm/player.php?id=22" });
   const wrapper = new Window({ url: "https://moodle.example.invalid/mod/scorm/content" });

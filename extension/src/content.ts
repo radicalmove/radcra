@@ -413,6 +413,8 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
     const rawCmid = explicitActivityIdFromDocument(targetDocument);
     if (!rawCmid || !/^[1-9]\d*$/.test(rawCmid)) return;
     const cmid = Number(rawCmid); if (!Number.isSafeInteger(cmid)) return;
+    const policy = await send<{ acknowledged?: unknown }>({ type: "GET_POLICY_STATUS" });
+    if (policy.acknowledged !== true) throw new Error("Policy acknowledgement is required");
     const origin = targetWindow.location.origin;
     const response = await targetWindow.fetch(`${origin}/mod/scorm/view.php?id=${cmid}`, { credentials: "include", redirect: "error" });
     if (!response.ok || new URL(response.url).origin !== origin) throw new Error("SCORM launch page unavailable");

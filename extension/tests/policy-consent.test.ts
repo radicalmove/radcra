@@ -6,7 +6,7 @@ import { POLICY_STATE_KEY, POLICY_VERSION, acknowledgePolicy, clearAccessState, 
 class Storage {
   values: Record<string, unknown> = {};
   removed: string[] = [];
-  async get(key: string) { return { [key]: structuredClone(this.values[key]) }; }
+  async get(key: string | null) { return key === null ? structuredClone(this.values) : { [key]: structuredClone(this.values[key]) }; }
   async set(value: Record<string, unknown>) { Object.assign(this.values, structuredClone(value)); }
   async remove(keys: string | string[]) {
     for (const key of Array.isArray(keys) ? keys : [keys]) { this.removed.push(key); delete this.values[key]; }
@@ -40,9 +40,9 @@ test("an acknowledgement for another policy version is invalidated", async () =>
 test("clearing invalidated access removes session, device, and reviewer keys safely", async () => {
   const session = new Storage(); const local = new Storage();
   Object.assign(session.values, { apiToken: "token", expiresAt: 1 });
-  Object.assign(local.values, { courseTeamSession: { apiToken: "token", expiresAt: 1 }, deviceCredential: "device", deviceCourseHandle: "course", reviewerEmail: "reviewer@example.test", reviewerMembershipId: "member" });
+  Object.assign(local.values, { courseTeamSession: { apiToken: "token", expiresAt: 1 }, deviceCredential: "device", deviceCourseHandle: "course", reviewerEmail: "reviewer@example.test", reviewerMembershipId: "member", "pending-review-access:123e4567-e89b-42d3-a456-426614174000": { courseHandle: "123e4567-e89b-42d3-a456-426614174000", email: "reviewer@example.test", reconnectCredential: "sensitive-reconnect-code" } });
   await clearAccessState({ session, local });
   assert.deepEqual(session.removed.sort(), ["apiToken", "expiresAt"]);
-  assert.deepEqual(local.removed.sort(), ["courseTeamSession", "deviceCourseHandle", "deviceCredential", "reviewerEmail", "reviewerMembershipId"]);
+  assert.deepEqual(local.removed.sort(), ["courseTeamSession", "deviceCourseHandle", "deviceCredential", "pending-review-access:123e4567-e89b-42d3-a456-426614174000", "reviewerEmail", "reviewerMembershipId"]);
   await clearAccessState({ session: { remove: async () => { throw new Error("unavailable"); } }, local: { remove: async () => { throw new Error("unavailable"); } } });
 });

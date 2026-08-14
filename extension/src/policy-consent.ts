@@ -4,9 +4,10 @@ export const POLICY_STATE_KEY = "policyAcknowledgement";
 type ReadStorage = { get(key: string): Promise<Record<string, unknown>> };
 type WriteStorage = { set(value: Record<string, unknown>): Promise<void> };
 type RemoveStorage = { remove(keys: string | string[]): Promise<void> };
+type LocalAccessStorage = RemoveStorage & { get?(key: string | null): Promise<Record<string, unknown>> };
 
 export type PolicyState = { acknowledged: boolean; version?: string };
-export type AccessStorage = { session: RemoveStorage; local: RemoveStorage };
+export type AccessStorage = { session: RemoveStorage; local: LocalAccessStorage };
 
 function policyRecord(value: unknown): { version: string } | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
@@ -39,8 +40,12 @@ export async function requiresPolicyAcknowledgement(storage: ReadStorage): Promi
 }
 
 export async function clearAccessState({ session, local }: AccessStorage): Promise<void> {
+  let pendingKeys: string[] = [];
+  try {
+    pendingKeys = Object.keys(await local.get?.(null) ?? {}).filter((key) => key.startsWith("pending-review-access:"));
+  } catch { /* unavailable storage still clears the known credentials below */ }
   await Promise.all([
     session.remove(["apiToken", "expiresAt"]).catch(() => undefined),
-    local.remove(["courseTeamSession", "deviceCredential", "deviceCourseHandle", "reviewerEmail", "reviewerMembershipId"]).catch(() => undefined),
+    local.remove(["courseTeamSession", "deviceCredential", "deviceCourseHandle", "reviewerEmail", "reviewerMembershipId", ...pendingKeys]).catch(() => undefined),
   ]);
 }

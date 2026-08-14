@@ -1,64 +1,182 @@
 name: RADCRA extension release
+
 on:
   push:
     tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z tag to publish (normally use a tag push)
+        required: true
+        type: string
+
+# The Pages deployment in this job is intentional: the tag is the authoritative
+# source of latest.json. No generated file is committed back to the repository.
 permissions:
   contents: write
   pages: write
   id-token: write
+
+concurrency:
+  group: radcra-release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
     env:
       REVIEW_SERVICE_ORIGIN: ${{ vars.REVIEW_SERVICE_ORIGIN }}
+      BUILD_COMMIT: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-node@v4
-        with: {node-version: 22, cache: npm, cache-dependency-path: extension/package-lock.json}
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
       - uses: actions/setup-python@v5
-        with: {python-version: '3.12'}
-      - name: Install build and test dependencies
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned build and test dependencies
         run: |
-          python3 -m pip install -r scripts/requirements-build.txt PyYAML
-          (cd server && python3 -m pip install -e '.[dev]')
-          (cd extension && npm ci)
-      - name: Write production key without logging it
+          python3 -m pip install -e '.[dev]'
+          python3 -m pip install PyYAML
+        working-directory: server
+
+      - name: Install root build dependencies
+        run: python3 -m pip install -r scripts/requirements-build.txt
+
+      - name: Install extension dependencies
+        run: npm ci
+        working-directory: extension
+
+      - name: Verify source, extension, server, and package gates
+        run: |
+          npm test
+          npm run typecheck
+          npm run build
+        working-directory: extension
+
+      - name: Run server tests
+        run: python3 -m pytest -q
+        working-directory: server
+
+      - name: Run deployment, store, and public-site tests
+        run: python3 -m unittest tests/test_deployment_package.py tests/test_store_package.py tests/test_public_release_site.py
+
+      # The PEM exists only for this step. Keeping key creation, build, and
+      # cleanup in one step makes the EXIT trap cover every use of the secret.
+      - name: Build production extension with ephemeral key
         env:
           EXTENSION_PRIVATE_KEY_PEM: ${{ secrets.EXTENSION_PRIVATE_KEY_PEM }}
+          REVIEW_SERVICE_ORIGIN: ${{ vars.REVIEW_SERVICE_ORIGIN }}
+          BUILD_COMMIT: ${{ github.sha }}
         run: |
+          set -euo pipefail
           umask 077
-          key_file="$RUNNER_TEMP/radcra-extension.pem"
+          key_file="$(mktemp "$RUNNER_TEMP/radcra-extension-key.XXXXXX.pem")"
+          cleanup() { rm -f -- "$key_file"; }
+          trap cleanup EXIT HUP INT TERM
           printf '%s' "$EXTENSION_PRIVATE_KEY_PEM" > "$key_file"
           chmod 600 "$key_file"
-          echo "PRIVATE_KEY_PATH=$key_file" >> "$GITHUB_ENV"
-          trap 'rm -f "$key_file"' EXIT
-      - name: Verify source and build
+          test "$(stat -c '%a' "$key_file")" = 600
+          rm -rf extension/dist
+          PRIVATE_KEY_PATH="$key_file" \
+            REVIEW_SERVICE_ORIGIN="$REVIEW_SERVICE_ORIGIN" \
+            OPTIONAL_FRAME_PATTERNS="$(awk 'NF && $1 !~ /^#/ { printf "%s%s", separator, $0; separator="," }' deploy/config/pilot-optional-frame-patterns.txt)" \
+            BUILD_COMMIT="${{ github.sha }}" \
+            deploy/scripts/build-pilot-extension.sh
+          test -f extension/dist/manifest.json
+          test -f extension/dist/icons/icon16.png
+
+      - name: Package pilot and Web Store artifacts in isolated runner storage
+        env:
+          BUILD_COMMIT: ${{ github.sha }}
         run: |
-          (cd extension && npm test && npm run typecheck && npm run build)
-          (cd server && python3 -m pytest -q)
-          python3 -m unittest tests/test_deployment_package.py tests/test_store_package.py tests/test_public_release_site.py
-      - name: Build release packages
+          set -euo pipefail
+          release_version="$(node -p "require('./extension/package.json').version")"
+          delivery="$RUNNER_TEMP/radcra-pilot-delivery"
+          artifacts="$RUNNER_TEMP/radcra-release-assets"
+          mkdir -p "$artifacts"
+          python3 deploy/scripts/release_artifacts.py \
+            --root "$GITHUB_WORKSPACE" \
+            --dist "$GITHUB_WORKSPACE/extension/dist" \
+            --delivery "$delivery" \
+            --version "$release_version"
+          python3 deploy/scripts/store_package.py \
+            --dist "$GITHUB_WORKSPACE/extension/dist" \
+            --output "$artifacts/radcra-web-store-v${release_version}.zip" \
+            --version "$release_version" \
+            --repository "radicalmove/Beta-testing-app"
+          cp "$delivery/moodle-review-extension-v${release_version}-chrome-edge.zip" "$artifacts/"
+          cp "$delivery/moodle-review-extension-chrome-edge.zip" "$artifacts/"
+          printf '%s  %s\n' \
+            "$(sha256sum "$artifacts/radcra-web-store-v${release_version}.zip" | awk '{print $1}')" \
+            "radcra-web-store-v${release_version}.zip" > "$artifacts/radcra-web-store-v${release_version}.zip.sha256"
+          # Publish one checksum file covering every uploaded ZIP.
+          (cd "$artifacts" && sha256sum *.zip > SHA256SUMS)
+          cat > "$artifacts/RELEASE_NOTES.md" <<EOF
+          # RADCRA ${release_version}
+
+          **THIS EXTENSION IS FOR BETA TESTING.**
+
+          - Web Store upload: [radcra-web-store-v${release_version}.zip](https://github.com/radicalmove/Beta-testing-app/releases/download/${GITHUB_REF_NAME}/radcra-web-store-v${release_version}.zip)
+          - Private pilot (Chrome/Edge Load unpacked): [moodle-review-extension-v${release_version}-chrome-edge.zip](https://github.com/radicalmove/Beta-testing-app/releases/download/${GITHUB_REF_NAME}/moodle-review-extension-v${release_version}-chrome-edge.zip)
+          - Read [releasing.md](https://github.com/radicalmove/Beta-testing-app/blob/main/docs/releasing.md) for installation and update guidance.
+
+          Web Store installations update through Chrome. Unpacked pilot installations require replacing the folder and pressing Reload.
+          EOF
+          echo "RELEASE_VERSION=${release_version}" >> "$GITHUB_ENV"
+          echo "RELEASE_ASSETS=$artifacts" >> "$GITHUB_ENV"
+
+      - name: Generate authoritative latest metadata
         run: |
-          RELEASE_VERSION=$(node -p "require('./extension/package.json').version")
-          PRIVATE_KEY_PATH="$PRIVATE_KEY_PATH" REVIEW_SERVICE_ORIGIN="$REVIEW_SERVICE_ORIGIN" deploy/scripts/release-pilot-extension.sh
-          echo "RELEASE_VERSION=$RELEASE_VERSION" >> "$GITHUB_ENV"
+          set -euo pipefail
           python3 - <<'PY'
-          import json, os
+          import json
+          import os
+          from datetime import datetime, timezone
           from pathlib import Path
-          p = Path('site/latest.json')
-          data = json.loads(p.read_text())
-          data.update(version=os.environ['RELEASE_VERSION'], release_url=f"https://github.com/radicalmove/Beta-testing-app/releases/tag/{os.environ['GITHUB_REF_NAME']}")
-          p.write_text(json.dumps(data, separators=(',', ':')) + '\n')
+
+          version = os.environ["RELEASE_VERSION"]
+          tag = os.environ.get("GITHUB_REF_NAME", f"v{version}")
+          if not tag.startswith("v"):
+              tag = f"v{version}"
+          document = {
+              "schema_version": 1,
+              "version": version,
+              "release_url": f"https://github.com/radicalmove/Beta-testing-app/releases/tag/{tag}",
+              "download_url": f"https://github.com/radicalmove/Beta-testing-app/releases/download/{tag}/radcra-web-store-v{version}.zip",
+              "published_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+          }
+          Path("site/latest.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+          json.loads(Path("site/latest.json").read_text(encoding="utf-8"))
           PY
-      - name: Publish GitHub release assets
+
+      - name: Publish GitHub release assets and notes
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
+          body_path: ${{ env.RELEASE_ASSETS }}/RELEASE_NOTES.md
           files: |
-            ${{ github.workspace }}-pilot-builds/*.zip
-            ${{ github.workspace }}-pilot-builds/*.sha256
-      - name: Deploy authoritative Pages metadata
+            ${{ env.RELEASE_ASSETS }}/*.zip
+            ${{ env.RELEASE_ASSETS }}/*.sha256
+            ${{ env.RELEASE_ASSETS }}/SHA256SUMS
+
+      - name: Prepare Pages artifact
         uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with: {path: site}
-      - uses: actions/deploy-pages@v4
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy authoritative Pages metadata
+        uses: actions/deploy-pages@v4

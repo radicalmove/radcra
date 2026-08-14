@@ -107,6 +107,12 @@ test("production builds reject placeholder service origins and public keys", () 
   }), /public key/i);
 });
 
+test("the checked-in Store fixture key is production-shaped but distinct from the development placeholder", async () => {
+  const fixtureKey = (await readFile(new URL("../../tests/fixtures/store-public-key.txt", import.meta.url), "utf8")).trim();
+  const config = loadBuildConfig(productionEnv({ EXTENSION_PUBLIC_KEY: fixtureKey }));
+  assert.equal(config.publicKey, fixtureKey);
+});
+
 test("build mode is an explicit development or production enum", () => {
   assert.equal(loadBuildConfig({}).buildMode, "development");
   assert.equal(loadBuildConfig({ BUILD_MODE: "development" }).buildMode, "development");
@@ -167,6 +173,7 @@ test("production background bundle uses the configured service origin", async ()
   });
   const background = await readFile(new URL("../dist/background.js", import.meta.url), "utf8");
   assert.match(background, /fld-mini\.tail4ccaba\.ts\.net/);
+  assert.match(background, new RegExp(env.BUILD_COMMIT!));
   assert.doesNotMatch(background, /review\.example\.invalid/);
   assert.doesNotMatch(background, /storage\.local\.get\(["']serviceOrigin["']/);
 });

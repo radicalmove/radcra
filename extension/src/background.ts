@@ -19,10 +19,12 @@ declare const __MOODLE_PATTERNS__: string[];
 declare const __OPTIONAL_FRAME_PATTERNS__: string[];
 declare const __REVIEW_SERVICE_ORIGIN__: string;
 declare const __EXTENSION_VERSION__: string;
+declare const __BUILD_COMMIT__: string;
 
 const DEFAULT_SERVICE_ORIGIN = __REVIEW_SERVICE_ORIGIN__;
 const extensionVersion = typeof __EXTENSION_VERSION__ === "string" ? __EXTENSION_VERSION__ : "0.0.0";
-const updateChecker = new UpdateChecker(chrome.storage.local, extensionVersion);
+const buildDiagnostics = Object.freeze({ version: extensionVersion, buildCommit: __BUILD_COMMIT__ });
+const updateChecker = new UpdateChecker(chrome.storage.local, buildDiagnostics.version);
 
 let optionalRegistration = Promise.resolve();
 const reviewContexts = new ReviewContextCache();

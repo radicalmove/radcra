@@ -23,9 +23,9 @@ The script runs the extension/server/package gates, derives the public key, crea
 
 1. Confirm the clean source commit, version in `extension/package.json` and `extension/package-lock.json`, and the approved production public-key identity.
 2. Configure repository secret `EXTENSION_PRIVATE_KEY_PEM` with the existing RSA PEM and repository variable `REVIEW_SERVICE_ORIGIN` with the approved HTTPS origin. These values are consumed only by CI; neither is uploaded or echoed.
-3. Create and push an annotated `vX.Y.Z` tag only after release approval. `.github/workflows/release-extension.yml` uses immutable `github.sha` as `BUILD_COMMIT`, installs the pinned build dependencies, runs extension/typecheck/server/deployment/store/public-site tests, and builds with a mode-600 temporary PEM.
+3. Create and push an annotated `vX.Y.Z` tag only after release approval. `.github/workflows/release-extension.yml` uses the immutable checked-out tag commit as `BUILD_COMMIT` (equal to `github.sha` for tag-push runs), installs the pinned build dependencies, runs extension/typecheck/server/deployment/store/release-artifact/public-site tests, and builds with a mode-600 temporary PEM.
 4. The key file is created, used to derive the public key, and removed by an unconditional trap in the same build step. CI stores pilot and Web Store outputs under `$RUNNER_TEMP`; it does not call the local external-delivery wrapper or rely on a developer's `Beta Testing App-pilot-builds` directory.
-5. CI uploads both ZIPs, their `.sha256` entry, `SHA256SUMS`, and release notes to the GitHub Release. It generates `site/latest.json` with the fixed schema and deploys the complete `site/` directory through GitHub Pages; it does not commit generated metadata.
+5. Release CI uploads both ZIPs, their `.sha256` entries, `SHA256SUMS`, release notes, and fixed-schema `latest.json` evidence to the GitHub Release. The independent Pages workflow deploys the committed `site/` directory, allowing the public policy and support URLs to be verified before a production package exists.
 
 The `latest.json` schema is exactly:
 

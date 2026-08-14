@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Generate deterministic RGBA PNG icons for the RADCRA extension."""
 
+import argparse
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -19,15 +20,16 @@ def scaled_box(box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
     return tuple(value * SCALE for value in box)
 
 
-def draw_icon(size: int) -> Image.Image:
+def draw_master_icon() -> Image.Image:
     image = Image.new("RGBA", (BASE_SIZE * SCALE, BASE_SIZE * SCALE), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle(scaled_box((15, 13, 113, 93)), radius=25 * SCALE, fill=TEAL, outline=DARK_TEAL, width=5 * SCALE)
-    draw.polygon([(53 * SCALE, 89 * SCALE), (47 * SCALE, 113 * SCALE), (77 * SCALE, 92 * SCALE)], fill=TEAL)
-    draw.line([(53 * SCALE, 89 * SCALE), (47 * SCALE, 113 * SCALE), (77 * SCALE, 92 * SCALE)], fill=DARK_TEAL, width=5 * SCALE, joint="curve")
-    for y in (39, 57, 75):
-        draw.rounded_rectangle(scaled_box((36, y, 92, y + 7)), radius=3 * SCALE, fill=WHITE)
-    return image.resize((size, size), Image.Resampling.LANCZOS)
+    # The mark is drawn on a centered 96x96 logical artboard (16..112).
+    draw.rounded_rectangle(scaled_box((19, 19, 109, 92)), radius=22 * SCALE, fill=TEAL, outline=DARK_TEAL, width=4 * SCALE)
+    draw.polygon([(54 * SCALE, 87 * SCALE), (49 * SCALE, 107 * SCALE), (75 * SCALE, 90 * SCALE)], fill=TEAL)
+    draw.line([(54 * SCALE, 87 * SCALE), (49 * SCALE, 107 * SCALE), (75 * SCALE, 90 * SCALE)], fill=DARK_TEAL, width=4 * SCALE, joint="curve")
+    for y in (42, 58, 74):
+        draw.rounded_rectangle(scaled_box((38, y, 90, y + 6)), radius=3 * SCALE, fill=WHITE)
+    return image.resize((BASE_SIZE, BASE_SIZE), Image.Resampling.LANCZOS)
 
 
 def verify_icon(path: Path, size: int) -> None:
@@ -39,10 +41,15 @@ def verify_icon(path: Path, size: int) -> None:
 
 
 def main() -> None:
-    OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-directory", type=Path, default=OUTPUT_DIRECTORY)
+    args = parser.parse_args()
+    output_directory = args.output_directory
+    output_directory.mkdir(parents=True, exist_ok=True)
+    master = draw_master_icon()
     for size in SIZES:
-        path = OUTPUT_DIRECTORY / f"icon{size}.png"
-        image = draw_icon(size)
+        path = output_directory / f"icon{size}.png"
+        image = master if size == BASE_SIZE else master.resize((size, size), Image.Resampling.LANCZOS)
         if image.size != (size, size) or image.mode != "RGBA":
             raise RuntimeError(f"generated icon{size}.png has invalid dimensions or alpha mode")
         image.save(path, format="PNG", optimize=False, compress_level=9)

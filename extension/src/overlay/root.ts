@@ -28,6 +28,8 @@ export const creationComposerSpacingStyles = `.preview+.comment-composer{margin-
 export const commentComposerStyles = `.comment-composer-field-row{display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:8px;align-items:start}.comment-composer-field-row textarea{min-width:0;width:100%;min-height:110px}.comment-composer-save{box-sizing:border-box;width:34px;height:34px;min-height:34px!important;padding:2px;border:2px solid #176b43;border-radius:5px;background:#176b43;color:#fff}.comment-composer-save svg{display:block;width:100%;height:100%}.comment-composer-save:hover{background:#fff;color:#176b43}.comment-composer-actions{display:flex;justify-content:flex-end;margin-top:8px}.comment-composer-cancel{box-sizing:border-box;width:calc((100% - 16px)/3);height:34px;min-height:34px!important;padding:3px 9px;border:2px solid #d73b3d;border-radius:5px;background:#d73b3d;color:#fff;font:inherit;font-weight:650;line-height:1}.comment-composer-cancel:hover{background:#fff;color:#d73b3d}@media(max-width:420px){.comment-composer-actions button{flex:0 0 auto}}`;
 export const stabilisationUxStyles = `.help-dialog{width:min(860px,calc(100vw - 32px))}.comment-index-link{white-space:normal;overflow:hidden;text-overflow:ellipsis;display:-webkit-box!important;-webkit-line-clamp:2;-webkit-box-orient:vertical}.comment-interaction-label{display:block;white-space:normal;margin-top:2px;font-size:11px;line-height:1.3;font-weight:500;color:#0b6261}.comment-group-heading{display:flex;align-items:center;gap:4px;margin:5px 0 0}.comment-group-link{min-width:0;flex:1;margin-left:-5px;padding:0;border:0;background:transparent;color:inherit;text-align:left;font:inherit;font-weight:inherit;letter-spacing:inherit;text-transform:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.comment-group-link:hover,.comment-group-link:focus-visible{text-decoration:underline}.comment-group-toggle{box-sizing:border-box;order:-1;align-self:center;margin-left:-5px;translate:-5px -3px;width:28px;height:28px;min-height:28px!important;padding:0;border:0;background:transparent;color:var(--review-teal-dark);font-size:20px;line-height:1}.comment-group-toggle[aria-expanded="false"]{transform:rotate(-90deg)}.comment-collapse-groups{width:104px!important;height:38px!important;min-height:38px!important;padding:0 5px!important;font-size:13px}.comment-collapse-groups:hover,.comment-collapse-groups:focus-visible{background:var(--review-jump);border-color:var(--review-jump);color:#fff}`;
 
+export const policyDisclosureStyles = `.policy-disclosure{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:16px;background:#0009}.policy-disclosure-card{box-sizing:border-box;width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;padding:22px;background:#fff;border:5px solid var(--review-teal);border-radius:10px;box-shadow:0 8px 28px #0005;color:#102f38}.policy-disclosure-card h2{margin:0 0 10px;color:var(--review-teal-dark);font-size:22px}.policy-disclosure-card p{margin:8px 0}.policy-disclosure-card ul{margin:10px 0;padding-left:22px}.policy-disclosure-card a{color:#245c8a}.policy-disclosure-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.policy-disclosure-actions button{min-width:110px}.policy-disclosure-actions [data-policy-decline]{border-color:#a51d24;color:#a51d24;background:#fff}.policy-disclosure-actions [data-policy-decline]:hover{background:#a51d24;color:#fff}.policy-disclosure-error{margin-top:10px;color:#a51d24;font-weight:650}.policy-disclosure-error[hidden]{display:none}`;
+
 export type ConnectionStatus = "connecting" | "connected" | "unregistered" | "pending" | "signed-out" | "offline";
 export type AccessLookupReadiness = "checking" | "ready";
 const statusLabels: Record<ConnectionStatus, string> = { connecting: "Connecting", connected: "Connected", unregistered: "Course not registered for review", pending: "Waiting for approval — you can leave this page open or return later.", "signed-out": "Signed out", offline: "Service unavailable—retry" };
@@ -35,7 +37,8 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&"
 export const isTransientInteractionNavigationError = (error: unknown) => error instanceof Error && error.message === "INTERACTION_NOT_READY";
 const authActionLabels: Partial<Record<ConnectionStatus, string>> = { "signed-out": "Sign in", pending: "Check approval", offline: "Retry" };
 
-function createStateActions(status: ConnectionStatus, readiness: AccessLookupReadiness = "ready", canRegister = false, registering = false): string {
+function createStateActions(status: ConnectionStatus, readiness: AccessLookupReadiness = "ready", canRegister = false, registering = false, policyAcknowledged = true): string {
+  if (!policyAcknowledged) return `<span data-auth-action></span>`;
   if (registering) return `<span data-auth-action></span>`;
   const action = authActionLabels[status];
   const checking = readiness === "checking" && Boolean(action);
@@ -47,9 +50,9 @@ function createStateActions(status: ConnectionStatus, readiness: AccessLookupRea
 export type BuildDiagnostics = { version: string; buildCommit: string };
 const defaultBuildDiagnostics: BuildDiagnostics = { version: "0.0.0", buildCommit: "0000000000000000000000000000000000000000" };
 
-export function createOverlayMarkup(input: { courseTitle: string; pageTitle: string; status: ConnectionStatus; accessLookupReadiness?: AccessLookupReadiness; canRegister?: boolean } & Partial<BuildDiagnostics>): string {
+export function createOverlayMarkup(input: { courseTitle: string; pageTitle: string; status: ConnectionStatus; accessLookupReadiness?: AccessLookupReadiness; canRegister?: boolean; policyAcknowledged?: boolean } & Partial<BuildDiagnostics>): string {
   const { version, buildCommit } = { ...defaultBuildDiagnostics, ...input };
-  return `<section class="shell" tabindex="-1"><div class="toolbar" role="toolbar" aria-label="Course review tools"><div class="identity"><span class="course" title="${escapeHtml(input.courseTitle)}">${escapeHtml(input.courseTitle)}</span><span class="pilot-version">v${escapeHtml(version)}</span><span class="viewer-line" data-viewer-line hidden><span class="viewer" data-viewer></span><button type="button" class="sign-out" data-action="sign-out">Sign out</button></span><span class="status ${input.status}" data-auth-status aria-live="polite" aria-atomic="true"><span class="dot" aria-hidden="true"></span><span data-status-message>${statusLabels[input.status]}</span></span></div>${createStateActions(input.status, input.accessLookupReadiness, input.canRegister)}</div><div class="panel" hidden><div data-panel-content>No comments on this page yet.</div></div><span data-build-info hidden>${escapeHtml(version)}|${escapeHtml(buildCommit.slice(0, 7))}</span></section>`;
+  return `<section class="shell" tabindex="-1"><div class="toolbar" role="toolbar" aria-label="Course review tools"><div class="identity"><span class="course" title="${escapeHtml(input.courseTitle)}">${escapeHtml(input.courseTitle)}</span><span class="pilot-version">v${escapeHtml(version)}</span><span class="viewer-line" data-viewer-line hidden><span class="viewer" data-viewer></span><button type="button" class="sign-out" data-action="sign-out">Sign out</button></span><span class="status ${input.status}" data-auth-status aria-live="polite" aria-atomic="true"><span class="dot" aria-hidden="true"></span><span data-status-message>${statusLabels[input.status]}</span></span></div>${createStateActions(input.status, input.accessLookupReadiness, input.canRegister, false, input.policyAcknowledged !== false)}</div><div class="panel" hidden><div data-panel-content>No comments on this page yet.</div></div><span data-build-info hidden>${escapeHtml(version)}|${escapeHtml(buildCommit.slice(0, 7))}</span></section>`;
 }
 
 export function handleDialogKey(input: { key: string; shiftKey: boolean; activeIndex: number; focusableCount: number }): { focusIndex: number; close: boolean } {
@@ -63,8 +66,8 @@ export type CommentAnchor = ({ anchor_type: "text_highlight" } & TextAnchor) | (
 export type AuthenticationOutcome = { status: ConnectionStatus; message?: string };
 export type ReviewerAccessInput = { displayName: string; email: string; role: string; code: string };
 type SignOutOptions = { onSignOut?: () => Promise<void> };
-export type ReviewOverlayOptions = { accessLookupReadiness?: AccessLookupReadiness; canRegister?: boolean; onRegisterCourse?: () => Promise<AuthenticationOutcome>; panelStateStorage?: PanelStateStorage; onRequestInteraction?: (intent: "marker" | "selection") => void; onRequestPermission?: () => Promise<boolean>; onReloadRequired?: () => void; submitEmbedded?: (input: { capability: string; body: string; category: string; screenshot: boolean }) => Promise<{ id?: string; screenshot_available?: boolean } | void>; onAuthenticate?: () => Promise<AuthenticationOutcome>; onCheckApproval?: () => Promise<AuthenticationOutcome>; onAccessSubmit?: (input: ReviewerAccessInput) => Promise<AuthenticationOutcome>; findApprovedReviewer?: (email: string) => Promise<{ membershipId: string; label: string } | undefined>; onUseSavedReviewer?: (membershipId: string) => Promise<AuthenticationOutcome>; useAccessForm?: () => boolean; navigateToComment?: (commentId: string, pageUrl: string) => Promise<void>; submit?: (input: { body: string; category: string; anchor: CommentAnchor; screenshot: boolean; embeddedFrameUnavailable: boolean; contextSnapshot: CourseContext }) => Promise<{ id?: string; screenshot_available?: boolean } | void>; editThread?: (commentId: string, body: string) => Promise<void>; replyThread?: (commentId: string, body: string) => Promise<void>; changeStatus?: (commentId: string, status: string) => Promise<void>; refreshComments?: () => Promise<void>; manageSme?: (commentId: string, userIds?: string[]) => Promise<{ available_recipients: Array<{ id: string; display_name: string }>; selected_user_ids: string[] }>; deleteThread?: (commentId: string) => Promise<void>; uploadScreenshot?: (commentId: string, dataUrl: string) => Promise<void>; cancelScreenshot?: (commentId: string) => Promise<void>; captureScreenshot?: () => Promise<string>; onFrameFallback?: () => void; onTakeToContext?: (id: string) => void };
-export type ReviewOverlay = { update(context: CourseContext, status: ConnectionStatus): void; setStatus(status: ConnectionStatus): void; setStatusMessage(message: string): void; setAccessLookupReadiness(readiness: AccessLookupReadiness): void; setRegistrationCapability(canRegister: boolean): void; setInteractionState(state: "local" | "loading" | "embedded" | "permission-required" | "reload-required" | "unavailable", hasSelection?: boolean, markerActive?: boolean): void; setViewer(viewer?: { display_name: string | null; email: string; role: string }): void; setCommentList(comments: PageComment[]): void; setRendererComments(comments: PageComment[]): void; setPageComments(comments: PageComment[]): void; restoreCommentListGroup(pageUrl: string, status: "open" | "resolved"): boolean; setCommentNavigationStatus(message?: string): void; takeToContext(id: string): boolean; showFrameFallback(): void; hideFrameFallback(): void; setPresentationVisible(visible: boolean): void; setPresentationPosition(position?: { left: number; top: number }): void; presentationSize(): { width: number; height: number }; setUnresolvedAnchors(anchors: UnresolvedAnchor[]): void; destroy(): void };
+export type ReviewOverlayOptions = { accessLookupReadiness?: AccessLookupReadiness; canRegister?: boolean; policyAcknowledged?: boolean; policyVersion?: string; policyUrl?: string; onAcknowledgePolicy?: () => Promise<void>; onDeclinePolicy?: () => Promise<void>; onRegisterCourse?: () => Promise<AuthenticationOutcome>; panelStateStorage?: PanelStateStorage; onRequestInteraction?: (intent: "marker" | "selection") => void; onRequestPermission?: () => Promise<boolean>; onReloadRequired?: () => void; submitEmbedded?: (input: { capability: string; body: string; category: string; screenshot: boolean }) => Promise<{ id?: string; screenshot_available?: boolean } | void>; onAuthenticate?: () => Promise<AuthenticationOutcome>; onCheckApproval?: () => Promise<AuthenticationOutcome>; onAccessSubmit?: (input: ReviewerAccessInput) => Promise<AuthenticationOutcome>; findApprovedReviewer?: (email: string) => Promise<{ membershipId: string; label: string } | undefined>; onUseSavedReviewer?: (membershipId: string) => Promise<AuthenticationOutcome>; useAccessForm?: () => boolean; navigateToComment?: (commentId: string, pageUrl: string) => Promise<void>; submit?: (input: { body: string; category: string; anchor: CommentAnchor; screenshot: boolean; embeddedFrameUnavailable: boolean; contextSnapshot: CourseContext }) => Promise<{ id?: string; screenshot_available?: boolean } | void>; editThread?: (commentId: string, body: string) => Promise<void>; replyThread?: (commentId: string, body: string) => Promise<void>; changeStatus?: (commentId: string, status: string) => Promise<void>; refreshComments?: () => Promise<void>; manageSme?: (commentId: string, userIds?: string[]) => Promise<{ available_recipients: Array<{ id: string; display_name: string }>; selected_user_ids: string[] }>; deleteThread?: (commentId: string) => Promise<void>; uploadScreenshot?: (commentId: string, dataUrl: string) => Promise<void>; cancelScreenshot?: (commentId: string) => Promise<void>; captureScreenshot?: () => Promise<string>; onFrameFallback?: () => void; onTakeToContext?: (id: string) => void };
+export type ReviewOverlay = { update(context: CourseContext, status: ConnectionStatus): void; setStatus(status: ConnectionStatus): void; setStatusMessage(message: string): void; setAccessLookupReadiness(readiness: AccessLookupReadiness): void; setRegistrationCapability(canRegister: boolean): void; setPolicyAcknowledged(acknowledged: boolean, policyVersion?: string): void; setInteractionState(state: "local" | "loading" | "embedded" | "permission-required" | "reload-required" | "unavailable", hasSelection?: boolean, markerActive?: boolean): void; setViewer(viewer?: { display_name: string | null; email: string; role: string }): void; setCommentList(comments: PageComment[]): void; setRendererComments(comments: PageComment[]): void; setPageComments(comments: PageComment[]): void; restoreCommentListGroup(pageUrl: string, status: "open" | "resolved"): boolean; setCommentNavigationStatus(message?: string): void; takeToContext(id: string): boolean; showFrameFallback(): void; hideFrameFallback(): void; setPresentationVisible(visible: boolean): void; setPresentationPosition(position?: { left: number; top: number }): void; presentationSize(): { width: number; height: number }; setUnresolvedAnchors(anchors: UnresolvedAnchor[]): void; destroy(): void };
 
 export function mountReviewOverlay(document: Document, context: CourseContext, status: ConnectionStatus = "connecting", options: ReviewOverlayOptions & SignOutOptions = {}, buildDiagnostics: BuildDiagnostics = defaultBuildDiagnostics): ReviewOverlay {
   const existing = document.getElementById(OVERLAY_HOST_ID) as HTMLElement | null;
@@ -78,7 +81,7 @@ export function mountReviewOverlay(document: Document, context: CourseContext, s
   const style = document.createElement("style");
   style.textContent = overlayStyles + tealOverlayOverrides + `.viewer{display:block;font-size:13px;font-weight:650;color:#082f2f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.viewer[hidden]{display:none}.comments-short{display:none}@media(max-width:360px){.comments-wide{display:none}.comments-short{display:inline}}.comment-choice{padding:16px;background:var(--review-pale);border-top:1px solid var(--review-line)}.comment-choice h2{margin:0 0 10px;font-size:18px}.comment-choice button{display:grid;width:100%;margin-top:8px;text-align:left}.comment-choice button span{font-size:14px;font-weight:400}.help-dialog ol{display:grid;gap:12px;padding-left:22px}.help-dialog li span{display:block;font-size:14px}.help-version{font-size:14px;color:#52666c}`;
   style.textContent += commentListLayoutStyles + approvedControlStyles + controlAlignmentStyles + semanticFilterHoverStyles + helpButtonStyles + commentsButtonStyles + panelTransitionStyles + creationComposerSpacingStyles + commentComposerStyles;
-  style.textContent += stabilisationUxStyles + `.existing-action{margin-top:12px}.existing-confirmation{display:grid;gap:6px;margin-top:14px;padding:12px;border:1px solid var(--review-line);border-radius:7px;background:var(--review-pale)}.existing-confirmation[hidden]{display:none}.admin-sign-in{margin-top:12px}`;
+  style.textContent += stabilisationUxStyles + policyDisclosureStyles + `.existing-action{margin-top:12px}.existing-confirmation{display:grid;gap:6px;margin-top:14px;padding:12px;border:1px solid var(--review-line);border-radius:7px;background:var(--review-pale)}.existing-confirmation[hidden]{display:none}.admin-sign-in{margin-top:12px}`;
   style.textContent += `.viewer-line{display:flex;align-items:center;gap:8px;min-width:0}.viewer-line[hidden]{display:none}.viewer-line .viewer{min-width:0}.sign-out{min-height:0!important;padding:0!important;border:0!important;background:transparent!important;color:#082f2f!important;font-size:12px;text-decoration:underline}.sign-out:hover{color:#7b235e!important}`;
   shadow.append(style);
   return createController(host, shadow, context, status, options, buildDiagnostics);
@@ -91,6 +94,8 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
   ownerDocument.addEventListener("focusin", rememberPageFocus, true);
   let context = initial;
   let status = initialStatus;
+  let policyAcknowledged = options.policyAcknowledged !== false;
+  let policyVersion = options.policyVersion ?? "2026-08-14";
   let statusMessage: string | undefined;
   let currentViewer: { display_name: string | null; email: string; role: string } | undefined;
   let readiness: AccessLookupReadiness = options.accessLookupReadiness ?? "ready";
@@ -110,6 +115,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
   let frameUnavailable = false;
   let composerContext: CourseContext | undefined;
   let pendingScreenshotId: string | undefined;
+  let policyDisclosureClose: (() => void) | undefined;
   let interactionTarget: "local" | "loading" | "embedded" | "permission-required" | "reload-required" | "unavailable" = "local";
   let embeddedSelection = false;
   let embeddedMarkerActive = false;
@@ -239,7 +245,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
   };
   const renderStateControls = (message?: string) => {
     if (message !== undefined) statusMessage = message;
-    const displayMessage = message ?? statusMessage ?? statusLabels[status];
+    const displayMessage = !policyAcknowledged ? "Policy acknowledgement required" : message ?? statusMessage ?? statusLabels[status];
     const toolbar = shadow.querySelector<HTMLElement>(".toolbar");
     if (!toolbar) return;
     const panel = shadow.querySelector<HTMLElement>(".panel");
@@ -249,7 +255,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     const statusNode = toolbar.querySelector<HTMLElement>("[data-auth-status]");
     if (statusNode) { statusNode.className = `status ${status}`; const messageNode = statusNode.querySelector<HTMLElement>("[data-status-message]"); if (messageNode) messageNode.textContent = displayMessage; }
     toolbar.querySelector("[data-auth-action]")?.remove(); toolbar.querySelector("[data-review-controls]")?.remove();
-    const wrapper = ownerDocument.createElement("div"); wrapper.innerHTML = createStateActions(status, readiness, canRegister, registering); toolbar.append(...Array.from(wrapper.childNodes));
+    const wrapper = ownerDocument.createElement("div"); wrapper.innerHTML = createStateActions(status, readiness, canRegister, registering, policyAcknowledged); toolbar.append(...Array.from(wrapper.childNodes));
     bind();
     const panelToggle = toolbar.querySelector<HTMLElement>('[data-action="panel"]');
     if (panelToggle && !hadPanelToggle) setPanelOpen(readCoursePanelState(panelStateStorage, context.course_url), { animate: false, persist: false });
@@ -261,6 +267,36 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
         ?? shadow.querySelector<HTMLElement>(".shell");
       focusTarget?.focus();
     }
+  };
+  const openPolicyDisclosure = () => {
+    if (policyAcknowledged || policyDisclosureClose || !shadow.querySelector(".shell")) return;
+    const backdrop = ownerDocument.createElement("div"); backdrop.className = "policy-disclosure";
+    const policyUrl = options.policyUrl ?? "https://radicalmove.github.io/Beta-testing-app/privacy/";
+    const version = options.policyVersion ?? policyVersion;
+    backdrop.innerHTML = `<section class="policy-disclosure-card" role="dialog" aria-modal="true" aria-labelledby="policy-disclosure-title"><h2 id="policy-disclosure-title">Before you use RADCRA</h2><p>This beta extension helps authorised reviewers comment on Moodle and embedded course content.</p><p>It may process:</p><ul><li>your sign-in and reviewer session details;</li><li>course and page URLs, titles, and selected text;</li><li>comments, replies, status changes, screenshots, and diagnostic logs.</li></ul><p>We use this data only to provide and improve course review. It is sent over HTTPS to the configured review service and is not sold or used for advertising. The extension’s handling of user data complies with the Chrome Web Store <strong>Limited Use</strong> requirements.</p><p>Read the <a href="${escapeHtml(policyUrl)}" target="_blank" rel="noreferrer">full privacy policy</a> (policy version ${escapeHtml(version)}).</p><p>Continue only if you understand and accept this use of data.</p><div class="policy-disclosure-error" role="alert" hidden></div><div class="policy-disclosure-actions"><button type="button" data-policy-decline>Decline</button><button type="button" class="primary" data-policy-continue>Continue</button></div></section>`;
+    const shell = shadow.querySelector<HTMLElement>(".shell")!; shell.inert = true;
+    const restore = () => { shell.inert = false; policyDisclosureClose = undefined; };
+    policyDisclosureClose = restore;
+    const finish = async (accepted: boolean) => {
+      const error = backdrop.querySelector<HTMLElement>(".policy-disclosure-error")!;
+      const button = backdrop.querySelector<HTMLButtonElement>(accepted ? "[data-policy-continue]" : "[data-policy-decline]")!;
+      button.disabled = true;
+      try {
+        if (accepted) await options.onAcknowledgePolicy?.();
+        else await options.onDeclinePolicy?.();
+        if (accepted) { policyAcknowledged = true; restore(); backdrop.remove(); renderStateControls(); }
+        else { button.disabled = false; error.textContent = "You must choose Continue to use RADCRA. No course data was accessed."; error.hidden = false; }
+      } catch (caught) { button.disabled = false; error.textContent = caught instanceof Error ? caught.message : "Could not save your choice."; error.hidden = false; }
+    };
+    backdrop.querySelector("[data-policy-continue]")?.addEventListener("click", () => void finish(true));
+    backdrop.querySelector("[data-policy-decline]")?.addEventListener("click", () => void finish(false));
+    backdrop.addEventListener("keydown", (event) => {
+      const focusable = Array.from(backdrop.querySelectorAll<HTMLElement>("a,button"));
+      const index = Math.max(0, focusable.indexOf(shadow.activeElement as HTMLElement));
+      const outcome = handleDialogKey({ key: event.key, shiftKey: event.shiftKey, activeIndex: index, focusableCount: focusable.length });
+      if (event.key === "Tab") { event.preventDefault(); focusable[outcome.focusIndex]?.focus(); }
+    });
+    shadow.append(backdrop); backdrop.querySelector<HTMLElement>("[data-policy-continue]")?.focus();
   };
   const bindStateControls = () => {
     const signOutButton = shadow.querySelector<HTMLButtonElement>('[data-action="sign-out"]');
@@ -531,6 +567,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     });
   };
   mount();
+  if (!policyAcknowledged) openPolicyDisclosure();
   setPanelOpen((status === "connected" || status === "connecting") && readCoursePanelState(panelStateStorage, context.course_url), { animate: false, persist: false });
   updateLabels();
   const embeddedAnchorListener = (event: Event) => {
@@ -605,6 +642,13 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     },
     setAccessLookupReadiness(nextReadiness) { if (readiness === nextReadiness) return; readiness = nextReadiness; renderStateControls(); },
     setRegistrationCapability(nextCanRegister) { if (canRegister === nextCanRegister) return; canRegister = nextCanRegister; renderStateControls(); },
+    setPolicyAcknowledged(acknowledged, nextVersion) {
+      policyAcknowledged = acknowledged;
+      if (nextVersion) policyVersion = nextVersion;
+      if (policyAcknowledged) { policyDisclosureClose?.(); shadow.querySelector(".policy-disclosure")?.remove(); policyDisclosureClose = undefined; }
+      renderStateControls();
+      if (!policyAcknowledged) openPolicyDisclosure();
+    },
     setStatusMessage(message) { statusMessage = message; renderStateControls(); },
     setViewer(viewer) { currentViewer = viewer; updateLabels(); },
     setCommentList(comments) {
@@ -784,6 +828,6 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     },
     presentationSize() { const shell = shadow.querySelector<HTMLElement>(".shell"); const rect = shell?.getBoundingClientRect(); return { width: rect?.width || shell?.offsetWidth || 600, height: rect?.height || shell?.offsetHeight || 150 }; },
     setUnresolvedAnchors(anchors) { renderUnresolvedAnchors(anchors); },
-    destroy() { restoreRenderedCommentListGroup = undefined; clearPanelTransition(); clearAreaSelection(); closeChoice(false); for (const transient of transientStatuses.values()) ownerDocument.defaultView?.clearTimeout(transient.timer); transientStatuses.clear(); ownerDocument.removeEventListener("focusin", rememberPageFocus, true); ownerDocument.removeEventListener("selectionchange", selectionListener); ownerDocument.documentElement.removeEventListener("moodle-review:embedded-anchor", embeddedAnchorListener); cleanupPreview(); renderer.destroy(); host.remove(); },
+    destroy() { restoreRenderedCommentListGroup = undefined; clearPanelTransition(); clearAreaSelection(); closeChoice(false); policyDisclosureClose?.(); shadow.querySelector(".policy-disclosure")?.remove(); for (const transient of transientStatuses.values()) ownerDocument.defaultView?.clearTimeout(transient.timer); transientStatuses.clear(); ownerDocument.removeEventListener("focusin", rememberPageFocus, true); ownerDocument.removeEventListener("selectionchange", selectionListener); ownerDocument.documentElement.removeEventListener("moodle-review:embedded-anchor", embeddedAnchorListener); cleanupPreview(); renderer.destroy(); host.remove(); },
   };
 }

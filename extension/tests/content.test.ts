@@ -302,7 +302,7 @@ test("bootstrap wired to the real start entry tears down the old overlay instanc
 
   assert.equal(window.document.querySelectorAll("#moodle-course-review-overlay").length, 1);
   assert.notEqual(window.history.pushState, firstHistoryPatch);
-  assert.equal(messages, 2);
+  assert.equal(messages, 4, "each fresh content instance checks local policy before resolving the course");
 });
 
 test("real content-script startup does not require chrome.permissions", async () => {
@@ -339,6 +339,28 @@ test("real content-script startup does not require chrome.permissions", async ()
       __OPTIONAL_FRAME_PATTERNS__: originalOptional,
     });
   }
+});
+
+test("fresh policy state blocks course resolution until local acknowledgement", async () => {
+  const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=1" });
+  window.document.body.innerHTML = "<h1>Law</h1>";
+  const messages: any[] = [];
+  const runtime = { sendMessage: (message: any, callback: (response: any) => void) => {
+    messages.push(message);
+    if (message.type === "GET_POLICY_STATUS") callback({ ok: true, data: { acknowledged: false, policy_version: "2026-08-14" } });
+    else if (message.type === "ACK_POLICY") callback({ ok: true, data: { acknowledged: true, policy_version: "2026-08-14" } });
+    else callback({ ok: true, data: {} });
+  } };
+  const cleanup = startCourseReview(window as any, window.document as any, runtime);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(messages.some((message) => message.type === "GET_POLICY_STATUS"));
+  assert.equal(messages.some((message) => message.type === "RESOLVE_COURSE"), false);
+  const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
+  (shadow.querySelector("[data-policy-continue]") as unknown as HTMLButtonElement).click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(messages.some((message) => message.type === "ACK_POLICY"));
+  assert.ok(messages.some((message) => message.type === "RESOLVE_COURSE"));
+  cleanup();
 });
 
 test("embedded review stays dormant until the coordinator activates its toolbar-free worker", async () => {

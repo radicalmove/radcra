@@ -31,6 +31,37 @@ const expandHex = (color: string) => color.length === 4
   ? `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`
   : color;
 
+test("fresh policy state shows a blocking disclosure before any sign-in control", async () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  let acknowledged = false;
+  mountReviewOverlay(document, context, "signed-out", {
+    policyAcknowledged: false,
+    policyVersion: "2026-08-14",
+    onAcknowledgePolicy: async () => { acknowledged = true; },
+  });
+  const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  const disclosure = shadow.querySelector<HTMLElement>(".policy-disclosure")!;
+  assert.match(disclosure.textContent ?? "", /Limited Use/);
+  assert.match(disclosure.querySelector("a")?.getAttribute("href") ?? "", /radicalmove\.github\.io\/Beta-testing-app\/privacy/);
+  assert.equal(shadow.querySelector('[data-action="authenticate"]'), null);
+  disclosure.querySelector<HTMLButtonElement>("[data-policy-continue]")!.click();
+  await tick();
+  assert.equal(acknowledged, true);
+  assert.equal(shadow.querySelector(".policy-disclosure"), null);
+});
+
+test("policy disclosure decline remains local and does not expose sign-in retry", async () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  let declined = 0;
+  mountReviewOverlay(document, context, "signed-out", { policyAcknowledged: false, onDeclinePolicy: async () => { declined += 1; } });
+  const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  shadow.querySelector<HTMLButtonElement>("[data-policy-decline]")!.click();
+  await tick();
+  assert.equal(declined, 1);
+  assert.match(shadow.textContent ?? "", /No course data was accessed/);
+  assert.equal(shadow.querySelector('[data-action="authenticate"]'), null);
+});
+
 function auditOverlayContrast(styles: string): void {
   const declarations = (selector: string) => {
     const match = styles.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\{([^}]*)\\}`));

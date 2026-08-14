@@ -333,6 +333,7 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
   let courseHandle: string | undefined;
   let accessLookupReadiness: AccessLookupReadiness = "checking";
   let canRegister = false;
+  let policyAcknowledged = false;
   const courseIds = new Map<string, string>();
   const send = <T>(message: unknown) => new Promise<T>((resolve, reject) => sendRuntimeMessage(runtime, message, (response) => response?.ok ? resolve(response.data as T) : reject(new Error(response?.error ?? "Review service unavailable"))));
   let lastSignature = "";
@@ -481,7 +482,13 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
       if (generation === courseGeneration && context.course_url === requestedCourseUrl && context.page_url === pageUrl) overlay.setCommentNavigationStatus("Comment saved, but comments could not be refreshed. Reload the page.");
     }
   };
-  overlay = mountReviewOverlay(targetDocument, context, "connecting", { accessLookupReadiness, canRegister, onRequestInteraction: (intent) => { interactionController.request(intent); }, onRequestPermission: () => new Promise<boolean>((resolve) => {
+  overlay = mountReviewOverlay(targetDocument, context, "connecting", { accessLookupReadiness, canRegister, policyAcknowledged, policyUrl: "https://radicalmove.github.io/Beta-testing-app/privacy/", onAcknowledgePolicy: async () => {
+    const response = await send<{ acknowledged?: unknown; policy_version?: unknown }>({ type: "ACK_POLICY" });
+    if (response.acknowledged !== true) throw new Error("Policy acknowledgement could not be saved");
+    policyAcknowledged = true;
+    overlay.setPolicyAcknowledged(true, typeof response.policy_version === "string" ? response.policy_version : undefined);
+    refresh();
+  }, onDeclinePolicy: async () => { await send({ type: "SIGN_OUT" }).catch(() => undefined); overlay.setStatus("signed-out"); }, onRequestInteraction: (intent) => { interactionController.request(intent); }, onRequestPermission: () => new Promise<boolean>((resolve) => {
     if (!permissionOrigin) { resolve(false); return; }
     sendRuntimeMessage(runtime, { type: "REQUEST_SCORM_PERMISSION", origin: permissionOrigin }, (response) => { const outcome = response?.data as { granted?: boolean; reload_required?: boolean } | undefined; const granted = Boolean(response?.ok && outcome?.granted); if (granted) interactionController.permissionGranted(outcome?.reload_required === true); resolve(granted); });
   }), onReloadRequired: () => targetWindow.location.reload(), submitEmbedded: async ({ capability, body, category, screenshot }: { capability: string; body: string; category: string; screenshot: boolean }) => { const saved = await send<{ id?: string; screenshot_available?: boolean }>({ type: "CREATE_EMBEDDED_COMMENT", capability, body, category, ...(screenshot ? { screenshot_requested: true } : {}) }); await refreshAfterCommentSave(context.page_url); return saved; }, navigateToComment: async (commentId, pageUrl) => {
@@ -565,6 +572,7 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
   runtime.onMessage?.addListener(topMessageListener);
 
   const refresh = () => {
+    if (!policyAcknowledged) return;
     const next = currentContext(targetWindow, targetDocument);
     const signature = `${next.course_url}\n${next.page_url}\n${next.title}\n${next.pageTitle}\n${next.moodle_course_id ?? next.identityConfidence}`;
     if (signature === lastSignature) return;
@@ -689,7 +697,14 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
   targetDocument.addEventListener("visibilitychange", refreshVisibleComments);
   const onFrameReady = (event: MessageEvent) => { if (event.data?.type === "MOODLE_REVIEW_FRAME_READY") checkFrames(); };
   targetWindow.addEventListener("message", onFrameReady);
-  refresh();
+  sendRuntimeMessage(runtime, { type: "GET_POLICY_STATUS" }, (response) => {
+    const data = response?.data as { acknowledged?: unknown; policy_version?: unknown } | undefined;
+    // Older test doubles and pre-policy workers may omit the field; only an
+    // explicit false response is treated as the local policy gate being closed.
+    policyAcknowledged = data?.acknowledged !== false;
+    overlay.setPolicyAcknowledged(policyAcknowledged, typeof data?.policy_version === "string" ? data.policy_version : undefined);
+    if (policyAcknowledged) refresh();
+  });
   return () => { stopped = true; connectedPackageTitleAliases.clear(); clearCommentNavigationRetry(); interactionController.destroy(); runtime.onMessage?.removeListener(topMessageListener); clearApprovalTimer(); targetDocument.removeEventListener("visibilitychange", onVisibility); targetDocument.removeEventListener("visibilitychange", refreshVisibleComments); targetWindow.removeEventListener("focus", refreshVisibleComments); cancelTimeout(fallbackTimer); cancelFramePoll(framePoll); cancelFramePoll(commentPoll); targetWindow.removeEventListener("message", onFrameReady); for (const eventName of ["popstate", "hashchange", "moodle-review:navigate"]) targetWindow.removeEventListener(eventName, clearNavigatedPage); lifecycle.teardown(); overlay.destroy(); };
 }
 
@@ -748,7 +763,13 @@ export function startEmbeddedReview(targetWindow: Window & typeof globalThis, ta
   };
   runtime.onMessage?.addListener(onCommand);
 
-  const register = () => sendRuntimeMessage(runtime, { type: "GET_REVIEW_CONTEXT" }, (context) => {
+  const register = () => sendRuntimeMessage(runtime, { type: "GET_POLICY_STATUS" }, (policyResponse) => {
+    const policy = policyResponse?.data as { acknowledged?: unknown } | undefined;
+    if (policy?.acknowledged === false) {
+      targetDocument.documentElement.setAttribute("data-moodle-review-registration", "policy-required");
+      return;
+    }
+    sendRuntimeMessage(runtime, { type: "GET_REVIEW_CONTEXT" }, (context) => {
     if (stopped) return;
     if (!context?.ok) {
       targetDocument.documentElement.setAttribute("data-moodle-review-registration", `context:${String(context?.error ?? "unavailable").slice(0, 120)}`);
@@ -765,6 +786,7 @@ export function startEmbeddedReview(targetWindow: Window & typeof globalThis, ta
     // Unit-test and legacy runtimes have no command channel. Production Chrome
     // always supplies runtime.onMessage and therefore remains coordinator-owned.
     if (!runtime.onMessage) activate(0);
+    });
   });
   register();
   leaseTimer = scheduleLease(register, leaseDelay);

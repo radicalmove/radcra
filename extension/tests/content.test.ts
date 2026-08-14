@@ -363,6 +363,24 @@ test("fresh policy state blocks course resolution until local acknowledgement", 
   cleanup();
 });
 
+test("policy preflight fails closed for undefined, failed, and malformed status responses", async () => {
+  for (const policyResponse of [undefined, { ok: false, error: "offline" }, { ok: true, data: {} }]) {
+    const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=1" });
+    window.document.body.innerHTML = "<h1>Law</h1>";
+    const messages: any[] = [];
+    const runtime = { id: "production-shaped-runtime", sendMessage: (message: any, callback: (response: any) => void) => {
+      messages.push(message);
+      if (message.type === "GET_POLICY_STATUS") callback(policyResponse);
+      else callback({ ok: true, data: {} });
+    } };
+    const cleanup = startCourseReview(window as any, window.document as any, runtime as any);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(messages.some((message) => message.type === "RESOLVE_COURSE"), false);
+    assert.ok(window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!.querySelector(".policy-disclosure"));
+    cleanup();
+  }
+});
+
 test("embedded review stays dormant until the coordinator activates its toolbar-free worker", async () => {
   const window = new Window({ url: "https://rise.example/activity#/lesson/1" });
   const parent = { postMessage: () => undefined };
@@ -992,14 +1010,14 @@ test("authentication maps cancellation, failure, pending, offline, and session e
   ] as const;
   for (const [authResponse, expected] of cases) {
     const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=1" }); window.document.body.innerHTML = "<h1>Law</h1>";
-    const runtime = { sendMessage: (message: any, callback: (response: any) => void) => callback(message.type === "AUTHENTICATE" ? authResponse : { ok: false, status: "signed-out", error: "Signed out" }) };
+    const runtime = { sendMessage: (message: any, callback: (response: any) => void) => callback(message.type === "GET_POLICY_STATUS" ? { ok: true, data: { acknowledged: true, policy_version: "2026-08-14" } } : message.type === "AUTHENTICATE" ? authResponse : { ok: false, status: "signed-out", error: "Signed out" }) };
     const cleanup = startCourseReview(window as any, window.document as any, runtime); await new Promise((resolve) => setTimeout(resolve, 0));
     const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!; (shadow.querySelector('[data-action="authenticate"]') as unknown as HTMLElement).click(); await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(shadow.querySelector("[data-status-message]")?.textContent, expected); cleanup();
   }
   for (const [response, expected] of [[{ ok: false, status: "pending", error: "Account pending approval" }, "Waiting for approval — you can leave this page open or return later."], [{ ok: false, status: "offline", error: "Network down" }, "Service unavailable—retry"], [{ ok: false, status: "signed-out", error: "Signed out: session expired" }, "Session expired—sign in again"]] as const) {
     const window = new Window({ url: "https://moodle.example.invalid/course/view.php?id=1" }); window.document.body.innerHTML = "<h1>Law</h1>";
-    const cleanup = startCourseReview(window as any, window.document as any, { sendMessage: (_message: any, callback: any) => callback(response) }); await new Promise((resolve) => setTimeout(resolve, 0));
+    const cleanup = startCourseReview(window as any, window.document as any, { sendMessage: (message: any, callback: any) => callback(message.type === "GET_POLICY_STATUS" ? { ok: true, data: { acknowledged: true, policy_version: "2026-08-14" } } : response) }); await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!.querySelector("[data-status-message]")?.textContent, expected); cleanup();
   }
 });

@@ -12,13 +12,17 @@ import { validateScormMessage, type ScormCommand, type ScormEvent } from "./scor
 import { packageRootFromScormUrl, ScormLaunchCache, validateScormLaunchRegistration } from "./scorm-launch.ts";
 import { deleteWithReconciliation } from "./comment-mutations.ts";
 import { POLICY_VERSION, acknowledgePolicy, clearAccessState, readPolicyState, requiresPolicyAcknowledgement } from "./policy-consent.ts";
+import { UpdateChecker, handleUpdateCheckMessage } from "./update-checker.ts";
 
 declare const chrome: any;
 declare const __MOODLE_PATTERNS__: string[];
 declare const __OPTIONAL_FRAME_PATTERNS__: string[];
 declare const __REVIEW_SERVICE_ORIGIN__: string;
+declare const __EXTENSION_VERSION__: string;
 
 const DEFAULT_SERVICE_ORIGIN = __REVIEW_SERVICE_ORIGIN__;
+const extensionVersion = typeof __EXTENSION_VERSION__ === "string" ? __EXTENSION_VERSION__ : "0.0.0";
+const updateChecker = new UpdateChecker(chrome.storage.local, extensionVersion);
 
 let optionalRegistration = Promise.resolve();
 const reviewContexts = new ReviewContextCache();
@@ -253,6 +257,15 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
       if (!await acknowledgePolicy(chrome.storage.local)) throw new Error("Policy acknowledgement could not be saved");
       return { acknowledged: true, policy_version: POLICY_VERSION };
     })();
+  } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "CHECK_FOR_UPDATE") {
+    operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
+      return handleUpdateCheckMessage(message, sender, {
+        extensionId: chrome.runtime.id,
+        authorize: (candidate) => authorizeAuthenticateSender(candidate, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, hasPermission: async () => false }),
+        check: (force) => updateChecker.check({ force }),
+      });
+    })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "REQUEST_SCORM_PERMISSION") {
     const record = message as Record<string, unknown>;
     let trustedMoodle = false;
@@ -409,6 +422,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "SCORM_TOP_COMMAND") {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       const record = message as Record<string, unknown>;
       if (Object.keys(record).sort().join() !== "command_type,payload,request_id,type" || typeof sender.tab?.id !== "number" || sender.frameId !== 0
         || typeof record.request_id !== "string" || typeof record.command_type !== "string" || !["SCORM_START_SELECTION", "SCORM_START_MARKER", "SCORM_CANCEL_MARKER", "SCORM_SET_COMMENTS"].includes(record.command_type)) throw new Error("Invalid top SCORM command");
@@ -425,6 +439,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "SCORM_ANCHOR_CAPTURED") {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       if (typeof sender.tab?.id !== "number" || !await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) })) throw new Error("Unauthorized SCORM anchor sender");
       const capability = await issueEmbeddedAnchorFromWorker(message, sender, {
         extensionId: chrome.runtime.id,
@@ -438,6 +453,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     })();
   } else if (message && typeof message === "object" && ["SCORM_SELECTION_CHANGED", "SCORM_PAGE_IDENTITY_CHANGED", "SCORM_COMMENTS_CHANGED", "SCORM_COMMENT_NAVIGATION_REQUESTED", "SCORM_COVER_ACTIVATED"].includes((message as { type?: string }).type ?? "")) {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       if (typeof sender.tab?.id !== "number" || typeof sender.frameId !== "number") throw new Error("Invalid SCORM event sender");
       const event = validateScormMessage(message) as ScormEvent; rememberWorkerEvent(sender.tab.id, event.request_id); const owner = frameCoordination.currentOwner(sender.tab.id); const courseId = reviewContexts.courseId(sender);
       if (!owner || owner.frameId !== sender.frameId || owner.workerInstanceId !== event.worker_instance_id || owner.generation !== event.generation || courseId !== event.course_id) throw new Error("Stale SCORM event");

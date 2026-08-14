@@ -516,7 +516,7 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
     lastSignature = "";
     refresh();
     return { status: "connected" };
-  }, onCheckApproval: checkPendingApproval, onSignOut: async () => { await send({ type: "SIGN_OUT" }); lastSignature = ""; latestComments = []; }, onAuthenticate: () => new Promise((resolve) => {
+  }, onCheckApproval: checkPendingApproval, onCheckForUpdate: (force = false) => send({ type: "CHECK_FOR_UPDATE", ...(force ? { force: true } : {}) }), onSignOut: async () => { await send({ type: "SIGN_OUT" }); lastSignature = ""; latestComments = []; }, onAuthenticate: () => new Promise((resolve) => {
     sendRuntimeMessage(runtime, { type: "AUTHENTICATE" }, (response) => {
       if (!response?.ok) {
         if ((response?.status as string | undefined) === "cancelled") resolve({ status: "signed-out", message: "Sign-in cancelled" });
@@ -701,7 +701,7 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
     const data = response?.data as { acknowledged?: unknown; policy_version?: unknown } | undefined;
     // Older test doubles and pre-policy workers may omit the field; only an
     // explicit false response is treated as the local policy gate being closed.
-    policyAcknowledged = response?.ok !== false && data?.acknowledged !== false;
+    policyAcknowledged = response?.ok === true && data?.acknowledged === true;
     overlay.setPolicyAcknowledged(policyAcknowledged, typeof data?.policy_version === "string" ? data.policy_version : undefined);
     if (policyAcknowledged) refresh();
   });
@@ -765,7 +765,8 @@ export function startEmbeddedReview(targetWindow: Window & typeof globalThis, ta
 
   const register = () => sendRuntimeMessage(runtime, { type: "GET_POLICY_STATUS" }, (policyResponse) => {
     const policy = policyResponse?.data as { acknowledged?: unknown } | undefined;
-    if (policy?.acknowledged === false) {
+    const acknowledged = policyResponse?.ok === true && policy?.acknowledged === true;
+    if (!acknowledged) {
       targetDocument.documentElement.setAttribute("data-moodle-review-registration", "policy-required");
       return;
     }

@@ -543,6 +543,19 @@ test("Help dialog provides complete instructions and metadata", () => {
   assert.equal(shadow.querySelector('[role="dialog"]'), null); assert.equal(shadow.activeElement, trigger);
 });
 
+test("Help exposes a metadata-only update check and release link", async () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  let forced = false;
+  mountReviewOverlay(document, context, "connected", { onCheckForUpdate: async (force = false) => { forced = force; return { status: "update-available", current_version: "0.5.35", metadata: { version: "0.5.36", release_url: "https://github.com/radicalmove/Beta-testing-app/releases/tag/v0.5.36", download_url: "https://radicalmove.github.io/Beta-testing-app/", published_at: "2026-08-14T00:00:00Z" } }; } });
+  const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  shadow.querySelector<HTMLElement>('[data-action="help"]')!.click();
+  const check = shadow.querySelector<HTMLButtonElement>("[data-check-update]")!;
+  check.click(); await tick();
+  assert.match(shadow.querySelector("[data-update-status]")?.textContent ?? "", /Update available: v0\.5\.36/);
+  assert.equal(shadow.querySelector<HTMLAnchorElement>("[data-update-release]")?.href, "https://radicalmove.github.io/Beta-testing-app/");
+  assert.equal(forced, false);
+});
+
 test("an authentication completion cannot overwrite a newer external state update", async () => {
   const window = new Window(); const document = window.document as unknown as Document;
   let finish!: (outcome: { status: "connected" }) => void;

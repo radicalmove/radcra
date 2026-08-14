@@ -5,6 +5,7 @@ import { EmbeddedAnchorCapabilities, issueEmbeddedAnchorFromWorker, type Embedde
 import { requirePolicyAcknowledgement, type PageComment } from "../src/background-bridge.ts";
 import { EmbeddedCommentNavigation, handleCommentNavigationMessage, type EmbeddedNavigationStorage } from "../src/embedded-comment-navigation.ts";
 import { packageRootFromScormUrl, ScormLaunchCache } from "../src/scorm-launch.ts";
+import { DOWNLOAD_PAGE_URL, UPDATE_METADATA_URL, UpdateChecker, handleUpdateCheckMessage, type UpdateStorage } from "../src/update-checker.ts";
 
 class Storage implements EmbeddedAnchorStorage {
   data: Record<string, unknown> = {};
@@ -380,4 +381,23 @@ test("the background gate blocks all network-bearing review routes before their 
   assert.equal(cleared, networkRoutes.length);
   assert.equal(await requirePolicyAcknowledgement({ requires: async () => false, clear: async () => assert.fail("must not clear acknowledged access") }, async () => { fetches += 1; return "permitted"; }), "permitted");
   assert.equal(fetches, 1);
+});
+
+test("background CHECK_FOR_UPDATE is authorized, exact-endpoint, cached, and metadata-only", async () => {
+  class UpdateStorageStub implements UpdateStorage {
+    values: Record<string, unknown> = {};
+    async get(key: string) { return { [key]: this.values[key] }; }
+    async set(value: Record<string, unknown>) { Object.assign(this.values, structuredClone(value)); }
+  }
+  const storage = new UpdateStorageStub(); let now = 1000; let calls = 0; const assets: string[] = [];
+  const checker = new UpdateChecker(storage, "0.5.35", async (url) => { calls += 1; assets.push(url); return { ok: true, status: 200, json: async () => ({ schema_version: 1, version: "0.5.36", release_url: "https://github.com/radicalmove/Beta-testing-app/releases/tag/v0.5.36", download_url: DOWNLOAD_PAGE_URL, published_at: "2026-08-14T00:00:00Z" }) }; }, () => now);
+  const sender = { id: "extension", frameId: 0, url: "https://moodle.example/course/view.php?id=1" };
+  assert.equal((await handleUpdateCheckMessage({ type: "CHECK_FOR_UPDATE" }, sender, { extensionId: "extension", authorize: async () => true, check: (force) => checker.check({ force }) })).status, "update-available");
+  assert.equal((await handleUpdateCheckMessage({ type: "CHECK_FOR_UPDATE" }, sender, { extensionId: "extension", authorize: async () => true, check: (force) => checker.check({ force }) })).status, "update-available");
+  assert.equal(calls, 1); assert.deepEqual(assets, [UPDATE_METADATA_URL]);
+  now += 24 * 60 * 60 * 1000;
+  await handleUpdateCheckMessage({ type: "CHECK_FOR_UPDATE" }, sender, { extensionId: "extension", authorize: async () => true, check: (force) => checker.check({ force }) });
+  assert.equal(calls, 2); assert.deepEqual(assets, [UPDATE_METADATA_URL, UPDATE_METADATA_URL]);
+  await assert.rejects(() => handleUpdateCheckMessage({ type: "CHECK_FOR_UPDATE" }, { ...sender, frameId: 1 }, { extensionId: "extension", authorize: async () => true, check: (force) => checker.check({ force }) }), /Unauthorized/);
+  await assert.rejects(() => handleUpdateCheckMessage({ type: "CHECK_FOR_UPDATE" }, { ...sender, id: "other" }, { extensionId: "extension", authorize: async () => true, check: (force) => checker.check({ force }) }), /Unauthorized/);
 });

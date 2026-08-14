@@ -42,6 +42,30 @@ The callback must use the exact Chrome identity redirect origin and path. The se
 
 The default build is an explicitly non-production example build with unusable placeholder hosts and a placeholder public key. `BUILD_MODE=production` rejects those placeholders and invalid service origins or Chrome match patterns.
 
+## Release package choices
+
+The release folder contains two different packages:
+
+* `radcra-web-store-v<version>.zip` is the root-level ZIP to upload as a
+  private Chrome Web Store item. `manifest.json` is at the ZIP root and the
+  generated 16, 48, and 128 pixel icons are included. Chrome manages updates
+  for an item installed from the Web Store.
+* `moodle-review-extension-v<version>-chrome-edge.zip` is the existing pilot
+  archive. It deliberately keeps the `moodle-review-extension/` directory
+  wrapper so it can be unpacked for manual Chrome or Edge testing. Extract it
+  somewhere outside the repository, open `chrome://extensions` (or
+  `edge://extensions`), enable Developer mode, choose **Load unpacked**, and
+  select that directory. Replace the selected directory and press **Reload**
+  when installing a newer pilot build.
+
+The public-key value in the generated manifest is what keeps unpacked pilot
+builds on the same browser extension ID. Before the first Web Store upload,
+compare the dashboard's accepted public key with the build key and use the
+dashboard identity for every later package. Register only the exact
+`chrome.identity.getRedirectURL()` value with the review service. Never put a
+private key, PEM file, or signing secret in either package or in this
+repository.
+
 ## Development
 
 ```sh

@@ -27,13 +27,13 @@ VERSIONED_ZIP="$DELIVERY_ROOT/moodle-review-extension-v$RELEASE_VERSION-chrome-e
 
 (cd "$ROOT/extension" && npm test && npm run typecheck)
 (cd "$ROOT/server" && python3 -m pytest -q)
-(cd "$ROOT" && python3 -m unittest tests/test_deployment_package.py)
+(cd "$ROOT" && python3 -m unittest tests/test_deployment_package.py tests/test_store_package.py)
 
 rm -rf "$ROOT/extension/dist"
 PRIVATE_KEY_PATH="$PRIVATE_KEY_PATH" REVIEW_SERVICE_ORIGIN="$REVIEW_SERVICE_ORIGIN" OPTIONAL_FRAME_PATTERNS="$CONFIGURED_OPTIONAL_FRAME_PATTERNS" BUILD_COMMIT="$BUILD_COMMIT" \
   "$ROOT/deploy/scripts/build-pilot-extension.sh"
 
-for artifact in manifest.json content.js background.js; do
+for artifact in manifest.json content.js background.js icons/icon16.png icons/icon48.png icons/icon128.png; do
   [[ -f "$ROOT/extension/dist/$artifact" ]] || {
     echo "build did not freshly produce extension/dist/$artifact" >&2
     exit 1
@@ -59,7 +59,14 @@ CURRENT_COMMIT=$(git -C "$ROOT" rev-parse HEAD)
   exit 1
 }
 python3 "$ROOT/deploy/scripts/release_artifacts.py" --root "$ROOT" --dist "$ROOT/extension/dist" --delivery "$DELIVERY_ROOT" --version "$RELEASE_VERSION"
-for artifact in background.js content.js manifest.json; do cmp "$ROOT/extension/dist/$artifact" "$DELIVERY_DIR/$artifact"; done
+for artifact in background.js content.js manifest.json icons/icon16.png icons/icon48.png icons/icon128.png; do cmp "$ROOT/extension/dist/$artifact" "$DELIVERY_DIR/$artifact"; done
 cmp "$VERSIONED_ZIP" "$DELIVERY_ZIP"
 (cd "$DELIVERY_ROOT" && shasum -a 256 -c SHA256SUMS)
-echo "Released verified pilot extension to $DELIVERY_ROOT"
+STORE_ZIP="$DELIVERY_ROOT/radcra-web-store-v$RELEASE_VERSION.zip"
+python3 "$ROOT/deploy/scripts/store_package.py" \
+  --dist "$ROOT/extension/dist" \
+  --output "$STORE_ZIP" \
+  --version "$RELEASE_VERSION" \
+  --repository "radicalmove/Beta-testing-app"
+printf '%s  %s\n' "$(shasum -a 256 "$STORE_ZIP" | awk '{print $1}')" "$(basename "$STORE_ZIP")" > "$STORE_ZIP.sha256"
+echo "Released verified pilot and Web Store packages to $DELIVERY_ROOT"

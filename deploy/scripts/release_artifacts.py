@@ -1,7 +1,31 @@
 #!/usr/bin/env python3
 import argparse, fcntl, hashlib, json, os, re, shutil, stat, subprocess, tempfile, zipfile
 from pathlib import Path
-FILES = ("background.js", "content.js", "manifest.json")
+
+# Releases through 0.5.34 contain only the original three runtime files.  New
+# releases include the deterministic store icons.  Keep both sets explicit so
+# immutable historical releases remain verifiable after the packaging change.
+LEGACY_FILES = ("background.js", "content.js", "manifest.json")
+CURRENT_FILES = (*LEGACY_FILES, "icons/icon16.png", "icons/icon48.png", "icons/icon128.png")
+# Backwards-compatible import for deployment tests and external release tools.
+FILES = LEGACY_FILES
+
+
+def files_for_directory(directory: Path) -> tuple[str, ...]:
+    """Select the immutable artifact file set represented by *directory*.
+
+    A partial icon set is rejected rather than silently published as a legacy
+    release.  This keeps an incomplete fresh build from becoming an apparently
+    valid immutable artifact.
+    """
+
+    icon_paths = {"icons/icon16.png", "icons/icon48.png", "icons/icon128.png"}
+    present = {path.relative_to(directory).as_posix() for path in directory.rglob("*") if path.is_file()}
+    if present & icon_paths:
+        if not icon_paths <= present:
+            raise RuntimeError("incomplete current icon set")
+        return CURRENT_FILES
+    return LEGACY_FILES
 
 def canonical_delivery(root: Path, git_common: Path, candidate: Path) -> Path:
     resolved = candidate.expanduser().resolve()
@@ -19,8 +43,9 @@ def git_identity(root: Path) -> str:
     return subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=True).stdout.strip()
 
 def deterministic_zip(source: Path, target: Path) -> None:
+    files = files_for_directory(source)
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-        for name in sorted((*FILES, "RELEASE.json")):
+        for name in sorted((*files, "RELEASE.json")):
             info=zipfile.ZipInfo(f"moodle-review-extension/{name}",(1980,1,1,0,0,0)); info.create_system=3; info.external_attr=(stat.S_IFREG|0o644)<<16
             archive.writestr(info,(source/name).read_bytes(),compress_type=zipfile.ZIP_DEFLATED,compresslevel=9)
 
@@ -65,17 +90,18 @@ def _scan_version(releases: Path, version: str, identity: tuple[str, str]) -> No
 
 def _validate_legacy_release(entry: Path, metadata: dict[str,str]) -> None:
     unpacked=entry/"moodle-review-extension"; archive=entry/"moodle-review-extension-chrome-edge.zip"; sums=entry/"SHA256SUMS"
-    expected={Path("RELEASE.json"),Path("SHA256SUMS"),Path("moodle-review-extension-chrome-edge.zip"),Path("moodle-review-extension"),*(Path("moodle-review-extension")/name for name in (*FILES,"RELEASE.json"))}
+    files = LEGACY_FILES
+    expected={Path("RELEASE.json"),Path("SHA256SUMS"),Path("moodle-review-extension-chrome-edge.zip"),Path("moodle-review-extension"),*(Path("moodle-review-extension")/name for name in (*files,"RELEASE.json"))}
     actual={path.relative_to(entry) for path in entry.rglob("*")}
     if actual != expected or any((entry/path).is_symlink() for path in actual):
         raise ValueError("invalid legacy release tree")
     release_bytes=(entry/"RELEASE.json").read_bytes()
     if (unpacked/"RELEASE.json").read_bytes() != release_bytes or json.loads(release_bytes) != metadata:
         raise ValueError("legacy metadata copies differ")
-    digest=hashlib.sha256(b"".join((unpacked/name).read_bytes() for name in FILES)).hexdigest()[:12]
+    digest=hashlib.sha256(b"".join((unpacked/name).read_bytes() for name in files)).hexdigest()[:12]
     if digest != metadata["artifact_digest"]:
         raise ValueError("legacy artifact digest differs")
-    checksum_paths=[*(f"moodle-review-extension/{name}" for name in FILES),"moodle-review-extension-chrome-edge.zip"]
+    checksum_paths=[*(f"moodle-review-extension/{name}" for name in files),"moodle-review-extension-chrome-edge.zip"]
     expected_sums="".join(f"{hashlib.sha256((entry/path).read_bytes()).hexdigest()}  {path}\n" for path in checksum_paths)
     if sums.read_text() != expected_sums:
         raise ValueError("legacy checksums differ")
@@ -94,7 +120,11 @@ def _validate_versioned_release(entry: Path, metadata: dict[str,str]) -> None:
     if not _valid_version(version) or not re.fullmatch(r"[0-9a-f]{40}",commit) or not re.fullmatch(r"[0-9a-f]{12}",digest) or entry.name != f"v{version}-{commit[:12]}-{digest}":
         raise ValueError("invalid versioned release identity")
     unpacked=entry/"moodle-review-extension"; versioned=f"moodle-review-extension-v{version}-chrome-edge.zip"; stable="moodle-review-extension-chrome-edge.zip"
-    paths=[*(f"moodle-review-extension/{name}" for name in FILES),"moodle-review-extension/RELEASE.json","RELEASE.json",versioned,stable]
+    try:
+        files = files_for_directory(unpacked)
+    except RuntimeError as error:
+        raise ValueError(str(error)) from error
+    paths=[*(f"moodle-review-extension/{name}" for name in files),"moodle-review-extension/RELEASE.json","RELEASE.json",versioned,stable]
     expected={Path("moodle-review-extension"),Path("SHA256SUMS"),*(Path(path) for path in paths)}
     actual={path.relative_to(entry) for path in entry.rglob("*")}
     if actual != expected or any((entry/path).is_symlink() for path in actual):
@@ -102,7 +132,7 @@ def _validate_versioned_release(entry: Path, metadata: dict[str,str]) -> None:
     release_bytes=(entry/"RELEASE.json").read_bytes()
     if (unpacked/"RELEASE.json").read_bytes() != release_bytes or json.loads(release_bytes) != metadata:
         raise ValueError("versioned metadata copies differ")
-    computed=hashlib.sha256(b"".join((unpacked/name).read_bytes() for name in FILES)).hexdigest()[:12]
+    computed=hashlib.sha256(b"".join((unpacked/name).read_bytes() for name in files)).hexdigest()[:12]
     if computed != digest:
         raise ValueError("versioned artifact digest differs")
     expected_sums="".join(f"{hashlib.sha256((entry/path).read_bytes()).hexdigest()}  {path}\n" for path in paths)
@@ -131,16 +161,20 @@ def _validate_immutable_release(expected: Path, installed: Path) -> None:
 
 def publish(dist: Path, delivery: Path, commit: str, version: str, fail_phase: str|None=None) -> dict[str,str]:
     delivery.mkdir(parents=True,exist_ok=True); releases=delivery/"releases"; releases.mkdir(exist_ok=True)
-    digest=hashlib.sha256(b"".join((dist/n).read_bytes() for n in FILES)).hexdigest()[:12]; name=f"v{version}-{commit[:12]}-{digest}"; release=releases/name
+    files = files_for_directory(dist)
+    digest=hashlib.sha256(b"".join((dist/n).read_bytes() for n in files)).hexdigest()[:12]; name=f"v{version}-{commit[:12]}-{digest}"; release=releases/name
     with (delivery/".publish.lock").open("a+") as lock:
       fcntl.flock(lock,fcntl.LOCK_EX)
       _scan_version(releases,version,(commit,digest))
       with tempfile.TemporaryDirectory(prefix=".release-",dir=delivery) as temp:
         stage=Path(temp)/name; unpacked=stage/"moodle-review-extension"; unpacked.mkdir(parents=True)
-        for n in FILES: shutil.copyfile(dist/n,unpacked/n)
+        for n in files:
+            destination = unpacked / n
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(dist/n,destination)
         metadata={"version":version,"commit":commit,"artifact_digest":digest}; release_json=json.dumps(metadata,sort_keys=True,separators=(",",":"))+"\n"; (unpacked/"RELEASE.json").write_text(release_json); (stage/"RELEASE.json").write_text(release_json)
         versioned_zip=f"moodle-review-extension-v{version}-chrome-edge.zip"; deterministic_zip(unpacked,stage/versioned_zip); shutil.copyfile(stage/versioned_zip,stage/"moodle-review-extension-chrome-edge.zip")
-        paths=[*(f"moodle-review-extension/{n}" for n in FILES),"moodle-review-extension/RELEASE.json","RELEASE.json",versioned_zip,"moodle-review-extension-chrome-edge.zip"]
+        paths=[*(f"moodle-review-extension/{n}" for n in files),"moodle-review-extension/RELEASE.json","RELEASE.json",versioned_zip,"moodle-review-extension-chrome-edge.zip"]
         hashes={path:hashlib.sha256((stage/path).read_bytes()).hexdigest() for path in paths}
         (stage/"SHA256SUMS").write_text("".join(f"{hashes[path]}  {path}\n" for path in paths))
         if fail_phase=="staged": raise RuntimeError("injected staged failure")

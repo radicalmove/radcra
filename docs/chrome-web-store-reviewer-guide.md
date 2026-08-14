@@ -1,13 +1,23 @@
 # RADCRA private-beta reviewer guide
 
-This is a private beta for authorised course reviewers. Install the uploaded root-level Web Store ZIP as a private item and add trusted testers in the Developer Dashboard. Sign in with reviewer credentials supplied out-of-band; never place test credentials in this repository.
+This is a private beta for approved reviewers. Test accounts, invitation codes, and Moodle URLs are supplied out-of-band and must never be committed to this repository.
 
-The first upload must preserve the accepted pilot public key and therefore the existing `chrome://extensions` ID. Verify that ID matches the dashboard Item ID and that the server's exact extension redirect URI is unchanged. If the dashboard rejects the key, stop and follow the documented migration path rather than shipping a new identity.
+## Access supplied to a reviewer
 
-Reviewers can inspect the first-run privacy disclosure, accept or decline it, sign in, open a Moodle course, add a comment, and use Help → Check for updates. The updater reads only `latest.json`; it never executes downloaded content.
+The operator supplies a test Moodle URL matching the configured pattern (for example, `https://my.uconline.ac.nz/course/view.php?id=<numeric-course-id>`), a course invitation, and a reviewer account. If the course includes a Rise/SCORM package, the operator also approves the exact package host pattern; Chrome will ask for that optional permission only when the package is opened.
 
-## Test path
+## Fresh-install test
 
-Use an invited Moodle account on the configured `https://my.uconline.ac.nz/*` test URL. Open a normal Moodle page and verify the disclosure, sign-in, current-page comments, text highlight, area marker, reply, resolve/reopen, and Previous/Next navigation. Open a Moodle SCORM player and confirm the Rise/Articulate embedded frame is ready before testing a tab or process-step comment; the optional embedded-origin permission is requested only when needed. Use Sign out to clear local session/device credentials.
+1. Install the private Web Store item in a clean Chrome profile, or load the nested `moodle-review-extension/` folder from the pilot ZIP in Developer mode.
+2. Open the supplied Moodle course URL. Confirm that ordinary Moodle browsing still works while the RADCRA disclosure is displayed.
+3. Read the data-use disclosure and privacy policy. Choose **Continue** to acknowledge the current policy version, or choose **Decline** and confirm that the reviewer remains signed out and no review request is submitted.
+4. Sign in with the supplied pilot account. Confirm the overlay identifies the reviewer and the course.
+5. Select a sentence and create a text highlight comment. Add an area marker on a non-selectable region and confirm that both markers show their course/page context.
+6. Open the Comments panel, select the new thread, and use its navigation control. Confirm the target Moodle page/SCORM activity opens at the saved context.
+7. If the course contains an approved embedded activity, open it and grant the exact optional host permission. Add a comment in the activity and verify that denying optional access leaves the parent-page marker path available.
+8. Use Help → **Check for updates**. Confirm the result is status/link text only; no ZIP is fetched or executed by the extension. Web Store items update through Chrome, while an unpacked pilot requires a manual folder replacement and Reload.
+9. Sign out or choose **Sign out / switch user**. Confirm active session material is cleared and the reviewer can browse Moodle without a connected review session.
 
-Report failures with the course/page URL, extension version, and a minimal reproduction through the support issue tracker. Do not attach access tokens, private keys, or credentials.
+## Reporting a finding
+
+Record the build version, browser, Moodle URL pattern (not credentials), page/activity context, expected result, actual result, and a screenshot only when the test account permits it. Report issues at https://github.com/radicalmove/Beta-testing-app/issues. Do not paste access tokens, invitation codes, private URLs, or real student data into an issue.

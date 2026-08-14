@@ -117,9 +117,9 @@ jobs:
             --repository "radicalmove/Beta-testing-app"
           cp "$delivery/moodle-review-extension-v${release_version}-chrome-edge.zip" "$artifacts/"
           cp "$delivery/moodle-review-extension-chrome-edge.zip" "$artifacts/"
-          printf '%s  %s\n' \
-            "$(sha256sum "$artifacts/radcra-web-store-v${release_version}.zip" | awk '{print $1}')" \
-            "radcra-web-store-v${release_version}.zip" > "$artifacts/radcra-web-store-v${release_version}.zip.sha256"
+          for archive in "$artifacts"/*.zip; do
+            printf '%s  %s\n' "$(sha256sum "$archive" | awk '{print $1}')" "$(basename "$archive")" > "$archive.sha256"
+          done
           # Publish one checksum file covering every uploaded ZIP.
           (cd "$artifacts" && sha256sum *.zip > SHA256SUMS)
           cat > "$artifacts/RELEASE_NOTES.md" <<EOF

@@ -2,6 +2,9 @@ import { createPublicKey } from "node:crypto";
 import { validateServiceOrigin } from "./api.ts";
 
 export const EXAMPLE_PUBLIC_KEY = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4Un68oQyXoqvVudBuIXKFaUgPz0LoJBuGzn+vLgy3eShy+LDcZQJLouFJF2cZiPq0ygrB9+84IiZAnMoKnYyEQv7+drzZZwwPRFsBYZ6KJXlC3/+YSQtcO7gexivwPVqMBWKnAEj1Qa4lWnjL1dccCeYkslAPr4comwguyfM3jxZMpokqVfElkTlaObxYKmOgs3K2ncpKTSQ3Ej+Xjmdi7np6f0SUXgWwElYcit4GOGDXmc05naCz1WPZ9iZsj6w1eWf7LuodmLh1lPkHDeajsrI+SIQ3m2krfGIu8kUzpV/cx0vk3/z+ozf2WbiD5A691Bs1lp/6OxMUu3L0HFX4QIDAQAB";
+export const EXTENSION_NAME = "RADCRA — Course Review (BETA)";
+export const EXTENSION_DESCRIPTION = "Review configured Moodle course pages with comments, highlights, and review markers. THIS EXTENSION IS FOR BETA TESTING.";
+export const UPDATE_METADATA_HOST_PERMISSION = "https://radicalmove.github.io/Beta-testing-app/*";
 
 type Environment = Record<string, string | undefined>;
 

@@ -1,8 +1,14 @@
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import { buildSync } from "esbuild";
-import { loadBuildConfig, loadExtensionVersion } from "./src/build-config.ts";
+import {
+  EXTENSION_DESCRIPTION,
+  EXTENSION_NAME,
+  UPDATE_METADATA_HOST_PERMISSION,
+  loadBuildConfig,
+  loadExtensionVersion,
+} from "./src/build-config.ts";
 
 const packageJson = JSON.parse(readFileSync(resolve("package.json"), "utf8"));
 const lockJson = JSON.parse(readFileSync(resolve("package-lock.json"), "utf8"));
@@ -16,11 +22,26 @@ function manifestPlugin(): Plugin {
       const source = JSON.parse(readFileSync(resolve("public/manifest.json"), "utf8"));
       if (source.version !== "0.0.0") throw new Error("Public manifest version placeholder must remain 0.0.0");
       source.version = version;
+      source.name = EXTENSION_NAME;
+      source.description = EXTENSION_DESCRIPTION;
       source.key = publicKey;
-      source.host_permissions = [...moodlePatterns, `${serviceOrigin.replace(/\/$/, "")}/*`];
+      source.host_permissions = [...moodlePatterns, `${serviceOrigin.replace(/\/$/, "")}/*`, UPDATE_METADATA_HOST_PERMISSION];
       source.optional_host_permissions = optionalPatterns;
       source.content_scripts[0].matches = moodlePatterns;
       writeFileSync(resolve("dist/manifest.json"), `${JSON.stringify(source, null, 2)}\n`);
+    },
+  };
+}
+
+function extensionIconsPlugin(): Plugin {
+  return {
+    name: "copy-extension-icons",
+    closeBundle() {
+      const destination = resolve("dist/icons");
+      mkdirSync(destination, { recursive: true });
+      for (const size of [16, 48, 128]) {
+        copyFileSync(resolve(`public/icons/icon${size}.png`), resolve(destination, `icon${size}.png`));
+      }
     },
   };
 }
@@ -55,5 +76,5 @@ export default defineConfig({
       output: { entryFileNames: "[name].js", chunkFileNames: "chunks/[name]-[hash].js" },
     },
   },
-  plugins: [manifestPlugin(), classicEntryBundlesPlugin()],
+  plugins: [manifestPlugin(), classicEntryBundlesPlugin(), extensionIconsPlugin()],
 });

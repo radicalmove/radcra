@@ -8,6 +8,9 @@ import test from "node:test";
 import { loadBuildCommit, loadBuildConfig, loadExtensionVersion } from "../src/build-config.ts";
 
 const execFileAsync = promisify(execFile);
+const extensionName = "RADCRA — Course Review (BETA)";
+const extensionDescription = "Review configured Moodle course pages with comments, highlights, and review markers. THIS EXTENSION IS FOR BETA TESTING.";
+const updateMetadataHostPermission = "https://radicalmove.github.io/Beta-testing-app/*";
 
 function productionEnv(overrides: Record<string, string | undefined> = {}) {
   const { publicKey } = generateKeyPairSync("rsa", {
@@ -35,14 +38,23 @@ test("validates canonical Chromium extension versions", () => {
   }
 });
 
-test("canonical package and lock versions match while the manifest remains a placeholder", async () => {
+test("canonical package, lock, and beta manifest identity are deterministic", async () => {
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const lockJson = JSON.parse(await readFile(new URL("../package-lock.json", import.meta.url), "utf8"));
   const manifest = JSON.parse(await readFile(new URL("../public/manifest.json", import.meta.url), "utf8"));
-  assert.equal(packageJson.version, "0.5.34");
+  assert.equal(packageJson.version, "0.5.35");
   assert.equal(lockJson.version, packageJson.version);
   assert.equal(lockJson.packages[""].version, packageJson.version);
   assert.equal(manifest.version, "0.0.0");
+  assert.equal(manifest.name, extensionName);
+  assert.equal(manifest.description, extensionDescription);
+  assert.match(manifest.description, /THIS EXTENSION IS FOR BETA TESTING/);
+  assert.deepEqual(manifest.icons, {
+    16: "icons/icon16.png",
+    48: "icons/icon48.png",
+    128: "icons/icon128.png",
+  });
+  assert.ok(manifest.host_permissions.includes(updateMetadataHostPermission));
   assert.equal(loadExtensionVersion(packageJson, lockJson).version, packageJson.version);
   assert.throws(() => loadExtensionVersion(packageJson, { ...lockJson, version: "0.2.0" }), /mismatch/i);
 });
@@ -53,6 +65,9 @@ test("generated manifest version equals the canonical package version", async ()
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const manifest = JSON.parse(await readFile(new URL("../dist/manifest.json", import.meta.url), "utf8"));
   assert.equal(manifest.version, packageJson.version);
+  assert.equal(manifest.name, extensionName);
+  assert.equal(manifest.description, extensionDescription);
+  assert.ok(manifest.host_permissions.includes(updateMetadataHostPermission));
 });
 
 test("production validates a full build commit and development uses the zero commit", () => {

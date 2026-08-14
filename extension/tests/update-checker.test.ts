@@ -9,7 +9,13 @@ class Storage implements UpdateStorage {
   async set(value: Record<string, unknown>) { Object.assign(this.values, structuredClone(value)); }
 }
 
-const metadata = (version = "0.5.36") => ({ schema_version: 1, version, release_url: "https://github.com/radicalmove/Beta-testing-app/releases/tag/v0.5.36", download_url: DOWNLOAD_PAGE_URL, published_at: "2026-08-14T00:00:00.000Z" });
+const metadata = (version = "0.5.36") => ({ schema_version: 1, version, release_url: "https://github.com/radicalmove/radcra/releases/tag/v0.5.36", download_url: DOWNLOAD_PAGE_URL, published_at: "2026-08-14T00:00:00.000Z" });
+
+test("uses the canonical RADCRA update endpoints", () => {
+  assert.equal(UPDATE_METADATA_URL, "https://radicalmove.github.io/radcra/latest.json");
+  assert.equal(DOWNLOAD_PAGE_URL, "https://radicalmove.github.io/radcra/");
+  assert.doesNotMatch(`${UPDATE_METADATA_URL} ${DOWNLOAD_PAGE_URL}`, /Beta-testing-app/);
+});
 
 test("strictly validates update metadata and HTTPS links", () => {
   assert.deepEqual(parseUpdateMetadata(metadata()), metadata());

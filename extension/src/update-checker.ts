@@ -5,8 +5,8 @@
  * remote content, or writes anything except the small metadata cache.
  */
 
-export const UPDATE_METADATA_URL = "https://radicalmove.github.io/Beta-testing-app/latest.json";
-export const DOWNLOAD_PAGE_URL = "https://radicalmove.github.io/Beta-testing-app/";
+export const UPDATE_METADATA_URL = "https://radicalmove.github.io/radcra/latest.json";
+export const DOWNLOAD_PAGE_URL = "https://radicalmove.github.io/radcra/";
 export const UPDATE_CACHE_KEY = "radcra.update-check";
 export const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 

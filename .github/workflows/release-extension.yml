@@ -10,12 +10,8 @@ on:
         required: true
         type: string
 
-# The Pages deployment in this job is intentional: the tag is the authoritative
-# source of latest.json. No generated file is committed back to the repository.
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: radcra-release
@@ -24,15 +20,36 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
     env:
       REVIEW_SERVICE_ORIGIN: ${{ vars.REVIEW_SERVICE_ORIGIN }}
-      BUILD_COMMIT: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve and validate authoritative release tag
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          release_tag="$REQUESTED_TAG"
+          [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git show-ref --verify --quiet "refs/tags/$release_tag"
+          tag_commit="$(git rev-list -n 1 "refs/tags/$release_tag")"
+          head_commit="$(git rev-parse HEAD)"
+          [[ "$tag_commit" == "$head_commit" ]]
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            [[ "$head_commit" == "$EVENT_COMMIT" ]]
+          fi
+          release_version="${release_tag#v}"
+          package_version="$(python3 -c 'import json; print(json.load(open("extension/package.json"))["version"])')"
+          [[ "$release_version" == "$package_version" ]]
+          echo "RELEASE_TAG=$release_tag" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=$release_version" >> "$GITHUB_ENV"
+          echo "BUILD_COMMIT=$head_commit" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v4
         with:
@@ -77,7 +94,6 @@ jobs:
         env:
           EXTENSION_PRIVATE_KEY_PEM: ${{ secrets.EXTENSION_PRIVATE_KEY_PEM }}
           REVIEW_SERVICE_ORIGIN: ${{ vars.REVIEW_SERVICE_ORIGIN }}
-          BUILD_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
           umask 077
@@ -91,17 +107,15 @@ jobs:
           PRIVATE_KEY_PATH="$key_file" \
             REVIEW_SERVICE_ORIGIN="$REVIEW_SERVICE_ORIGIN" \
             OPTIONAL_FRAME_PATTERNS="$(awk 'NF && $1 !~ /^#/ { printf "%s%s", separator, $0; separator="," }' deploy/config/pilot-optional-frame-patterns.txt)" \
-            BUILD_COMMIT=${{ github.sha }} \
+            BUILD_COMMIT="$BUILD_COMMIT" \
             deploy/scripts/build-pilot-extension.sh
           test -f extension/dist/manifest.json
           test -f extension/dist/icons/icon16.png
 
       - name: Package pilot and Web Store artifacts in isolated runner storage
-        env:
-          BUILD_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
-          release_version="$(node -p "require('./extension/package.json').version")"
+          release_version="$RELEASE_VERSION"
           delivery="$RUNNER_TEMP/radcra-pilot-delivery"
           artifacts="$RUNNER_TEMP/radcra-release-assets"
           mkdir -p "$artifacts"
@@ -114,9 +128,13 @@ jobs:
             --dist "$GITHUB_WORKSPACE/extension/dist" \
             --output "$artifacts/radcra-web-store-v${release_version}.zip" \
             --version "$release_version" \
-            --repository "radicalmove/Beta-testing-app"
+            --repository "radicalmove/radcra" \
+            --build-commit "$BUILD_COMMIT"
+          test -f "$artifacts/radcra-web-store-v${release_version}.report.json"
           cp "$delivery/moodle-review-extension-v${release_version}-chrome-edge.zip" "$artifacts/"
           cp "$delivery/moodle-review-extension-chrome-edge.zip" "$artifacts/"
+          cp "$GITHUB_WORKSPACE/store-assets/radcra-promo-440x280.png" "$artifacts/"
+          cp "$GITHUB_WORKSPACE/store-assets/radcra-screenshot-1280x800.png" "$artifacts/"
           for archive in "$artifacts"/*.zip; do
             printf '%s  %s\n' "$(sha256sum "$archive" | awk '{print $1}')" "$(basename "$archive")" > "$archive.sha256"
           done
@@ -127,16 +145,16 @@ jobs:
 
           **THIS EXTENSION IS FOR BETA TESTING.**
 
-          - Web Store upload: [radcra-web-store-v${release_version}.zip](https://github.com/radicalmove/Beta-testing-app/releases/download/${GITHUB_REF_NAME}/radcra-web-store-v${release_version}.zip)
-          - Private pilot (Chrome/Edge Load unpacked): [moodle-review-extension-v${release_version}-chrome-edge.zip](https://github.com/radicalmove/Beta-testing-app/releases/download/${GITHUB_REF_NAME}/moodle-review-extension-v${release_version}-chrome-edge.zip)
-          - Read [releasing.md](https://github.com/radicalmove/Beta-testing-app/blob/main/docs/releasing.md) for installation and update guidance.
+          - Web Store upload: [radcra-web-store-v${release_version}.zip](https://github.com/radicalmove/radcra/releases/download/${RELEASE_TAG}/radcra-web-store-v${release_version}.zip)
+          - Web Store package report: [radcra-web-store-v${release_version}.report.json](https://github.com/radicalmove/radcra/releases/download/${RELEASE_TAG}/radcra-web-store-v${release_version}.report.json)
+          - Private pilot (Chrome/Edge Load unpacked): [moodle-review-extension-v${release_version}-chrome-edge.zip](https://github.com/radicalmove/radcra/releases/download/${RELEASE_TAG}/moodle-review-extension-v${release_version}-chrome-edge.zip)
+          - Read [releasing.md](https://github.com/radicalmove/radcra/blob/main/docs/releasing.md) for installation and update guidance.
 
           Web Store installations update through Chrome. Unpacked pilot installations require replacing the folder and pressing Reload.
           EOF
-          echo "RELEASE_VERSION=${release_version}" >> "$GITHUB_ENV"
           echo "RELEASE_ASSETS=$artifacts" >> "$GITHUB_ENV"
 
-      - name: Generate authoritative latest metadata
+      - name: Generate release metadata evidence
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -146,37 +164,34 @@ jobs:
           from pathlib import Path
 
           version = os.environ["RELEASE_VERSION"]
-          tag = os.environ.get("GITHUB_REF_NAME", f"v{version}")
-          if not tag.startswith("v"):
-              tag = f"v{version}"
+          tag = os.environ["RELEASE_TAG"]
           document = {
               "schema_version": 1,
               "version": version,
-              "release_url": f"https://github.com/radicalmove/Beta-testing-app/releases/tag/{tag}",
-              "download_url": f"https://github.com/radicalmove/Beta-testing-app/releases/download/{tag}/radcra-web-store-v{version}.zip",
+              "release_url": f"https://github.com/radicalmove/radcra/releases/tag/{tag}",
+              "download_url": "https://radicalmove.github.io/radcra/",
               "published_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
           }
-          Path("site/latest.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-          json.loads(Path("site/latest.json").read_text(encoding="utf-8"))
+          metadata = Path(os.environ["RELEASE_ASSETS"]) / "latest.json"
+          metadata.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+          json.loads(metadata.read_text(encoding="utf-8"))
           PY
+
+      - name: Verify exact Web Store submission evidence
+        run: |
+          set -euo pipefail
+          release_version="$RELEASE_VERSION"
+          artifacts="$RELEASE_ASSETS"
+          python3 deploy/scripts/store_readiness.py --mode submission --root "$GITHUB_WORKSPACE" --package-report "$artifacts/radcra-web-store-v${release_version}.report.json" --checksum "$artifacts/radcra-web-store-v${release_version}.zip.sha256" --screenshot "$GITHUB_WORKSPACE/store-assets/radcra-screenshot-1280x800.png"
 
       - name: Publish GitHub release assets and notes
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
           body_path: ${{ env.RELEASE_ASSETS }}/RELEASE_NOTES.md
           files: |
             ${{ env.RELEASE_ASSETS }}/*.zip
             ${{ env.RELEASE_ASSETS }}/*.sha256
+            ${{ env.RELEASE_ASSETS }}/*.json
+            ${{ env.RELEASE_ASSETS }}/*.png
             ${{ env.RELEASE_ASSETS }}/SHA256SUMS
-
-      - name: Prepare Pages artifact
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
-      - name: Deploy authoritative Pages metadata
-        uses: actions/deploy-pages@v4

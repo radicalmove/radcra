@@ -67,6 +67,7 @@ python3 "$ROOT/deploy/scripts/store_package.py" \
   --dist "$ROOT/extension/dist" \
   --output "$STORE_ZIP" \
   --version "$RELEASE_VERSION" \
-  --repository "radicalmove/Beta-testing-app"
+  --repository "radicalmove/radcra" \
+  --build-commit "$BUILD_COMMIT"
 printf '%s  %s\n' "$(shasum -a 256 "$STORE_ZIP" | awk '{print $1}')" "$(basename "$STORE_ZIP")" > "$STORE_ZIP.sha256"
 echo "Released verified pilot and Web Store packages to $DELIVERY_ROOT"

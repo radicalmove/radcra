@@ -7,6 +7,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
+import yaml
 from PIL import Image
 from deploy.scripts.store_package import package_store, report_path_for
 
@@ -88,6 +89,44 @@ class StoreReadinessTests(unittest.TestCase):
     def test_release_workflow_runs_store_readiness_suite(self):
         workflow = (ROOT / ".github" / "workflows" / "release-extension.yml").read_text()
         self.assertIn("tests/test_store_readiness.py", workflow)
+
+    def test_tagged_release_builds_and_gates_exact_store_evidence_before_publish(self):
+        workflow = (ROOT / ".github" / "workflows" / "release-extension.yml").read_text()
+        self.assertIsInstance(yaml.safe_load(workflow), dict)
+        unit_tests = workflow.index("Run deployment, store, and public-site tests")
+        build = workflow.index("Build production extension with ephemeral key")
+        package = workflow.index("Package pilot and Web Store artifacts in isolated runner storage")
+        gate = workflow.index("Verify exact Web Store submission evidence")
+        publish = workflow.index("Publish GitHub release assets and notes")
+        self.assertLess(unit_tests, build)
+        self.assertLess(build, package)
+        self.assertLess(package, gate)
+        self.assertLess(gate, publish)
+        artifacts = '$RUNNER_TEMP/radcra-release-assets'
+        exact_gate = '''python3 deploy/scripts/store_readiness.py --mode submission --root "$GITHUB_WORKSPACE" --package-report "$artifacts/radcra-web-store-v${release_version}.report.json" --checksum "$artifacts/radcra-web-store-v${release_version}.zip.sha256" --screenshot "$GITHUB_WORKSPACE/store-assets/radcra-screenshot-1280x800.png"'''
+        self.assertIn(artifacts, workflow)
+        self.assertIn(exact_gate, workflow)
+        for evidence in (
+            'radcra-web-store-v${release_version}.zip',
+            'radcra-web-store-v${release_version}.report.json',
+            'radcra-web-store-v${release_version}.zip.sha256',
+            "radcra-promo-440x280.png",
+            "radcra-screenshot-1280x800.png",
+            "RELEASE_NOTES.md",
+            "SHA256SUMS",
+        ):
+            self.assertIn(evidence, workflow)
+        self.assertIn('cp "$GITHUB_WORKSPACE/store-assets/radcra-promo-440x280.png" "$artifacts/"', workflow)
+        self.assertIn('cp "$GITHUB_WORKSPACE/store-assets/radcra-screenshot-1280x800.png" "$artifacts/"', workflow)
+        self.assertIn('--build-commit "$BUILD_COMMIT"', workflow)
+        self.assertNotIn("cp \"$GITHUB_WORKSPACE/store-assets/radcra-promo-440x280.png\" extension/dist", workflow)
+        self.assertNotIn("cp \"$GITHUB_WORKSPACE/store-assets/radcra-screenshot-1280x800.png\" extension/dist", workflow)
+
+    def test_local_release_script_packages_canonical_repository_and_build_commit(self):
+        script = (ROOT / "deploy/scripts/release-pilot-extension.sh").read_text(encoding="utf-8")
+        self.assertIn('--repository "radicalmove/radcra"', script)
+        self.assertIn('--build-commit "$BUILD_COMMIT"', script)
+        self.assertNotIn("radicalmove/Beta-testing-app", script)
 
     def readiness_fixture(self, target: Path, *, screenshot: bool = False):
         for relative in ("README.md", "docs/privacy-policy.md", "docs/chrome-web-store-listing.md", "docs/chrome-web-store-reviewer-guide.md", "site/index.html", "site/privacy/index.html", "site/support/index.html", "site/latest.json", "store-assets/README.md", "store-assets/radcra-promo-440x280.png", "extension/public/manifest.json", "tests/fixtures/store-public-key.txt"):

@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_HOME = "https://radicalmove.github.io/radcra/"
 PUBLIC_PRIVACY = f"{PUBLIC_HOME}privacy/"
@@ -124,8 +126,7 @@ class PublicReleaseSiteTests(unittest.TestCase):
             "tags: ['v*.*.*']",
             "EXTENSION_PRIVATE_KEY_PEM",
             "REVIEW_SERVICE_ORIGIN",
-            "BUILD_COMMIT: ${{ github.sha }}",
-            "BUILD_COMMIT=${{ github.sha }}",
+            'BUILD_COMMIT="$BUILD_COMMIT"',
             "chmod 600",
             "trap cleanup EXIT",
             "rm -f -- \"$key_file\"",
@@ -136,13 +137,69 @@ class PublicReleaseSiteTests(unittest.TestCase):
             "npm test",
             "python3 -m pytest -q",
             "tests/test_public_release_site.py",
-            "actions/upload-pages-artifact@v3",
-            "actions/deploy-pages@v4",
             "SHA256SUMS",
             "RELEASE_NOTES.md",
         ):
             self.assertIn(value, release)
         self.assertNotIn("release-pilot-extension.sh", release)
+
+    def test_pages_and_release_workflows_have_independent_responsibilities(self):
+        pages_path = ROOT / ".github/workflows/pages.yml"
+        release_path = ROOT / ".github/workflows/release-extension.yml"
+        pages = pages_path.read_text(encoding="utf-8")
+        release = release_path.read_text(encoding="utf-8")
+        self.assertIsInstance(yaml.safe_load(pages), dict)
+        self.assertIsInstance(yaml.safe_load(release), dict)
+        self.assertIn("Deploy committed public site before production packaging", pages)
+        self.assertNotIn("store_readiness.py --mode submission", pages)
+        self.assertNotIn("actions/deploy-pages", release)
+        self.assertNotIn("actions/upload-pages-artifact", release)
+        self.assertNotIn("pages: write", release)
+        self.assertNotIn("id-token: write", release)
+
+    def test_release_workflow_uses_only_canonical_repository_urls(self):
+        release = (ROOT / ".github/workflows/release-extension.yml").read_text(encoding="utf-8")
+        self.assertNotIn("radicalmove/Beta-testing-app", release)
+        for expected in (
+            "--repository \"radicalmove/radcra\"",
+            "https://github.com/radicalmove/radcra/releases/download/",
+            "https://github.com/radicalmove/radcra/blob/main/docs/releasing.md",
+            '"release_url": f"https://github.com/radicalmove/radcra/releases/tag/{tag}"',
+            '"download_url": "https://radicalmove.github.io/radcra/"',
+        ):
+            self.assertIn(expected, release)
+
+    def test_manual_release_checks_out_and_publishes_only_the_requested_tag(self):
+        release = (ROOT / ".github/workflows/release-extension.yml").read_text(encoding="utf-8")
+        for expected in (
+            "ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}",
+            "Resolve and validate authoritative release tag",
+            'REQUESTED_TAG: ${{ github.event_name == \'workflow_dispatch\' && inputs.tag || github.ref_name }}',
+            'release_tag="$REQUESTED_TAG"',
+            '[[ "$release_tag" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]',
+            'git show-ref --verify --quiet "refs/tags/$release_tag"',
+            '[[ "$tag_commit" == "$head_commit" ]]',
+            'EVENT_NAME: ${{ github.event_name }}',
+            'EVENT_COMMIT: ${{ github.sha }}',
+            'if [[ "$EVENT_NAME" == "push" ]]; then',
+            '[[ "$head_commit" == "$EVENT_COMMIT" ]]',
+            'echo "RELEASE_TAG=$release_tag" >> "$GITHUB_ENV"',
+            'echo "BUILD_COMMIT=$head_commit" >> "$GITHUB_ENV"',
+            "${RELEASE_TAG}",
+            'tag_name: ${{ env.RELEASE_TAG }}',
+        ):
+            self.assertIn(expected, release)
+        self.assertNotIn("tag_name: ${{ github.ref_name }}", release)
+        self.assertNotIn("${GITHUB_REF_NAME}", release)
+
+        parsed = yaml.safe_load(release)
+        steps = parsed["jobs"]["release"]["steps"]
+        resolver = next(step for step in steps if step.get("name") == "Resolve and validate authoritative release tag")
+        self.assertIn("REQUESTED_TAG", resolver["env"])
+        self.assertNotIn("${{", resolver["run"])
+        for step in steps:
+            run = step.get("run", "")
+            self.assertNotRegex(run, r"\$\{\{[^}]*inputs\.")
 
 
 if __name__ == "__main__":

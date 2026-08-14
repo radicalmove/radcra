@@ -27,6 +27,27 @@ export function validateAuthenticateMessage(message: unknown): Record<string, ne
   return {};
 }
 
+function validateExactPolicyMessage(message: unknown, type: "GET_POLICY_STATUS" | "ACK_POLICY"): Record<string, never> {
+  if (!message || typeof message !== "object" || Array.isArray(message)) throw new Error(`Invalid ${type} message`);
+  const record = message as Record<string, unknown>;
+  if (Object.keys(record).length !== 1 || record.type !== type) throw new Error(`Invalid ${type} message`);
+  return {};
+}
+
+export const validateGetPolicyStatusMessage = (message: unknown): Record<string, never> => validateExactPolicyMessage(message, "GET_POLICY_STATUS");
+export const validateAcknowledgePolicyMessage = (message: unknown): Record<string, never> => validateExactPolicyMessage(message, "ACK_POLICY");
+
+export async function requirePolicyAcknowledgement<T>(
+  dependencies: { requires(): Promise<boolean>; clear(): Promise<void> },
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (await dependencies.requires()) {
+    await dependencies.clear();
+    throw new Error("Policy acknowledgement is required");
+  }
+  return operation();
+}
+
 function exactHttpUrl(value: unknown, max = 4096): value is string {
   if (typeof value !== "string" || value.length < 1 || value.length > max) return false;
   try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && url.href === value; } catch { return false; }

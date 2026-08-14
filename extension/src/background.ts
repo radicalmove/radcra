@@ -1,5 +1,5 @@
 import { ApiClient, authenticate, findCourseReviewer, getActiveToken, lookupReviewCourse, redeemReviewerInvitation, registerCourse as registerCourseApi, renewReviewerDevice, resolveCourse as resolveCourseApi, resumeReviewerMembership, signInExistingReviewer, type SessionToken } from "./api";
-import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListCourseCommentsBridge, handleListPageCommentsBridge, handleRegisterCourseBridge, handleResolveCourseBridge, normalizeErrorMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validatePageCommentsResponse, validateUploadScreenshotMessage, validateViewerResponse, type CreateCommentPayload, type RegisterCoursePayload, type ResolveCoursePayload } from "./background-bridge.ts";
+import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListCourseCommentsBridge, handleListPageCommentsBridge, handleRegisterCourseBridge, handleResolveCourseBridge, normalizeErrorMessage, requirePolicyAcknowledgement, validateAcknowledgePolicyMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validateGetPolicyStatusMessage, validatePageCommentsResponse, validateUploadScreenshotMessage, validateViewerResponse, type CreateCommentPayload, type RegisterCoursePayload, type ResolveCoursePayload } from "./background-bridge.ts";
 import { EmbeddedCommentNavigation, handleCommentNavigationMessage } from "./embedded-comment-navigation.ts";
 import { EmbeddedAnchorCapabilities, issueEmbeddedAnchorFromWorker } from "./embedded-anchor-capabilities.ts";
 import { validateScreenshotDataUrl } from "./screenshot-validation.ts";
@@ -11,6 +11,7 @@ import { FrameCoordinatorRuntime, workerReadyMatchesState, type WorkerReadyNotif
 import { validateScormMessage, type ScormCommand, type ScormEvent } from "./scorm-protocol.ts";
 import { packageRootFromScormUrl, ScormLaunchCache, validateScormLaunchRegistration } from "./scorm-launch.ts";
 import { deleteWithReconciliation } from "./comment-mutations.ts";
+import { POLICY_VERSION, acknowledgePolicy, clearAccessState, readPolicyState, requiresPolicyAcknowledgement } from "./policy-consent.ts";
 
 declare const chrome: any;
 declare const __MOODLE_PATTERNS__: string[];
@@ -125,10 +126,19 @@ chrome.permissions.onRemoved.addListener(() => { void handleOptionalPermissionRe
 }).catch((error: Error) => console.error("Unable to revoke optional SCORM access", error)); });
 
 async function serviceOrigin(): Promise<string> {
+  await requireCurrentPolicyAcknowledgement();
   return DEFAULT_SERVICE_ORIGIN;
 }
 
+async function requireCurrentPolicyAcknowledgement(): Promise<void> {
+  await requirePolicyAcknowledgement({
+    requires: () => requiresPolicyAcknowledgement(chrome.storage.local),
+    clear: () => clearAccessState({ session: chrome.storage.session, local: chrome.storage.local }),
+  }, async () => undefined);
+}
+
 async function activeToken(): Promise<string | undefined> {
+  await requireCurrentPolicyAcknowledgement();
   let stored = await chrome.storage.session.get(["apiToken", "expiresAt"]) as Partial<SessionToken>;
   if (typeof stored.apiToken !== "string" || typeof stored.expiresAt !== "number") {
     const durable = await chrome.storage.local.get(["courseTeamSession"]); const candidate = durable.courseTeamSession;
@@ -161,6 +171,15 @@ async function renewStoredDevice(): Promise<string | undefined> {
     return undefined;
   }
 }
+
+void (async () => {
+  try {
+    await requireCurrentPolicyAcknowledgement();
+    await activeToken();
+  } catch {
+    // A fresh install or policy migration must not renew stored credentials.
+  }
+})();
 
 async function resolveCourse(payload: ResolveCoursePayload): Promise<unknown> {
   return resolveCourseApi(await client(), payload);
@@ -221,7 +240,20 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
   void screenshotCapabilities.cleanup().catch(() => undefined);
   void embeddedAnchorCapabilities.cleanup().catch(() => undefined);
   let operation: Promise<unknown> | undefined;
-  if (message && typeof message === "object" && (message as { type?: unknown }).type === "REQUEST_SCORM_PERMISSION") {
+  if (message && typeof message === "object" && (message as { type?: unknown }).type === "GET_POLICY_STATUS") {
+    operation = (async () => {
+      validateGetPolicyStatusMessage(message);
+      const state = await readPolicyState(chrome.storage.local);
+      if (!state.acknowledged) await clearAccessState({ session: chrome.storage.session, local: chrome.storage.local });
+      return { acknowledged: state.acknowledged, policy_version: POLICY_VERSION };
+    })();
+  } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "ACK_POLICY") {
+    operation = (async () => {
+      validateAcknowledgePolicyMessage(message);
+      if (!await acknowledgePolicy(chrome.storage.local)) throw new Error("Policy acknowledgement could not be saved");
+      return { acknowledged: true, policy_version: POLICY_VERSION };
+    })();
+  } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "REQUEST_SCORM_PERMISSION") {
     const record = message as Record<string, unknown>;
     let trustedMoodle = false;
     try { trustedMoodle = sender.id === chrome.runtime.id && sender.frameId === 0 && typeof sender.url === "string" && Boolean(optionalPatternForOrigin(new URL(sender.url).origin, __MOODLE_PATTERNS__)); } catch { /* invalid sender URL */ }
@@ -236,6 +268,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     }
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "LOOKUP_REVIEW_COURSE") {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       if (!await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) })) throw new Error("Unauthorized course lookup sender");
       const candidate = message as { moodle_origin?: unknown; moodle_course_id?: unknown };
       if (typeof candidate.moodle_origin !== "string" || typeof candidate.moodle_course_id !== "number" || !Number.isInteger(candidate.moodle_course_id)) throw new Error("Invalid course lookup");
@@ -243,6 +276,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "REDEEM_REVIEW_ACCESS") {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       if (!await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) })) throw new Error("Unauthorized access sender");
       const value = message as { course_handle?: unknown; display_name?: unknown; email?: unknown; role?: unknown; invitation_code?: unknown };
       if (![value.course_handle, value.display_name, value.email, value.role, value.invitation_code].every((item) => typeof item === "string")) throw new Error("Invalid reviewer access request");
@@ -257,6 +291,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "CHECK_PENDING_REVIEW_ACCESS") {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       if (!await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) })) throw new Error("Unauthorized access sender");
       const value = message as { type?: unknown; course_handle?: unknown };
       if (Object.keys(value).sort().join(",") !== "course_handle,type" || typeof value.course_handle !== "string") throw new Error("Invalid pending access check");
@@ -267,6 +302,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "FIND_APPROVED_REVIEWER") {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       if (!await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) })) throw new Error("Unauthorized access sender");
       const value = message as { type?: unknown; course_handle?: unknown; email?: unknown };
       if (Object.keys(value).sort().join(",") !== "course_handle,email,type" || typeof value.course_handle !== "string" || typeof value.email !== "string") throw new Error("Invalid reviewer lookup request");
@@ -274,6 +310,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "USE_SAVED_REVIEWER") {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       if (!await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) })) throw new Error("Unauthorized access sender");
       const value = message as { type?: unknown; course_handle?: unknown; membership_id?: unknown };
       if (Object.keys(value).sort().join(",") !== "course_handle,membership_id,type" || typeof value.course_handle !== "string" || typeof value.membership_id !== "string") throw new Error("Invalid existing reviewer request");
@@ -285,6 +322,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "RESUME_REVIEW_ACCESS") {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       if (!await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) })) throw new Error("Unauthorized access sender");
       const value = message as { course_handle?: unknown; email?: unknown; reconnect_code?: unknown };
       if (![value.course_handle, value.email, value.reconnect_code].every((item) => typeof item === "string")) throw new Error("Invalid reviewer access request");
@@ -304,6 +342,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "AUTHENTICATE") {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       validateAuthenticateMessage(message);
       if (!await authorizeAuthenticateSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, hasPermission: async () => false })) throw new Error("Unauthorized AUTHENTICATE sender");
       return authenticate({
@@ -315,12 +354,15 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "RESOLVE_COURSE") {
     operation = handleResolveCourseBridge(message, sender, {
-      authorize: (candidate) => authorizeResolveSender(candidate, {
+      authorize: async (candidate) => {
+        await requireCurrentPolicyAcknowledgement();
+        return authorizeResolveSender(candidate, {
         extensionId: chrome.runtime.id,
         moodlePatterns: __MOODLE_PATTERNS__,
         optionalPatterns: __OPTIONAL_FRAME_PATTERNS__,
-        hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }),
-      }),
+          hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }),
+        });
+      },
       resolve: async (payload) => {
         const resolved = await resolveCourse(payload) as { id?: unknown; title?: unknown };
         if (typeof resolved?.id === "string" && sender.frameId === 0) {
@@ -342,16 +384,20 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     });
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "REGISTER_COURSE") {
     operation = handleRegisterCourseBridge(message, sender, {
-      authorize: (candidate) => authorizeResolveSender(candidate, {
+      authorize: async (candidate) => {
+        await requireCurrentPolicyAcknowledgement();
+        return authorizeResolveSender(candidate, {
         extensionId: chrome.runtime.id,
         moodlePatterns: __MOODLE_PATTERNS__,
         optionalPatterns: __OPTIONAL_FRAME_PATTERNS__,
-        hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }),
-      }),
+          hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }),
+        });
+      },
       register: registerCourse,
     });
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "REGISTER_SCORM_LAUNCH") {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       const registration = validateScormLaunchRegistration(message);
       if (sender.frameId !== 0 || typeof sender.tab?.id !== "number" || !await authorizeAuthenticateSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, hasPermission: async () => false })) throw new Error("Unauthorized SCORM launch registration");
       const senderOrigin = new URL(sender.url!).origin; const player = new URL(registration.player_url);
@@ -409,7 +455,10 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "CREATE_EMBEDDED_COMMENT") {
     operation = handleCreateEmbeddedCommentBridge(message, sender, {
       extensionId: chrome.runtime.id,
-      authorizeMoodle: (candidate) => authorizeAuthenticateSender(candidate, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, hasPermission: async () => false }),
+      authorizeMoodle: async (candidate) => {
+        await requireCurrentPolicyAcknowledgement();
+        return authorizeAuthenticateSender(candidate, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, hasPermission: async () => false });
+      },
       expectedCourseId: () => reviewContexts.courseId(sender),
       claim: (token, expected) => embeddedAnchorCapabilities.claim(token, expected),
       current: (claim) => {
@@ -430,7 +479,10 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     });
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "CREATE_COMMENT") {
     operation = handleCreateCommentBridge(message, sender, {
-      authorize: (candidate) => authorizeResolveSender(candidate, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) }),
+      authorize: async (candidate) => {
+        await requireCurrentPolicyAcknowledgement();
+        return authorizeResolveSender(candidate, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) });
+      },
       contextMatches: (_candidate, courseId) => reviewContexts.matchesCourse(sender, courseId),
       create: async (payload, screenshotRequested) => {
         const result = await createComment(payload) as { id?: unknown };
@@ -443,17 +495,25 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     });
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "LIST_PAGE_COMMENTS") {
     operation = handleListPageCommentsBridge(message, sender, {
-      authorize: (candidate) => authorizeResolveSender(candidate, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) }),
+      authorize: async (candidate) => {
+        await requireCurrentPolicyAcknowledgement();
+        return authorizeResolveSender(candidate, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) });
+      },
       courseId: () => reviewContexts.courseId(sender),
       list: listPageComments,
     });
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "LIST_COURSE_COMMENTS") {
     operation = handleListCourseCommentsBridge(message, sender, {
-      authorize: (candidate) => authorizeResolveSender(candidate, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) }),
+      authorize: async (candidate) => {
+        await requireCurrentPolicyAcknowledgement();
+        return authorizeResolveSender(candidate, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) });
+      },
       courseId: () => reviewContexts.courseId(sender), list: listCourseComments,
     });
   } else if (message && typeof message === "object" && ["PREPARE_COMMENT_NAVIGATION", "CONSUME_COMMENT_NAVIGATION", "COMPLETE_COMMENT_NAVIGATION"].includes((message as { type?: string }).type ?? "")) {
-    operation = handleCommentNavigationMessage(message, sender, {
+    operation = (async () => {
+      if ((message as { type?: string }).type === "PREPARE_COMMENT_NAVIGATION") await requireCurrentPolicyAcknowledgement();
+      return handleCommentNavigationMessage(message, sender, {
       extensionId: chrome.runtime.id,
       authorizeMoodle: (candidate) => authorizeAuthenticateSender(candidate, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, hasPermission: async () => false }),
       courseId: (candidate) => reviewContexts.courseId(candidate),
@@ -465,9 +525,11 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
         if (!context || context.id !== courseId) return undefined;
         return scormLaunchCache.get({ courseId, configuredOrigin: new URL(context.course_url).origin, packageUrl: pageUrl });
       },
-    });
+      });
+    })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "GET_CURRENT_VIEWER") {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       if (Object.keys(message as object).length !== 1) throw new Error("Invalid GET_CURRENT_VIEWER message");
       if (!(await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) }))) throw new Error("Unauthorized GET_CURRENT_VIEWER sender");
       const courseId = reviewContexts.courseId(sender);
@@ -476,12 +538,16 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "DELETE_COMMENT_THREAD") {
     operation = handleDeleteCommentBridge(message, sender, {
-      authorize: (candidate) => authorizeResolveSender(candidate, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) }),
+      authorize: async (candidate) => {
+        await requireCurrentPolicyAcknowledgement();
+        return authorizeResolveSender(candidate, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) });
+      },
       courseId: () => reviewContexts.courseId(sender),
       remove: deleteComment,
     });
   } else if (message && typeof message === "object" && ["EDIT_COMMENT_THREAD", "REPLY_COMMENT_THREAD"].includes((message as { type?: string }).type ?? "")) {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       const record = message as Record<string, unknown>; const keys = Object.keys(record).sort().join();
       if (keys !== "body,comment_id,type" || typeof record.comment_id !== "string" || !/^[0-9a-f-]{36}$/i.test(record.comment_id) || typeof record.body !== "string" || !record.body.trim() || record.body.trim().length > 10000) throw new Error("Invalid comment mutation message");
       if (!(await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) }))) throw new Error("Unauthorized comment mutation sender");
@@ -490,9 +556,10 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
       if (!response.ok) throw new Error(`Comment mutation failed (${response.status})`); return response.json();
     })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "UPDATE_COMMENT_STATUS") {
-    operation = (async () => { const record = message as Record<string, unknown>; if (Object.keys(record).sort().join() !== "comment_id,status,type" || typeof record.comment_id !== "string" || !/^[0-9a-f-]{36}$/i.test(record.comment_id) || !["open", "resolved"].includes(record.status as string)) throw new Error("Invalid status update"); if (!(await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) })) || !reviewContexts.courseId(sender)) throw new Error("Status update course context unavailable"); const api = await client(); const response = await api.request(`/api/comments/${record.comment_id}/status`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: record.status }) }); if (!response.ok) throw new Error(`Status update failed (${response.status})`); return response.json(); })();
+    operation = (async () => { await requireCurrentPolicyAcknowledgement(); const record = message as Record<string, unknown>; if (Object.keys(record).sort().join() !== "comment_id,status,type" || typeof record.comment_id !== "string" || !/^[0-9a-f-]{36}$/i.test(record.comment_id) || !["open", "resolved"].includes(record.status as string)) throw new Error("Invalid status update"); if (!(await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) })) || !reviewContexts.courseId(sender)) throw new Error("Status update course context unavailable"); const api = await client(); const response = await api.request(`/api/comments/${record.comment_id}/status`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: record.status }) }); if (!response.ok) throw new Error(`Status update failed (${response.status})`); return response.json(); })();
   } else if (message && typeof message === "object" && ["GET_SME_RECIPIENTS", "SET_SME_RECIPIENTS"].includes((message as { type?: string }).type ?? "")) {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       const record = message as Record<string, unknown>; const setting = record.type === "SET_SME_RECIPIENTS";
       if (typeof record.comment_id !== "string" || !/^[0-9a-f-]{36}$/i.test(record.comment_id) || Object.keys(record).some((key) => !["type", "comment_id", "user_ids"].includes(key)) || (setting && (!Array.isArray(record.user_ids) || record.user_ids.some((id) => typeof id !== "string")))) throw new Error("Invalid SME recipients message");
       if (!(await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) })) || !reviewContexts.courseId(sender)) throw new Error("SME recipients course context unavailable");
@@ -501,6 +568,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
     })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "UPLOAD_SCREENSHOT") {
     operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
       const payload = validateUploadScreenshotMessage(message);
       if (typeof sender.tab?.id !== "number" || !(await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) }))) throw new Error("Unauthorized UPLOAD_SCREENSHOT sender");
       const courseId = reviewContexts.courseId(sender);
@@ -568,7 +636,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
   if (!operation) return false;
   void operation.then((data) => sendResponse({ ok: true, data }), (error: unknown) => {
     const message = normalizeErrorMessage(error);
-    const status = message.startsWith("Signed out") ? "signed-out" : message.startsWith("Account pending") ? "pending" : message.includes("cancelled") || message.includes("unexpected redirect") ? "cancelled" : (message.includes("Token exchange") || message.includes("Authentication response")) ? "failed" : "offline";
+    const status = message.startsWith("Policy acknowledgement is required") ? "policy-required" : message.startsWith("Signed out") ? "signed-out" : message.startsWith("Account pending") ? "pending" : message.includes("cancelled") || message.includes("unexpected redirect") ? "cancelled" : (message.includes("Token exchange") || message.includes("Authentication response")) ? "failed" : "offline";
     sendResponse({ ok: false, status, error: message });
   });
   return true;

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EmbeddedAnchorCapabilities, issueEmbeddedAnchorFromWorker, type EmbeddedAnchorStorage } from "../src/embedded-anchor-capabilities.ts";
-import type { PageComment } from "../src/background-bridge.ts";
+import { requirePolicyAcknowledgement, type PageComment } from "../src/background-bridge.ts";
 import { EmbeddedCommentNavigation, handleCommentNavigationMessage, type EmbeddedNavigationStorage } from "../src/embedded-comment-navigation.ts";
 import { packageRootFromScormUrl, ScormLaunchCache } from "../src/scorm-launch.ts";
 
@@ -368,4 +368,16 @@ test("SCORM launch recovery survives a background cache reconstruction and prese
     recoverScormParent: (_courseId, pageUrl) => afterRestart.get({ courseId: id(3), configuredOrigin: "https://my.uconline.ac.nz", packageUrl: pageUrl, cmid: 146308 }),
   }) as { state: string };
   assert.equal(result.state, "parent-loading"); assert.equal(destination, complete); navigation.cancel(7);
+});
+
+test("the background gate blocks all network-bearing review routes before their API work", async () => {
+  const networkRoutes = ["AUTHENTICATE", "LOOKUP_REVIEW_COURSE", "RESOLVE_COURSE", "REGISTER_COURSE", "GET_CURRENT_VIEWER", "CREATE_COMMENT", "LIST_PAGE_COMMENTS", "LIST_COURSE_COMMENTS", "DELETE_COMMENT_THREAD", "EDIT_COMMENT_THREAD", "REPLY_COMMENT_THREAD", "UPDATE_COMMENT_STATUS", "GET_SME_RECIPIENTS", "SET_SME_RECIPIENTS", "UPLOAD_SCREENSHOT", "REGISTER_SCORM_LAUNCH"];
+  let cleared = 0; let fetches = 0;
+  for (const route of networkRoutes) {
+    await assert.rejects(() => requirePolicyAcknowledgement({ requires: async () => true, clear: async () => { cleared += 1; } }, async () => { fetches += 1; return route; }), /Policy acknowledgement is required/);
+  }
+  assert.equal(fetches, 0);
+  assert.equal(cleared, networkRoutes.length);
+  assert.equal(await requirePolicyAcknowledgement({ requires: async () => false, clear: async () => assert.fail("must not clear acknowledged access") }, async () => { fetches += 1; return "permitted"; }), "permitted");
+  assert.equal(fetches, 1);
 });

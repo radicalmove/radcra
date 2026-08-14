@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Window } from "happy-dom";
 
-import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListPageCommentsBridge, handleRegisterCourseBridge, handleResolveCourseBridge, normalizeErrorMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validateCreateCommentMessage, validateCreateEmbeddedCommentMessage, validateDeleteCommentMessage, validateListPageCommentsMessage, validatePageCommentsResponse, validateRegisterCourseMessage, validateResolveCourseMessage, validateUploadScreenshotMessage, validateViewerResponse } from "../src/background-bridge.ts";
+import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListPageCommentsBridge, handleRegisterCourseBridge, handleResolveCourseBridge, normalizeErrorMessage, validateAcknowledgePolicyMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validateCreateCommentMessage, validateCreateEmbeddedCommentMessage, validateDeleteCommentMessage, validateGetPolicyStatusMessage, validateListPageCommentsMessage, validatePageCommentsResponse, validateRegisterCourseMessage, validateResolveCourseMessage, validateUploadScreenshotMessage, validateViewerResponse } from "../src/background-bridge.ts";
 import type { EmbeddedAnchorClaim } from "../src/embedded-anchor-capabilities.ts";
 import { embeddedPageIdentity } from "../src/scorm-worker.ts";
 
@@ -12,6 +12,15 @@ test("authenticate accepts only an exact empty envelope", () => {
   assert.deepEqual(validateAuthenticateMessage({ type: "AUTHENTICATE" }), {});
   for (const message of [{ type: "AUTHENTICATE", extra: true }, { type: "AUTHENTICATE", payload: {} }, { type: "AUTHENTICATE", token: "secret" }, null]) {
     assert.throws(() => validateAuthenticateMessage(message), /Invalid AUTHENTICATE/);
+  }
+});
+
+test("policy status and acknowledgement messages use exact empty envelopes", () => {
+  assert.deepEqual(validateGetPolicyStatusMessage({ type: "GET_POLICY_STATUS" }), {});
+  assert.deepEqual(validateAcknowledgePolicyMessage({ type: "ACK_POLICY" }), {});
+  for (const message of [{ type: "GET_POLICY_STATUS", extra: true }, { type: "ACK_POLICY", version: "forged" }, { type: "ACK_POLICY", payload: {} }]) {
+    assert.throws(() => validateGetPolicyStatusMessage(message), /GET_POLICY_STATUS/);
+    assert.throws(() => validateAcknowledgePolicyMessage(message), /ACK_POLICY/);
   }
 });
 

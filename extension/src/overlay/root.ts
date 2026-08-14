@@ -30,9 +30,9 @@ export const stabilisationUxStyles = `.help-dialog{width:min(860px,calc(100vw - 
 
 export const policyDisclosureStyles = `.policy-disclosure{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:16px;background:#0009}.policy-disclosure-card{box-sizing:border-box;width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;padding:22px;background:#fff;border:5px solid var(--review-teal);border-radius:10px;box-shadow:0 8px 28px #0005;color:#102f38}.policy-disclosure-card h2{margin:0 0 10px;color:var(--review-teal-dark);font-size:22px}.policy-disclosure-card p{margin:8px 0}.policy-disclosure-card ul{margin:10px 0;padding-left:22px}.policy-disclosure-card a{color:#245c8a}.policy-disclosure-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.policy-disclosure-actions button{min-width:110px}.policy-disclosure-actions [data-policy-decline]{border-color:#a51d24;color:#a51d24;background:#fff}.policy-disclosure-actions [data-policy-decline]:hover{background:#a51d24;color:#fff}.policy-disclosure-error{margin-top:10px;color:#a51d24;font-weight:650}.policy-disclosure-error[hidden]{display:none}`;
 
-export type ConnectionStatus = "connecting" | "connected" | "unregistered" | "pending" | "signed-out" | "offline";
+export type ConnectionStatus = "connecting" | "connected" | "unregistered" | "pending" | "signed-out" | "offline" | "policy-required";
 export type AccessLookupReadiness = "checking" | "ready";
-const statusLabels: Record<ConnectionStatus, string> = { connecting: "Connecting", connected: "Connected", unregistered: "Course not registered for review", pending: "Waiting for approval — you can leave this page open or return later.", "signed-out": "Signed out", offline: "Service unavailable—retry" };
+const statusLabels: Record<ConnectionStatus, string> = { connecting: "Connecting", connected: "Connected", unregistered: "Course not registered for review", pending: "Waiting for approval — you can leave this page open or return later.", "signed-out": "Signed out", offline: "Service unavailable—retry", "policy-required": "Policy acknowledgement required" };
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 export const isTransientInteractionNavigationError = (error: unknown) => error instanceof Error && error.message === "INTERACTION_NOT_READY";
 const authActionLabels: Partial<Record<ConnectionStatus, string>> = { "signed-out": "Sign in", pending: "Check approval", offline: "Retry" };
@@ -644,6 +644,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     setRegistrationCapability(nextCanRegister) { if (canRegister === nextCanRegister) return; canRegister = nextCanRegister; renderStateControls(); },
     setPolicyAcknowledged(acknowledged, nextVersion) {
       policyAcknowledged = acknowledged;
+      if (!acknowledged) status = "policy-required";
       if (nextVersion) policyVersion = nextVersion;
       if (policyAcknowledged) { policyDisclosureClose?.(); shadow.querySelector(".policy-disclosure")?.remove(); policyDisclosureClose = undefined; }
       renderStateControls();

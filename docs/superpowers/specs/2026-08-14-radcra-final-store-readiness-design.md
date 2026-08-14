@@ -1,7 +1,7 @@
 # RADCRA final Chrome Web Store readiness design
 
-**Date:** 14 August 2026  
-**Status:** Approved by the user  
+**Date:** 14 August 2026
+**Status:** Approved by the user
 **Scope:** Complete the local compliance, public-site, Store-artwork, package-validation, and submission-documentation work required before a private trusted-testers submission. Account-level GitHub and Google actions remain manual.
 
 ## Goal

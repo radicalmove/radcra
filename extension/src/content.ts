@@ -701,7 +701,7 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
     const data = response?.data as { acknowledged?: unknown; policy_version?: unknown } | undefined;
     // Older test doubles and pre-policy workers may omit the field; only an
     // explicit false response is treated as the local policy gate being closed.
-    policyAcknowledged = data?.acknowledged !== false;
+    policyAcknowledged = response?.ok !== false && data?.acknowledged !== false;
     overlay.setPolicyAcknowledged(policyAcknowledged, typeof data?.policy_version === "string" ? data.policy_version : undefined);
     if (policyAcknowledged) refresh();
   });

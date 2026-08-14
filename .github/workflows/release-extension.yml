@@ -45,13 +45,13 @@ jobs:
           python-version: '3.12'
 
       - name: Install pinned build and test dependencies
-        run: |
-          python3 -m pip install -e '.[dev]'
-          python3 -m pip install PyYAML
+        run: python3 -m pip install -e '.[dev]'
         working-directory: server
 
       - name: Install root build dependencies
-        run: python3 -m pip install -r scripts/requirements-build.txt
+        run: |
+          python3 -m pip install -r scripts/requirements-build.txt
+          python3 -m pip install PyYAML
 
       - name: Install extension dependencies
         run: npm ci

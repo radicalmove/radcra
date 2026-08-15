@@ -8,7 +8,7 @@ Source and provenance details are recorded in `source/README.md`.
 
 ## Manual screenshot gate
 
-`radcra-screenshot-1280x800.png` must be captured manually from the real, current RADCRA 0.5.37 product. The image must show the RADCRA overlay and a contextual marker or comment at exactly 1280×800 pixels. Do not fabricate the interface, substitute an older-version screenshot, or reuse test-fixture artwork.
+`radcra-screenshot-1280x800.png` must be captured manually from the real, current RADCRA 0.5.38 product. The image must show the RADCRA overlay and a contextual marker or comment at exactly 1280×800 pixels. Do not fabricate the interface, substitute an older-version screenshot, or reuse test-fixture artwork.
 
 Before committing or uploading the screenshot, confirm that it contains no credentials, browser-profile details, student records, private email addresses, tokens, invitation details, or private URLs. Arrange the page to keep private information out of the capture where possible; any sanitisation must preserve the genuine overlay and contextual-review behaviour.
 

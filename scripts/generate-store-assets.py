@@ -47,7 +47,7 @@ def main() -> None:
     output = args.output
     output.parent.mkdir(parents=True, exist_ok=True)
     canvas.resize((440, 280), Image.Resampling.LANCZOS).save(
-        output, format="PNG", optimize=False, compress_level=9
+        output, format="PNG", optimize=False, compress_level=0
     )
 
 

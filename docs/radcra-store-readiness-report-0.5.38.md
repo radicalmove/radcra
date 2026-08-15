@@ -1,4 +1,4 @@
-# RADCRA Chrome Web Store readiness report — 0.5.37
+# RADCRA Chrome Web Store readiness report — 0.5.38
 
 **Verification date:** 15 August 2026
 
@@ -8,7 +8,7 @@
 
 ## Status
 
-RADCRA 0.5.37 is **ready for the Chrome Web Store upload and dashboard-review stage**. The signed production build, accepted pilot identity, deterministic Store ZIP, checksum, public Pages site, privacy/support disclosures, promotional tile, and genuine 1280x800 current-product screenshot all pass the submission-mode validator.
+RADCRA 0.5.38 is **ready for the Chrome Web Store upload and dashboard-review stage**. The signed production build, accepted pilot identity, deterministic Store ZIP, checksum, public Pages site, privacy/support disclosures, promotional tile, and genuine 1280x800 current-product screenshot all pass the submission-mode validator.
 
 The remaining work is external and manual: create/configure the Chrome Web Store item, enter the approved listing and privacy declarations, upload the verified ZIP and confirm its resulting Store Item ID, provide reviewer access, complete Google's review flow, and obtain release approval before publication or tester invitation.
 
@@ -55,7 +55,7 @@ The verified package was built with:
 - `EXTENSION_PUBLIC_KEY` securely derived from the protected pilot signing key and matched to the accepted pilot identity
 - `BUILD_COMMIT` set to the full lowercase 40-character final repository commit
 
-The authoritative build commit, runtime files, manifest hash, public-key hash, host patterns, review-service origin, and ZIP hash are recorded in `radcra-web-store-v0.5.37.report.json`. The separately generated `radcra-web-store-v0.5.37.zip.sha256` is verified against that exact ZIP by the submission gate.
+The authoritative build commit, runtime files, manifest hash, public-key hash, host patterns, review-service origin, and ZIP hash are recorded in `radcra-web-store-v0.5.38.report.json`. The separately generated `radcra-web-store-v0.5.38.zip.sha256` is verified against that exact ZIP by the submission gate.
 
 Submission readiness result (exit 0):
 
@@ -69,7 +69,7 @@ The upload ZIP, report, and checksum are in `/Users/rcd58/OpenAI Projects/Beta T
 
 - Promotional tile: ready; the committed sanitised `radcra-promo-440x280.png` passes format, dimensions, metadata, and documentation checks.
 - Extension icons: ready in the generated package, including the 128 px transparent-content bounds.
-- Store screenshot: ready at `store-assets/radcra-screenshot-1280x800.png`; it is a genuine RADCRA 0.5.37 capture, exactly 1280×800 PNG with metadata removed, showing the live overlay and contextual marker/comment. It remains outside the extension ZIP.
+- Store screenshot: ready at `store-assets/radcra-screenshot-1280x800.png`; it is a genuine RADCRA 0.5.38 capture, exactly 1280×800 PNG with metadata removed, showing the live overlay and contextual marker/comment. It remains outside the extension ZIP.
 
 ## Public endpoints
 
@@ -80,7 +80,7 @@ The committed source targets these endpoints:
 - <https://radicalmove.github.io/radcra/support/>
 - <https://radicalmove.github.io/radcra/latest.json>
 
-All four endpoints are deployed through GitHub Pages and returned successfully over unauthenticated HTTPS on 15 August 2026. `latest.json` exposes the expected 0.5.37 schema and canonical `radicalmove/radcra` links.
+All four endpoints are deployed through GitHub Pages and returned successfully over unauthenticated HTTPS on 15 August 2026. `latest.json` exposes the expected 0.5.38 schema and canonical `radicalmove/radcra` links.
 
 ## Exact production inputs required
 

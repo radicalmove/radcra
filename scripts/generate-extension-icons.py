@@ -52,7 +52,7 @@ def main() -> None:
         image = master if size == BASE_SIZE else master.resize((size, size), Image.Resampling.LANCZOS)
         if image.size != (size, size) or image.mode != "RGBA":
             raise RuntimeError(f"generated icon{size}.png has invalid dimensions or alpha mode")
-        image.save(path, format="PNG", optimize=False, compress_level=9)
+        image.save(path, format="PNG", optimize=False, compress_level=0)
         verify_icon(path, size)
 
 

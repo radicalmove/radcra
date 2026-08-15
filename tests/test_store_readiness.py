@@ -13,12 +13,12 @@ from deploy.scripts.store_package import package_store, report_path_for
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROMO_SHA256 = "c03543f676f3d8e8fce283e451c9bc4f5f84e9b65ce37d246dd1ef8d2e6bd113"
+PROMO_SHA256 = "b8fbe0cc77266d965e9592265df9c813fe112af47fde4697819172bafffce957"
 FONT_SHA256 = "e6476c1b80502924294eed40894c5b18e06c181444ca953e5334262df9c27724"
 ICON_SHA256 = {
-    16: "a0455d93e95600050598f66ce434e7b9582b7c029cee1544bd73fcada897ec07",
-    48: "926aa0c6ded2b75ff445cacbde0471addb873b6cd58d76655d519afda5225df7",
-    128: "5b8003939258729c684fbf8264de2d3e2cbc90f5bca665f2e0c76d78a1ba9b1d",
+    16: "503eb3ec45ca847e91a32f338c7bd6103ace8f6105c3cb503b2b7c84e76d87e6",
+    48: "d9214abb18ad56fd804d053da3220a93b79df4dd4d708af062d52d643400011c",
+    128: "591c6dca5d18dd926dad48ba6bc9189359beacff7c2db1c73072e695ffe6b39c",
 }
 
 

@@ -126,6 +126,7 @@ def _validate_versioned_release(entry: Path, metadata: dict[str,str]) -> None:
         raise ValueError(str(error)) from error
     paths=[*(f"moodle-review-extension/{name}" for name in files),"moodle-review-extension/RELEASE.json","RELEASE.json",versioned,stable]
     expected={Path("moodle-review-extension"),Path("SHA256SUMS"),*(Path(path) for path in paths)}
+    expected.update(parent for path in tuple(expected) for parent in path.parents if parent != Path("."))
     actual={path.relative_to(entry) for path in entry.rglob("*")}
     if actual != expected or any((entry/path).is_symlink() for path in actual):
         raise ValueError("invalid versioned release tree")

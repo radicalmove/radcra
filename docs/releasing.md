@@ -1,6 +1,6 @@
 # RADCRA release process
 
-RADCRA publishes two distinct artifacts for version `0.5.36` and later:
+RADCRA publishes two distinct artifacts for version `0.5.37` and later:
 
 - `radcra-web-store-v<version>.zip` — root-level `manifest.json` package uploaded as a private Chrome Web Store item.
 - `moodle-review-extension-v<version>-chrome-edge.zip` — nested `moodle-review-extension/` pilot archive for Chrome/Edge Developer mode.
@@ -32,8 +32,8 @@ The `latest.json` schema is exactly:
 ```json
 {
   "schema_version": 1,
-  "version": "0.5.36",
-  "release_url": "https://github.com/radicalmove/radcra/releases/tag/v0.5.36",
+  "version": "0.5.37",
+  "release_url": "https://github.com/radicalmove/radcra/releases/tag/v0.5.37",
   "download_url": "https://radicalmove.github.io/radcra/",
   "published_at": "2026-08-14T00:00:00Z"
 }

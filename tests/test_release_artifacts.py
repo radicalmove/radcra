@@ -23,6 +23,8 @@ class ReleaseArtifactTests(unittest.TestCase):
   subprocess.run(["git","init","-q"],cwd=r,check=True); subprocess.run(["git","config","user.email","x@y"],cwd=r,check=True); subprocess.run(["git","config","user.name","T"],cwd=r,check=True); (r/"x").write_text("x"); subprocess.run(["git","add","x"],cwd=r,check=True); subprocess.run(["git","commit","-qm","x"],cwd=r,check=True)
  def dist(self,r,tag="new"):
   d=r/f"dist-{tag}"; d.mkdir(); [(d/n).write_text(tag+n) for n in ("background.js","content.js","manifest.json")]; return d
+ def current_dist(self,r,tag="current"):
+  d=self.dist(r,tag); icons=d/"icons"; icons.mkdir(); [(icons/n).write_bytes((tag+n).encode()) for n in ("icon16.png","icon48.png","icon128.png")]; return d
  def visible(self,d):
   return json.loads((d/"RELEASE.json").read_text())["commit"]
  def legacy_release(self,releases,commit="9"*40,tag="legacy"):
@@ -56,6 +58,9 @@ class ReleaseArtifactTests(unittest.TestCase):
  def test_repeated_release_is_deterministic(self):
   with tempfile.TemporaryDirectory() as x:
    r=Path(x); d=self.dist(r); delivery=r/"delivery"; publish(d,delivery,"c"*40,VERSION); z=(delivery/"moodle-review-extension-chrome-edge.zip").read_bytes(); s=(delivery/"SHA256SUMS").read_bytes(); publish(d,delivery,"c"*40,VERSION); self.assertEqual(z,(delivery/"moodle-review-extension-chrome-edge.zip").read_bytes()); self.assertEqual(s,(delivery/"SHA256SUMS").read_bytes())
+ def test_repeated_current_release_with_icon_directory_is_deterministic(self):
+  with tempfile.TemporaryDirectory() as x:
+   r=Path(x); d=self.current_dist(r); delivery=r/"delivery"; publish(d,delivery,"c"*40,VERSION); publish(d,delivery,"c"*40,VERSION); self.assertEqual(self.visible(delivery),"c"*40)
  def test_macos_metadata_does_not_corrupt_immutable_release_scan(self):
   with tempfile.TemporaryDirectory() as x:
    r=Path(x); delivery=r/"delivery"; publish(self.dist(r,"old"),delivery,"c"*40,"0.1.0"); (delivery/"releases/.DS_Store").write_bytes(b"metadata"); publish(self.dist(r,"new"),delivery,"d"*40,VERSION); self.assertEqual(self.visible(delivery),"d"*40)

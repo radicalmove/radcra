@@ -61,4 +61,4 @@ Certify every Limited Use statement: data is not sold; is not used or transferre
 
 **Update metadata:** https://radicalmove.github.io/radcra/latest.json
 
-Distribute only to approved private trusted testers. Supply reviewer credentials and private URLs only in Store Test instructions or another approved private channel. Upload the exact root-level `radcra-web-store-v0.5.36.zip`; compare the Store Item ID and public key with the accepted pilot identity before submission.
+Distribute only to approved private trusted testers. Supply reviewer credentials and private URLs only in Store Test instructions or another approved private channel. Upload the exact root-level `radcra-web-store-v0.5.37.zip`; compare the Store Item ID and public key with the accepted pilot identity before submission.

@@ -1,16 +1,16 @@
 # RADCRA Chrome Web Store readiness report — 0.5.36
 
-**Verification date:** 14 August 2026
+**Verification date:** 15 August 2026
 
-**Fixture source commit:** `4b869c34a858cede20d35b040ec05d93482c49c3`
+**Production source commit:** `24f7b5fbb02e6db2f20b3b441b75019f82dc4cd0`
 
-**Scope:** local Store-readiness evidence only; no push, tag, deployment, dashboard change, upload, submission, or private-key search was performed.
+**Scope:** production package, public-site and artwork readiness. No Chrome Web Store upload, submission, publication, tester invitation, or dashboard change was performed.
 
 ## Status
 
-RADCRA 0.5.36 is locally **submission-shaped**, but it is **not submission-ready**. The local automated gates, compliant promotional tile, public-source files, production-shaped fixture build, deterministic Store ZIP, checksum, and fixture-mode validator pass. The fixture uses example origins and a public-only test key and must never be uploaded.
+RADCRA 0.5.36 is **ready for the Chrome Web Store upload and dashboard-review stage**. The signed production build, accepted pilot identity, deterministic Store ZIP, checksum, public Pages site, privacy/support disclosures, promotional tile, and genuine 1280x800 current-product screenshot all pass the submission-mode validator.
 
-Real submission readiness remains blocked until the secure production configuration and accepted public identity are supplied, a genuine current-product screenshot is captured and sanitised, the renamed public repository and Pages site are deployed and verified, and the Chrome Web Store dashboard/tester/reviewer workflow is completed.
+The remaining work is external and manual: create/configure the Chrome Web Store item, enter the approved listing and privacy declarations, upload the verified ZIP and confirm its resulting Store Item ID, provide reviewer access, complete Google's review flow, and obtain release approval before publication or tester invitation.
 
 ## Policy basis
 
@@ -44,42 +44,42 @@ Two scoped defects were found and fixed test-first during the production-shaped 
 1. `tests/fixtures/store-public-key.txt` duplicated the development placeholder, so production validation correctly rejected it. It is now a distinct valid 2048-bit RSA SPKI public-only fixture, with a regression test proving it is accepted as production-shaped and remains distinct from the development placeholder.
 2. `background.js` did not retain the full build commit, so Store packaging correctly rejected its runtime evidence. Background build diagnostics now retain the immutable full commit, with a regression test that failed before and passed after the fix.
 
-## Production-shaped fixture evidence
+## Production package evidence
 
-The fixture was built with:
+The verified package was built with:
 
 - `BUILD_MODE=production`
-- `MOODLE_HOST_PATTERNS=https://moodle.example.org/*`
-- `OPTIONAL_FRAME_PATTERNS=https://rise.example.org/*`
-- `REVIEW_SERVICE_ORIGIN=https://review.example.org`
-- `EXTENSION_PUBLIC_KEY` read only from `tests/fixtures/store-public-key.txt`
-- `BUILD_COMMIT=4b869c34a858cede20d35b040ec05d93482c49c3`
+- `MOODLE_HOST_PATTERNS=https://my.uconline.ac.nz/*`
+- `OPTIONAL_FRAME_PATTERNS=https://packages.articulateusercontent.com/*`
+- `REVIEW_SERVICE_ORIGIN=https://fld-mini.tail4ccaba.ts.net`
+- `EXTENSION_PUBLIC_KEY` securely derived from the protected pilot signing key and matched to the accepted pilot identity
+- `BUILD_COMMIT=24f7b5fbb02e6db2f20b3b441b75019f82dc4cd0`
 
 Package result:
 
 ```json
-{"build_commit": "4b869c34a858cede20d35b040ec05d93482c49c3", "build_mode": "production", "files": ["background.js", "content.js", "icons/icon128.png", "icons/icon16.png", "icons/icon48.png", "manifest.json"], "manifest_sha256": "3d6692a20bfb97a32aa2c96d50197815e0f755c01e489c23203fb6b38dc9b923", "moodle_patterns": ["https://moodle.example.org/*"], "optional_frame_patterns": ["https://rise.example.org/*"], "public_key_sha256": "b27534c70e0ced12a3c35f2c10a199c91efbaf5c3a6063dfb6ce4e948c5195a2", "repository": "radicalmove/radcra", "review_service_origin": "https://review.example.org", "schema_version": 1, "version": "0.5.36", "zip_sha256": "e3af9e2654b33a93e46c0bf4e2e9e556db21bc71d0a139428ad89250e56fdd2c"}
+{"build_commit": "24f7b5fbb02e6db2f20b3b441b75019f82dc4cd0", "build_mode": "production", "files": ["background.js", "content.js", "icons/icon128.png", "icons/icon16.png", "icons/icon48.png", "manifest.json"], "manifest_sha256": "dd9b1cd843c61446aa81203c3e6932115323c546cb7e50466176719d653590b9", "moodle_patterns": ["https://my.uconline.ac.nz/*"], "optional_frame_patterns": ["https://packages.articulateusercontent.com/*"], "public_key_sha256": "ec2056671b6b299d6f497233a078983b040eeb59bb127586e1cf622f0cd09444", "repository": "radicalmove/radcra", "review_service_origin": "https://fld-mini.tail4ccaba.ts.net", "schema_version": 1, "version": "0.5.36", "zip_sha256": "4e2038e2476bafdfea8cb0a70d7d6688d301cfae790258c951f88fa3c5337739"}
 ```
 
 Checksum:
 
 ```text
-e3af9e2654b33a93e46c0bf4e2e9e556db21bc71d0a139428ad89250e56fdd2c  radcra-web-store-v0.5.36.zip
+4e2038e2476bafdfea8cb0a70d7d6688d301cfae790258c951f88fa3c5337739  radcra-web-store-v0.5.36.zip
 ```
 
-Fixture readiness result (exit 0):
+Submission readiness result (exit 0):
 
 ```json
-{"schema_version":1,"mode":"fixture","ready":true,"manual_screenshot_required":true,"checks":{"identity":true,"public_site":true,"privacy_disclosure":true,"support":true,"promo":true,"screenshot":false,"package":true,"checksum":true,"production_inputs":false},"errors":["screenshot_missing"]}
+{"schema_version":1,"mode":"submission","ready":true,"manual_screenshot_required":false,"checks":{"identity":true,"public_site":true,"privacy_disclosure":true,"support":true,"promo":true,"screenshot":true,"package":true,"checksum":true,"production_inputs":true},"errors":[]}
 ```
 
-`production_inputs:false` is correct: the package deliberately contains example hosts and the checked-in fixture public key. It is evidence for the pipeline, not the production Store upload.
+The upload ZIP, report, and checksum are in `/Users/rcd58/OpenAI Projects/Beta Testing App-pilot-builds`.
 
 ## Artwork
 
 - Promotional tile: ready; the committed sanitised `radcra-promo-440x280.png` passes format, dimensions, metadata, and documentation checks.
 - Extension icons: ready in the generated package, including the 128 px transparent-content bounds.
-- Store screenshot: unavailable. A real, current RADCRA 0.5.36 product screenshot must be captured manually at exactly 1280×800, inspected and sanitised without fabricating or substituting the interface, and kept outside the extension ZIP. This is an explicit manual artwork gate.
+- Store screenshot: ready at `store-assets/radcra-screenshot-1280x800.png`; it is a genuine RADCRA 0.5.36 capture, exactly 1280×800 PNG with metadata removed, showing the live overlay and contextual marker/comment. It remains outside the extension ZIP.
 
 ## Public endpoints
 
@@ -90,7 +90,7 @@ The committed source targets these endpoints:
 - <https://radicalmove.github.io/radcra/support/>
 - <https://radicalmove.github.io/radcra/latest.json>
 
-They remain external gates awaiting the GitHub repository rename to `radicalmove/radcra`, reviewed push, GitHub Pages Actions deployment, and successful unauthenticated HTTPS/schema checks. Local source validation does not prove those public endpoints are deployed.
+All four endpoints are deployed through GitHub Pages and returned successfully over unauthenticated HTTPS on 15 August 2026. `latest.json` exposes the expected 0.5.36 schema and canonical `radicalmove/radcra` links.
 
 ## Exact production inputs required
 
@@ -105,12 +105,9 @@ The release operator must supply and verify:
 
 ## Remaining external/manual steps
 
-1. Rename the GitHub repository to `radcra`, update the local remote, push the reviewed commit/tag, enable Pages through Actions, and verify the four public endpoints unauthenticated.
-2. Configure the secure production inputs, generate the exact 0.5.36 production ZIP/checksum from the tagged commit, validate it in submission mode, load it in a clean Chrome profile, and complete the documented smoke test.
-3. Capture and sanitise the genuine 1280×800 RADCRA 0.5.36 screenshot; inspect the screenshot, icon, and promotional tile at dashboard size.
-4. Create/configure the Chrome Web Store developer item, private trusted-testers distribution, listing, nine Privacy selections, Remote code `No`, Limited Use certifications, support/privacy/homepage URLs, and private Test instructions.
-5. Supply reviewer credentials and private test URLs only through the Store Test instructions field or another approved private channel.
-6. Upload the exact production ZIP and compare its public key and resulting Store Item ID with the accepted pilot extension identity; stop on any mismatch.
-7. Run the reviewer guide against the submitted package and account, choose deferred publishing, and obtain explicit release approval before publishing or inviting testers.
+1. Create/configure the Chrome Web Store developer item, private trusted-testers distribution, listing, nine Privacy selections, Remote code `No`, Limited Use certifications, support/privacy/homepage URLs, and private Test instructions.
+2. Supply reviewer credentials and private test URLs only through the Store Test instructions field or another approved private channel.
+3. Upload the exact production ZIP and compare its public key and resulting Store Item ID with the accepted pilot extension identity; stop on any mismatch.
+4. Run the reviewer guide against the submitted package and account, choose deferred publishing, and obtain explicit release approval before publishing or inviting testers.
 
-Until every item above succeeds, RADCRA is locally verified and submission-shaped, not actually ready for Store submission or publication.
+The local release materials are ready; Google retains final approval authority.

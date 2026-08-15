@@ -2,7 +2,7 @@
 
 **Verification date:** 15 August 2026
 
-**Production source commit:** `24f7b5fbb02e6db2f20b3b441b75019f82dc4cd0`
+**Production source commit:** the exact final repository commit recorded in the generated Store package report
 
 **Scope:** production package, public-site and artwork readiness. No Chrome Web Store upload, submission, publication, tester invitation, or dashboard change was performed.
 
@@ -53,19 +53,9 @@ The verified package was built with:
 - `OPTIONAL_FRAME_PATTERNS=https://packages.articulateusercontent.com/*`
 - `REVIEW_SERVICE_ORIGIN=https://fld-mini.tail4ccaba.ts.net`
 - `EXTENSION_PUBLIC_KEY` securely derived from the protected pilot signing key and matched to the accepted pilot identity
-- `BUILD_COMMIT=24f7b5fbb02e6db2f20b3b441b75019f82dc4cd0`
+- `BUILD_COMMIT` set to the full lowercase 40-character final repository commit
 
-Package result:
-
-```json
-{"build_commit": "24f7b5fbb02e6db2f20b3b441b75019f82dc4cd0", "build_mode": "production", "files": ["background.js", "content.js", "icons/icon128.png", "icons/icon16.png", "icons/icon48.png", "manifest.json"], "manifest_sha256": "dd9b1cd843c61446aa81203c3e6932115323c546cb7e50466176719d653590b9", "moodle_patterns": ["https://my.uconline.ac.nz/*"], "optional_frame_patterns": ["https://packages.articulateusercontent.com/*"], "public_key_sha256": "ec2056671b6b299d6f497233a078983b040eeb59bb127586e1cf622f0cd09444", "repository": "radicalmove/radcra", "review_service_origin": "https://fld-mini.tail4ccaba.ts.net", "schema_version": 1, "version": "0.5.36", "zip_sha256": "4e2038e2476bafdfea8cb0a70d7d6688d301cfae790258c951f88fa3c5337739"}
-```
-
-Checksum:
-
-```text
-4e2038e2476bafdfea8cb0a70d7d6688d301cfae790258c951f88fa3c5337739  radcra-web-store-v0.5.36.zip
-```
+The authoritative build commit, runtime files, manifest hash, public-key hash, host patterns, review-service origin, and ZIP hash are recorded in `radcra-web-store-v0.5.36.report.json`. The separately generated `radcra-web-store-v0.5.36.zip.sha256` is verified against that exact ZIP by the submission gate.
 
 Submission readiness result (exit 0):
 

@@ -72,7 +72,15 @@ class StorePackageTests(unittest.TestCase):
             self.assertEqual(report["public_key_sha256"], hashlib.sha256(__import__("base64").b64decode(json.loads((dist / "manifest.json").read_text())["key"])).hexdigest())
 
     def test_validator_rejects_release_metadata_private_keys_maps_and_remote_code(self):
-        bad_files = ("RELEASE.json", "source.js.map", "SOURCE.MAP", "pilot-private.pem", "listing-art.png", "README.txt")
+        bad_files = (
+            "RELEASE.json",
+            "source.js.map",
+            "SOURCE.MAP",
+            "pilot-private.pem",
+            "listing-art.png",
+            "sphere-promo-440x280.png",
+            "README.txt",
+        )
         for bad_file in bad_files:
             with self.subTest(bad_file=bad_file), tempfile.TemporaryDirectory() as directory:
                 dist = self.fixture(Path(directory))

@@ -13,12 +13,12 @@ from deploy.scripts.store_package import package_store, report_path_for
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROMO_SHA256 = "b8fbe0cc77266d965e9592265df9c813fe112af47fde4697819172bafffce957"
+PROMO_SHA256 = "9ef1de122a1b727e73be0b0a7cc446d74349380a13afcc0584d5294037013cfd"
 FONT_SHA256 = "e6476c1b80502924294eed40894c5b18e06c181444ca953e5334262df9c27724"
 ICON_SHA256 = {
-    16: "503eb3ec45ca847e91a32f338c7bd6103ace8f6105c3cb503b2b7c84e76d87e6",
-    48: "d9214abb18ad56fd804d053da3220a93b79df4dd4d708af062d52d643400011c",
-    128: "591c6dca5d18dd926dad48ba6bc9189359beacff7c2db1c73072e695ffe6b39c",
+    16: "5ffb1442092f32173ec4aafa4546948fac848a022b4025e8af83a5993725fcc2",
+    48: "3d096180543c5c40d7e3d68a33b55adec18f0e6ab29f084aa4c33e1a11394d8b",
+    128: "35eb036f146241984767a44dd3d53166daa085ddcdd058b3f0025fe280663b33",
 }
 
 
@@ -44,13 +44,10 @@ class StoreReadinessTests(unittest.TestCase):
                 self.assertEqual(image.mode, "RGBA")
         with Image.open(paths[-1]) as image:
             left, top, right, bottom = image.getchannel("A").getbbox()
-            self.assertGreaterEqual(left, 16)
-            self.assertGreaterEqual(top, 16)
-            self.assertLessEqual(right, 112)
-            self.assertLessEqual(bottom, 112)
+            self.assertEqual((left, top, right, bottom), (16, 16, 112, 112))
 
     def test_promo_is_deterministic_approved_png_with_documented_provenance(self):
-        promo = ROOT / "store-assets" / "radcra-promo-440x280.png"
+        promo = ROOT / "store-assets" / "sphere-promo-440x280.png"
         self.assertEqual(hashlib.sha256(promo.read_bytes()).hexdigest(), PROMO_SHA256)
         committed = promo.read_bytes()
         with tempfile.TemporaryDirectory() as directory:
@@ -62,17 +59,18 @@ class StoreReadinessTests(unittest.TestCase):
             self.assertEqual(first, output.read_bytes())
         with Image.open(promo) as image:
             self.assertEqual(image.size, (440, 280))
-            self.assertIn(image.mode, ("RGB", "RGBA"))
+            self.assertEqual(image.mode, "RGB")
 
         generator = (ROOT / "scripts" / "generate-store-assets.py").read_text()
         bundled_font = ROOT / "store-assets" / "source" / "DejaVuSans-Bold.ttf"
         self.assertTrue(bundled_font.is_file())
         self.assertEqual(hashlib.sha256(bundled_font.read_bytes()).hexdigest(), FONT_SHA256)
         self.assertIn('FONT = ROOT / "store-assets" / "source" / "DejaVuSans-Bold.ttf"', generator)
+        self.assertIn(f'FONT_SHA256 = "{FONT_SHA256}"', generator)
         self.assertNotIn("FONT_CANDIDATES", generator)
         self.assertNotIn("/System/Library/Fonts", generator)
         self.assertNotIn("/usr/share/fonts", generator)
-        self.assertIn('"RADCRA"', generator)
+        self.assertIn('"Sphere"', generator)
         self.assertIn('"Course Review App"', generator)
         for forbidden in ("University of Canterbury", "Google", "Chrome Web Store"):
             self.assertNotIn(forbidden, generator)
@@ -82,6 +80,7 @@ class StoreReadinessTests(unittest.TestCase):
         self.assertRegex(source_notes.lower(), r"provenance|generated")
         self.assertRegex(source_notes.lower(), r"font")
         self.assertRegex(source_notes, r"DejaVu Fonts 2\.37")
+        self.assertRegex(source_notes, r"Sphere")
         self.assertTrue((ROOT / "store-assets" / "source" / "DEJAVU-LICENSE.txt").is_file())
         self.assertRegex(upload_notes.lower(), r"upload")
         self.assertRegex(upload_notes.lower(), r"saniti[sz]")

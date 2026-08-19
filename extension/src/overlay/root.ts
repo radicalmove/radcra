@@ -25,6 +25,7 @@ export const controlAlignmentStyles = `.toolbar-actions button{display:inline-fl
 export const semanticFilterHoverStyles = `.comment-filters .comment-scope:hover{background:var(--review-scope);border-color:var(--review-scope);color:#fff}.comment-filters .comment-status:hover{background:var(--review-status);border-color:var(--review-status);color:#fff}.comment-filters .comment-scope[aria-pressed="true"]:hover{background:#fff;border-color:var(--review-scope);color:var(--review-scope)}.comment-filters .comment-status[aria-pressed="true"]:hover{background:#fff;border-color:var(--review-status);color:var(--review-status)}.comment-jump[aria-expanded="true"]{background:var(--review-jump);border-color:var(--review-jump);color:#fff}.comment-page-field .comment-jump[aria-expanded="true"]:hover{background:#fff;border-color:var(--review-jump);color:var(--review-jump)}.toolbar-actions [data-action="add-comment"]{background:#fff;border-color:var(--review-dark-teal);color:var(--review-dark-teal)}.toolbar-actions [data-action="add-comment"]:hover{background:var(--review-dark-teal);border-color:var(--review-dark-teal);color:#fff}.toolbar-actions [data-action="add-comment"][aria-pressed="true"]{background:var(--review-red);border-color:var(--review-red);color:#fff}.toolbar-actions [data-action="add-comment"][aria-pressed="true"]:hover{background:#fff;border-color:var(--review-red);color:var(--review-red)}.comment-row-action.delete-action{border-radius:5px}.comment-page-list{position:fixed;width:min(380px,calc(100vw - 32px));overflow-y:auto}.comment-page-option{min-height:34px!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:500}.comment-page-option[aria-selected="true"]{font-weight:650}.shell:has(.comment-jump[aria-expanded="true"]),.panel:has(.comment-jump[aria-expanded="true"]){overflow:visible}`;
 export const helpButtonStyles = `.toolbar-actions [data-action="help"]{background:#fff;border-color:var(--review-help);color:var(--review-help)}.toolbar-actions [data-action="help"][aria-expanded="true"]{background:var(--review-help);border-color:var(--review-help);color:#fff}.toolbar-actions [data-action="help"][aria-expanded="false"]:hover,.toolbar-actions [data-action="help"][aria-expanded="false"]:focus-visible{background:var(--review-help);border-color:var(--review-help);color:#fff}.toolbar-actions [data-action="help"][aria-expanded="true"]:hover,.toolbar-actions [data-action="help"][aria-expanded="true"]:focus-visible{background:#fff;border-color:var(--review-help);color:var(--review-help)}`;
 export const commentsButtonStyles = `.toolbar-actions [data-action="panel"]{background:#fff;border-color:var(--review-teal-dark);color:var(--review-teal-dark)}.toolbar-actions [data-action="panel"]:hover{background:var(--review-teal-dark);border-color:var(--review-teal-dark);color:#fff}.toolbar-actions [data-action="panel"][aria-expanded="true"]{background:var(--review-teal-dark);border-color:var(--review-teal-dark);color:#fff}.toolbar-actions [data-action="panel"][aria-expanded="true"]:hover{background:#fff;border-color:var(--review-teal-dark);color:var(--review-teal-dark)}`;
+export const panelMinimiseStyles = `.toolbar-actions{grid-template-columns:minmax(0,1fr) auto 32px 44px}.panel-minimise-control{box-sizing:border-box;width:32px;height:32px;min-height:32px!important;padding:4px!important;border:1px solid var(--sphere-action)!important;border-radius:var(--sphere-radius-control);background:#fff!important;color:var(--sphere-primary)!important}.panel-minimise-control:hover,.panel-minimise-control:focus-visible{background:var(--sphere-wash)!important;color:var(--sphere-ink)!important}.panel-minimise-control svg{display:block;width:100%;height:100%}.panel-minimise-control[aria-expanded="true"]{background:var(--sphere-primary)!important;color:#fff!important}.panel-minimise-control[aria-expanded="true"]:hover,.panel-minimise-control[aria-expanded="true"]:focus-visible{background:#fff!important;color:var(--sphere-primary)!important}.toolbar-actions [data-action="add-comment"]{min-width:0;overflow:hidden;text-overflow:ellipsis}@media(max-width:360px){.toolbar-actions{grid-template-columns:minmax(0,1fr) auto 32px 44px;gap:6px}.panel-minimise-control{width:32px;height:32px}}`;
 export const panelTransitionStyles = `.panel{max-height:calc(100vh - 96px);opacity:1;padding-top:16px;padding-bottom:16px;border-top-width:1px}.panel[data-panel-animate="true"]{transition:max-height 180ms ease,opacity 180ms ease,padding-top 180ms ease,padding-bottom 180ms ease,border-top-width 180ms ease}.panel[data-panel-state="closed"],.panel[data-panel-state="closing"]{max-height:0;opacity:0;padding-top:0;padding-bottom:0;border-top-width:0}@media(prefers-reduced-motion:reduce){.panel[data-panel-animate="true"]{transition:none}}`;
 export const creationComposerSpacingStyles = `.preview+.comment-composer{margin-top:10px}`;
 export const commentComposerStyles = `.comment-composer-field-row{display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:8px;align-items:start}.comment-composer-field-row textarea{min-width:0;width:100%;min-height:110px}.comment-composer-save{box-sizing:border-box;width:34px;height:34px;min-height:34px!important;padding:2px;border:2px solid #176b43;border-radius:5px;background:#176b43;color:#fff}.comment-composer-save svg{display:block;width:100%;height:100%}.comment-composer-save:hover{background:#fff;color:#176b43}.comment-composer-actions{display:flex;justify-content:flex-end;margin-top:8px}.comment-composer-cancel{box-sizing:border-box;width:calc((100% - 16px)/3);height:34px;min-height:34px!important;padding:3px 9px;border:2px solid #d73b3d;border-radius:5px;background:#d73b3d;color:#fff;font:inherit;font-weight:650;line-height:1}.comment-composer-cancel:hover{background:#fff;color:#d73b3d}@media(max-width:420px){.comment-composer-actions button{flex:0 0 auto}}`;
@@ -100,7 +101,7 @@ function createStateActions(status: ConnectionStatus, readiness: AccessLookupRea
   const action = authActionLabels[status];
   const checking = readiness === "checking" && Boolean(action);
   const registration = status === "unregistered" && canRegister ? `<button type="button" data-action="register-course">Register this course for review</button>` : "";
-  const reviewControls = status === "connected" || status === "connecting" ? `<span class="toolbar-actions" data-review-controls><button type="button" data-action="add-comment" aria-pressed="false">Add comment marker</button><button type="button" data-action="panel" aria-expanded="false"><span class="comments-wide">Comments (<span data-comment-count>0</span>)</span><span class="comments-short"><span data-comment-count-short>0</span> comments</span></button><button type="button" data-action="help" aria-label="Help and instructions" title="Help and instructions" aria-expanded="false">${reviewIconMarkup("help")}</button></span>` : "";
+  const reviewControls = status === "connected" || status === "connecting" ? `<span class="toolbar-actions" data-review-controls><button type="button" data-action="add-comment" aria-pressed="false">Add comment marker</button><button type="button" data-action="panel" aria-expanded="false" aria-label="Open review panel" aria-controls="review-comments-panel"><span class="comments-wide">Comments (<span data-comment-count>0</span>)</span><span class="comments-short"><span data-comment-count-short>0</span> comments</span></button><button type="button" class="panel-minimise-control" data-action="panel-minimise" aria-expanded="false" aria-label="Expand comments" aria-controls="review-comments-panel" title="Expand comments">${reviewIconMarkup("chevron-up")}</button><button type="button" data-action="help" aria-label="Help and instructions" title="Help and instructions" aria-expanded="false">${reviewIconMarkup("help")}</button></span>` : "";
   return `<span data-auth-action>${action ? `<button type="button" data-action="authenticate"${checking ? ` disabled aria-busy="true" aria-label="Checking course access…"` : ""}>${checking ? "Checking course access…" : action}</button>` : registration}</span>${reviewControls}`;
 }
 
@@ -109,7 +110,7 @@ const defaultBuildDiagnostics: BuildDiagnostics = { version: "0.0.0", buildCommi
 
 export function createOverlayMarkup(input: { courseTitle: string; pageTitle: string; status: ConnectionStatus; accessLookupReadiness?: AccessLookupReadiness; canRegister?: boolean; policyAcknowledged?: boolean } & Partial<BuildDiagnostics>): string {
   const { version, buildCommit } = { ...defaultBuildDiagnostics, ...input };
-  return `<section class="shell" tabindex="-1"><div class="toolbar" role="toolbar" aria-label="Course review tools"><div class="identity"><span class="course" title="${escapeHtml(input.courseTitle)}">${escapeHtml(input.courseTitle)}</span><span class="pilot-version">v${escapeHtml(version)}</span><span class="viewer-line" data-viewer-line hidden><span class="viewer" data-viewer></span><button type="button" class="sign-out" data-action="sign-out">Sign out</button></span><span class="status ${input.status}" data-auth-status aria-live="polite" aria-atomic="true"><span data-status-message>${statusLabels[input.status]}</span></span></div>${createStateActions(input.status, input.accessLookupReadiness, input.canRegister, false, input.policyAcknowledged !== false)}</div><div class="panel" hidden><div data-panel-content>No comments on this page yet.</div></div><span data-build-info hidden>${escapeHtml(version)}|${escapeHtml(buildCommit.slice(0, 7))}</span></section>`;
+  return `<section class="shell" tabindex="-1"><div class="toolbar" role="toolbar" aria-label="Course review tools"><div class="identity"><span class="course" title="${escapeHtml(input.courseTitle)}">${escapeHtml(input.courseTitle)}</span><span class="pilot-version">v${escapeHtml(version)}</span><span class="viewer-line" data-viewer-line hidden><span class="viewer" data-viewer></span><button type="button" class="sign-out" data-action="sign-out">Sign out</button></span><span class="status ${input.status}" data-auth-status aria-live="polite" aria-atomic="true"><span data-status-message>${statusLabels[input.status]}</span></span></div>${createStateActions(input.status, input.accessLookupReadiness, input.canRegister, false, input.policyAcknowledged !== false)}</div><div class="panel" id="review-comments-panel" hidden><div data-panel-content>No comments on this page yet.</div></div><span data-build-info hidden>${escapeHtml(version)}|${escapeHtml(buildCommit.slice(0, 7))}</span></section>`;
 }
 
 export function handleDialogKey(input: { key: string; shiftKey: boolean; activeIndex: number; focusableCount: number }): { focusIndex: number; close: boolean } {
@@ -138,7 +139,7 @@ export function mountReviewOverlay(document: Document, context: CourseContext, s
   const shadow = host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
   style.textContent = sphereTokens + sphereOverlayStyles + sphereToolbarStyles + `.viewer{display:block;font-size:13px;font-weight:650;color:var(--sphere-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.viewer[hidden]{display:none}.comments-short{display:none}@media(max-width:360px){.comments-wide{display:none}.comments-short{display:inline}}.comment-choice{padding:16px;background:var(--sphere-ground);border-top:1px solid var(--sphere-line)}.comment-choice h2{margin:0 0 10px;font-size:18px}.comment-choice button{display:grid;width:100%;margin-top:8px;text-align:left}.comment-choice button span{font-size:14px;font-weight:400}.help-dialog ol{display:grid;gap:12px;padding-left:22px}.help-dialog li span{display:block;font-size:14px}.help-version{font-size:14px;color:var(--sphere-metadata)}`;
-  style.textContent += sphereizeStyles(commentListLayoutStyles + approvedControlStyles + controlAlignmentStyles + semanticFilterHoverStyles + helpButtonStyles + commentsButtonStyles + panelTransitionStyles + creationComposerSpacingStyles + commentComposerStyles);
+  style.textContent += sphereizeStyles(commentListLayoutStyles + approvedControlStyles + controlAlignmentStyles + semanticFilterHoverStyles + helpButtonStyles + commentsButtonStyles + panelMinimiseStyles + panelTransitionStyles + creationComposerSpacingStyles + commentComposerStyles);
   style.textContent += sphereizeStyles(stabilisationUxStyles + policyDisclosureStyles + updateCheckStyles + `.existing-action{margin-top:12px}.existing-confirmation{display:grid;gap:6px;margin-top:14px;padding:12px;border:1px solid var(--review-line);border-radius:7px;background:var(--review-pale)}.existing-confirmation[hidden]{display:none}.admin-sign-in{margin-top:12px}`);
   style.textContent += sphereizeStyles(`.viewer-line{display:flex;align-items:center;gap:8px;min-width:0}.viewer-line[hidden]{display:none}.viewer-line .viewer{min-width:0}.sign-out{min-height:0!important;padding:0!important;border:0!important;background:transparent!important;color:#082f2f!important;font-size:12px;text-decoration:underline}.sign-out:hover{color:#7b235e!important}`);
   style.textContent += ":host{--sphere-ink:#0C447C;--sphere-primary:#185FA5;--sphere-action:#378ADD;--sphere-ground:#F4F9FF;--sphere-line:rgba(56,138,221,.2);--sphere-danger:#D73B3D}.toolbar-actions [data-action=\"panel\"]{background:#fff!important;color:#185FA5!important;border-color:#fff!important}.toolbar-actions [data-action=\"panel\"][aria-expanded=\"true\"]{background:#185FA5!important;color:#fff!important;border-color:#185FA5!important}.sign-out{color:#0C447C!important}.sign-out:hover{color:#185FA5!important}";
@@ -199,15 +200,28 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     ownerDocument.defaultView?.clearTimeout(panelTransitionTimer);
     panelTransitionTimer = undefined;
   };
+  const syncPanelControls = (open: boolean) => {
+    const comments = shadow.querySelector<HTMLElement>('[data-action="panel"]');
+    const minimise = shadow.querySelector<HTMLButtonElement>('[data-action="panel-minimise"]');
+    for (const control of [comments, minimise]) {
+      control?.setAttribute("aria-expanded", String(open));
+      control?.setAttribute("aria-controls", "review-comments-panel");
+    }
+    comments?.setAttribute("aria-label", open ? "Close review panel" : "Open review panel");
+    if (!minimise) return;
+    const label = open ? "Minimise comments" : "Expand comments";
+    minimise.setAttribute("aria-label", label);
+    minimise.title = label;
+    minimise.replaceChildren();
+    minimise.insertAdjacentHTML("afterbegin", reviewIconMarkup(open ? "chevron-down" : "chevron-up"));
+  };
   const setPanelOpen = (open: boolean, behavior: { animate: boolean; persist: boolean }) => {
     const panel = shadow.querySelector<HTMLElement>(".panel");
     if (!panel) return;
     clearPanelTransition();
     panelOpen = open;
     if (behavior.persist) writeCoursePanelState(panelStateStorage, context.course_url, open);
-    const toggle = shadow.querySelector<HTMLElement>('[data-action="panel"]');
-    toggle?.setAttribute("aria-expanded", String(open));
-    toggle?.setAttribute("aria-label", open ? "Close review panel" : "Open review panel");
+    syncPanelControls(open);
     let reducedMotion = false;
     try { reducedMotion = ownerDocument.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false; }
     catch { reducedMotion = true; }
@@ -310,7 +324,9 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     const panel = shadow.querySelector<HTMLElement>(".panel");
     const existingPanelToggle = toolbar.querySelector<HTMLElement>('[data-action="panel"]');
     const hadPanelToggle = Boolean(existingPanelToggle);
-    const panelToggleHadFocus = shadow.activeElement === existingPanelToggle;
+    const existingPanelMinimise = toolbar.querySelector<HTMLElement>('[data-action="panel-minimise"]');
+    const panelToggleHadFocus = shadow.activeElement === existingPanelToggle || shadow.activeElement === existingPanelMinimise;
+    const panelMinimiseHadFocus = shadow.activeElement === existingPanelMinimise;
     const statusNode = toolbar.querySelector<HTMLElement>("[data-auth-status]");
     if (statusNode) { statusNode.className = `status ${status}`; const messageNode = statusNode.querySelector<HTMLElement>("[data-status-message]"); if (messageNode) messageNode.textContent = displayMessage; }
     toolbar.querySelector("[data-auth-action]")?.remove(); toolbar.querySelector("[data-review-controls]")?.remove();
@@ -318,10 +334,12 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     bind();
     const panelToggle = toolbar.querySelector<HTMLElement>('[data-action="panel"]');
     if (panelToggle && !hadPanelToggle) setPanelOpen(readCoursePanelState(panelStateStorage, context.course_url), { animate: false, persist: false });
-    else if (panelToggle) { panelToggle.setAttribute("aria-expanded", String(panelOpen)); panelToggle.setAttribute("aria-label", panelOpen ? "Close review panel" : "Open review panel"); }
+    else if (panelToggle) syncPanelControls(panelOpen);
     else if (panel) setPanelOpen(false, { animate: false, persist: false });
     if (panelToggleHadFocus) {
-      const focusTarget = panelToggle
+      const focusTarget = panelMinimiseHadFocus
+        ? toolbar.querySelector<HTMLElement>('[data-action="panel-minimise"]')
+        : panelToggle
         ?? toolbar.querySelector<HTMLElement>('[data-action="authenticate"]')
         ?? shadow.querySelector<HTMLElement>(".shell");
       focusTarget?.focus();
@@ -650,6 +668,17 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
       event.preventDefault();
       setPanelOpen(!panelOpen, { animate: true, persist: true });
     });
+    shadow.querySelector<HTMLElement>('[data-action="panel-minimise"]')?.addEventListener("click", (event) => {
+      event.preventDefault();
+      setPanelOpen(!panelOpen, { animate: true, persist: true });
+    });
+    for (const control of Array.from(shadow.querySelectorAll<HTMLElement>('[data-action="panel"], [data-action="panel-minimise"]'))) {
+      control.addEventListener("keydown", (event: KeyboardEvent) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        setPanelOpen(!panelOpen, { animate: true, persist: true });
+      });
+    }
   };
   mount();
   if (!policyAcknowledged && !options.deferPolicyDisclosure) openPolicyDisclosure();
@@ -765,7 +794,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
       const groupToggles = new Map<string, HTMLButtonElement>();
       const expandedGroups = new Set(projection.groups.map((group) => group.pageUrl));
       let mainCollapseMode = true;
-      const setGroupExpanded = (pageUrl: string, expanded: boolean) => { const rows = groupRows.get(pageUrl); const toggle = groupToggles.get(pageUrl); if (!rows || !toggle) return; if (expanded) expandedGroups.add(pageUrl); else expandedGroups.delete(pageUrl); rows.hidden = !expanded; toggle.setAttribute("aria-expanded", String(expanded)); toggle.setAttribute("aria-label", `${expanded ? "Collapse" : "Expand"} ${toggle.dataset.commentGroupTitle} comments`); };
+      const setGroupExpanded = (pageUrl: string, expanded: boolean) => { const rows = groupRows.get(pageUrl); const toggle = groupToggles.get(pageUrl); if (!rows || !toggle) return; if (expanded) expandedGroups.add(pageUrl); else expandedGroups.delete(pageUrl); rows.hidden = !expanded; const label = `${expanded ? "Collapse" : "Expand"} ${toggle.dataset.commentGroupTitle} comments`; toggle.setAttribute("aria-expanded", String(expanded)); toggle.setAttribute("aria-label", label); toggle.title = label; };
       const applyFilter = () => {
         let visibleCount = 0;
         for (const group of projection.groups) {

@@ -22,6 +22,12 @@ const icons: Record<ReviewIconName, readonly string[]> = {
     '<path d="M9.75 9a2.4 2.4 0 1 1 3.38 2.2c-.75.36-1.13.9-1.13 1.8"></path>',
     '<circle cx="12" cy="16.5" r="1" fill="currentColor" stroke="none"></circle>',
   ],
+  "chevron-down": [
+    '<path d="m6 9 6 6 6-6"></path>',
+  ],
+  "chevron-up": [
+    '<path d="m6 15 6-6 6 6"></path>',
+  ],
 };
 
 const names = Object.keys(icons) as ReviewIconName[];

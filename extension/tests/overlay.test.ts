@@ -219,6 +219,52 @@ test("compact toolbar exposes one primary action and calm metadata", () => {
   assert.doesNotMatch(markup, /Pilot v0\.3\.2/);
 });
 
+test("panel minimise control exposes synchronised chevron states and a shared panel relationship", () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  const overlay = mountReviewOverlay(document, context, "connected");
+  const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  const comments = shadow.querySelector<HTMLButtonElement>('[data-action="panel"]')!;
+  const minimise = shadow.querySelector<HTMLButtonElement>('[data-action="panel-minimise"]')!;
+  const panel = shadow.querySelector<HTMLElement>(".panel")!;
+
+  assert.equal(panel.id, "review-comments-panel");
+  assert.equal(comments.getAttribute("aria-controls"), panel.id);
+  assert.equal(minimise.getAttribute("aria-controls"), panel.id);
+  assert.equal(minimise.getAttribute("aria-expanded"), "false");
+  assert.equal(minimise.getAttribute("aria-label"), "Expand comments");
+  assert.equal(minimise.title, "Expand comments");
+  assert.ok(minimise.querySelector("[data-review-icon=\"chevron-up\"]"));
+
+  minimise.focus();
+  minimise.click();
+  assert.equal(minimise.getAttribute("aria-expanded"), "true");
+  assert.equal(comments.getAttribute("aria-expanded"), "true");
+  assert.equal(minimise.getAttribute("aria-label"), "Minimise comments");
+  assert.equal(minimise.title, "Minimise comments");
+  assert.ok(minimise.querySelector("[data-review-icon=\"chevron-down\"]"));
+  assert.equal(shadow.activeElement, minimise);
+
+  comments.focus();
+  comments.click();
+  assert.equal(minimise.getAttribute("aria-expanded"), "false");
+  assert.equal(minimise.getAttribute("aria-label"), "Expand comments");
+  assert.equal(shadow.activeElement, comments);
+  overlay.destroy();
+});
+
+test("icon-only controls carry native titles and accessible names", () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  const overlay = mountReviewOverlay(document, context, "connected");
+  const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  shadow.querySelector<HTMLButtonElement>('[data-action="panel"]')!.click();
+  for (const control of Array.from(shadow.querySelectorAll<HTMLButtonElement>("button"))) {
+    if (!control.querySelector("svg") && !control.classList.contains("comment-group-toggle")) continue;
+    assert.ok(control.title.trim(), `missing native title for ${control.outerHTML}`);
+    assert.ok((control.getAttribute("aria-label") ?? control.textContent ?? "").trim(), `missing accessible name for ${control.outerHTML}`);
+  }
+  overlay.destroy();
+});
+
 test("responsive toolbar keeps three actions in one row at 600 and 360 pixels", () => {
   const styles = overlayStyles + tealOverlayOverrides;
   assert.match(styles, /font:16px\/1\.5 Poppins/);

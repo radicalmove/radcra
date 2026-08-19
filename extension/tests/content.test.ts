@@ -364,7 +364,7 @@ test("fresh policy state blocks course resolution until local acknowledgement", 
   assert.ok(messages.some((message) => message.type === "GET_POLICY_STATUS"));
   assert.equal(messages.some((message) => message.type === "RESOLVE_COURSE"), false);
   const shadow = window.document.querySelector("#moodle-course-review-overlay")!.shadowRoot!;
-  assert.equal((shadow.querySelector(".policy-disclosure a") as unknown as HTMLAnchorElement).href, "https://radicalmove.github.io/radcra/privacy/");
+  assert.equal((shadow.querySelector(".policy-disclosure a") as unknown as HTMLAnchorElement).href, "https://radicalmove.github.io/sphere/privacy/");
   assert.match((shadow.querySelector(".policy-disclosure") as unknown as HTMLElement).textContent ?? "", /operator staff do not routinely read/i);
   assert.doesNotMatch((shadow.querySelector(".policy-disclosure") as unknown as HTMLElement).innerHTML, /Beta-testing-app/);
   (shadow.querySelector("[data-policy-continue]") as unknown as HTMLButtonElement).click();

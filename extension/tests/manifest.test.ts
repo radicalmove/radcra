@@ -5,9 +5,9 @@ import test from "node:test";
 import { inflateSync } from "node:zlib";
 import { loadBuildConfig } from "../src/build-config.ts";
 
-const extensionName = "RADCRA - Course Review App (BETA)";
+const extensionName = "Sphere - Course Review App (BETA)";
 const extensionDescription = "Review configured Moodle course pages with comments, highlights, and review markers. THIS EXTENSION IS FOR BETA TESTING.";
-const updateMetadataHostPermission = "https://radicalmove.github.io/radcra/*";
+const updateMetadataHostPermission = "https://radicalmove.github.io/sphere/*";
 
 function assertRgbaPng(path: URL, expectedSize: number): void {
   const png = readFileSync(path);
@@ -89,6 +89,7 @@ test("generated manifest keeps optional hosts out of static injection", () => {
     128: "icons/icon128.png",
   });
   assert.ok(manifest.host_permissions.includes(updateMetadataHostPermission));
+  assert.doesNotMatch(JSON.stringify(manifest), /radicalmove\.github\.io\/radcra/);
   assert.doesNotMatch(JSON.stringify(manifest), /Beta-testing-app|RADCRA — Course Review \(BETA\)/);
   for (const size of [16, 48, 128]) {
     assertRgbaPng(new URL(`../public/icons/icon${size}.png`, import.meta.url), size);

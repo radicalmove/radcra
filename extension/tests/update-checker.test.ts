@@ -9,11 +9,12 @@ class Storage implements UpdateStorage {
   async set(value: Record<string, unknown>) { Object.assign(this.values, structuredClone(value)); }
 }
 
-const metadata = (version = "0.5.36") => ({ schema_version: 1, version, release_url: "https://github.com/radicalmove/radcra/releases/tag/v0.5.36", download_url: DOWNLOAD_PAGE_URL, published_at: "2026-08-14T00:00:00.000Z" });
+const metadata = (version = "0.6.0") => ({ schema_version: 1, version, release_url: "https://github.com/radicalmove/sphere/releases/tag/v0.6.0", download_url: DOWNLOAD_PAGE_URL, published_at: "2026-08-14T00:00:00.000Z" });
 
-test("uses the canonical RADCRA update endpoints", () => {
-  assert.equal(UPDATE_METADATA_URL, "https://radicalmove.github.io/radcra/latest.json");
-  assert.equal(DOWNLOAD_PAGE_URL, "https://radicalmove.github.io/radcra/");
+test("uses the canonical Sphere update endpoints", () => {
+  assert.equal(UPDATE_METADATA_URL, "https://radicalmove.github.io/sphere/latest.json");
+  assert.equal(DOWNLOAD_PAGE_URL, "https://radicalmove.github.io/sphere/");
+  assert.doesNotMatch(`${UPDATE_METADATA_URL} ${DOWNLOAD_PAGE_URL}`, /radicalmove\.github\.io\/radcra/);
   assert.doesNotMatch(`${UPDATE_METADATA_URL} ${DOWNLOAD_PAGE_URL}`, /Beta-testing-app/);
 });
 
@@ -47,7 +48,7 @@ test("returns update available and never downloads the release asset", async () 
   const checker = new UpdateChecker(storage, "0.5.35", async (url, init) => { requests.push([url, init]); return { ok: true, status: 200, json: async () => metadata() }; });
   const result = await checker.check();
   assert.equal(result.status, "update-available");
-  assert.equal(result.metadata?.version, "0.5.36");
+  assert.equal(result.metadata?.version, "0.6.0");
   assert.equal(requests.length, 1);
   assert.equal(requests[0]?.[0], UPDATE_METADATA_URL);
   assert.equal(requests[0]?.[1]?.credentials, "omit");

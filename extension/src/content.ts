@@ -482,7 +482,7 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
       if (generation === courseGeneration && context.course_url === requestedCourseUrl && context.page_url === pageUrl) overlay.setCommentNavigationStatus("Comment saved, but comments could not be refreshed. Reload the page.");
     }
   };
-  overlay = mountReviewOverlay(targetDocument, context, "connecting", { accessLookupReadiness, canRegister, policyAcknowledged, deferPolicyDisclosure: true, policyUrl: "https://radicalmove.github.io/radcra/privacy/", onAcknowledgePolicy: async () => {
+  overlay = mountReviewOverlay(targetDocument, context, "connecting", { accessLookupReadiness, canRegister, policyAcknowledged, deferPolicyDisclosure: true, policyUrl: "https://radicalmove.github.io/sphere/privacy/", onAcknowledgePolicy: async () => {
     const response = await send<{ acknowledged?: unknown; policy_version?: unknown }>({ type: "ACK_POLICY" });
     if (response.acknowledged !== true) throw new Error("Policy acknowledgement could not be saved");
     policyAcknowledged = true;

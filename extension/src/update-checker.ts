@@ -1,13 +1,13 @@
 /**
- * Safe, metadata-only update checks for the private RADCRA pilot.
+ * Safe, metadata-only update checks for the private Sphere pilot.
  *
  * This module deliberately never downloads an extension package, evaluates
  * remote content, or writes anything except the small metadata cache.
  */
 
-export const UPDATE_METADATA_URL = "https://radicalmove.github.io/radcra/latest.json";
-export const DOWNLOAD_PAGE_URL = "https://radicalmove.github.io/radcra/";
-export const UPDATE_CACHE_KEY = "radcra.update-check";
+export const UPDATE_METADATA_URL = "https://radicalmove.github.io/sphere/latest.json";
+export const DOWNLOAD_PAGE_URL = "https://radicalmove.github.io/sphere/";
+export const UPDATE_CACHE_KEY = "sphere.update-check";
 export const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export type UpdateMetadata = {

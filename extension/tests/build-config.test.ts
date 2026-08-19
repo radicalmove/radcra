@@ -8,9 +8,9 @@ import test from "node:test";
 import { loadBuildCommit, loadBuildConfig, loadExtensionVersion } from "../src/build-config.ts";
 
 const execFileAsync = promisify(execFile);
-const extensionName = "RADCRA - Course Review App (BETA)";
+const extensionName = "Sphere - Course Review App (BETA)";
 const extensionDescription = "Review configured Moodle course pages with comments, highlights, and review markers. THIS EXTENSION IS FOR BETA TESTING.";
-const updateMetadataHostPermission = "https://radicalmove.github.io/radcra/*";
+const updateMetadataHostPermission = "https://radicalmove.github.io/sphere/*";
 
 function productionEnv(overrides: Record<string, string | undefined> = {}) {
   const { publicKey } = generateKeyPairSync("rsa", {
@@ -42,7 +42,7 @@ test("canonical package, lock, and beta manifest identity are deterministic", as
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const lockJson = JSON.parse(await readFile(new URL("../package-lock.json", import.meta.url), "utf8"));
   const manifest = JSON.parse(await readFile(new URL("../public/manifest.json", import.meta.url), "utf8"));
-  assert.equal(packageJson.version, "0.5.38");
+  assert.equal(packageJson.version, "0.6.0");
   assert.equal(lockJson.version, packageJson.version);
   assert.equal(lockJson.packages[""].version, packageJson.version);
   assert.equal(manifest.version, "0.0.0");
@@ -55,6 +55,7 @@ test("canonical package, lock, and beta manifest identity are deterministic", as
     128: "icons/icon128.png",
   });
   assert.ok(manifest.host_permissions.includes(updateMetadataHostPermission));
+  assert.doesNotMatch(JSON.stringify(manifest), /radicalmove\.github\.io\/radcra/);
   assert.doesNotMatch(JSON.stringify(manifest), /Beta-testing-app|RADCRA — Course Review \(BETA\)/);
   assert.equal(loadExtensionVersion(packageJson, lockJson).version, packageJson.version);
   assert.throws(() => loadExtensionVersion(packageJson, { ...lockJson, version: "0.2.0" }), /mismatch/i);
@@ -69,6 +70,7 @@ test("generated manifest version equals the canonical package version", async ()
   assert.equal(manifest.name, extensionName);
   assert.equal(manifest.description, extensionDescription);
   assert.ok(manifest.host_permissions.includes(updateMetadataHostPermission));
+  assert.doesNotMatch(JSON.stringify(manifest), /radicalmove\.github\.io\/radcra/);
   assert.doesNotMatch(JSON.stringify(manifest), /Beta-testing-app|RADCRA — Course Review \(BETA\)/);
 });
 

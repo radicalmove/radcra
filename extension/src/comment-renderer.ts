@@ -4,6 +4,7 @@ import type { PageComment } from "./background-bridge.ts";
 import { createReviewIcon } from "./ui/icon-family.ts";
 import { projectCourseComments } from "./course-comment-order.ts";
 import { sphereFontFamily, sphereTokens } from "./ui/sphere-tokens.ts";
+import { getCommentAuthorFirstName } from "./ui/comment-author.ts";
 
 export type UnresolvedAnchor = { id: string; label: string; quote?: string };
 
@@ -444,7 +445,7 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
   const clear = () => { closeThread(false); for (const cleanup of cleanups) cleanup(); cleanups = []; stopRepositioning(); markers.clear(); comments.clear(); };
 
   const renderMarker = (comment: PageComment, index: number, place: (marker: HTMLElement) => void) => {
-    const marker = document.createElement("button"); marker.type = "button"; marker.setAttribute("aria-label", `Open feedback: ${comment.body}`); marker.title = "Open comment"; marker.setAttribute("aria-expanded", "false"); marker.textContent = "💬"; marker.style.cssText = "--sphere-ink:#0C447C;--sphere-primary:#185FA5;--sphere-action:#378ADD;--sphere-radius-container:8px;position:fixed;z-index:900;width:38px;height:38px;border:2px solid var(--sphere-ink);border-radius:var(--sphere-radius-container);background:var(--sphere-primary);color:#fff;padding:4px;font:20px/1 sans-serif;box-shadow:0 3px 10px #0005";
+    const marker = document.createElement("button"); marker.type = "button"; marker.setAttribute("aria-label", `Open feedback: ${comment.body}`); const authorFirstName = getCommentAuthorFirstName(comment.author); marker.title = authorFirstName ? `Open comment by ${authorFirstName}` : "Open comment"; marker.setAttribute("aria-expanded", "false"); marker.textContent = "💬"; marker.style.cssText = "--sphere-ink:#0C447C;--sphere-primary:#185FA5;--sphere-action:#378ADD;--sphere-radius-container:8px;position:fixed;z-index:900;width:38px;height:38px;border:2px solid var(--sphere-ink);border-radius:var(--sphere-radius-container);background:var(--sphere-primary);color:#fff;padding:4px;font:20px/1 sans-serif;box-shadow:0 3px 10px #0005";
     marker.addEventListener("click", () => openThread(comment, index, marker)); document.documentElement.append(marker); markers.set(comment.id, marker);
     const reposition = () => place(marker); repositioners.add(reposition); startRepositioning(); reposition();
     cleanups.push(() => { repositioners.delete(reposition); marker.remove(); });

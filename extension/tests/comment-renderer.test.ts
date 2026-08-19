@@ -5,11 +5,20 @@ import { Window } from "happy-dom";
 import { createCommentRenderer } from "../src/comment-renderer.ts";
 import type { PageComment } from "../src/background-bridge.ts";
 import { sphereTokens } from "../src/ui/sphere-tokens.ts";
+import { getCommentAuthorFirstName } from "../src/ui/comment-author.ts";
 
 const pageUrl = "https://learn.example/mod/page/view.php?id=2";
 const otherPageUrl = "https://learn.example/mod/page/view.php?id=3";
 const thirdPageUrl = "https://learn.example/mod/page/view.php?id=4";
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test("comment author display helper uses the first whitespace-delimited token", () => {
+  assert.equal(getCommentAuthorFirstName({ display_name: "  Ada   Lovelace  " }), "Ada");
+  assert.equal(getCommentAuthorFirstName({ display_name: "Dr. Rivera" }), "Dr.");
+  assert.equal(getCommentAuthorFirstName({ display_name: "   " }), undefined);
+  assert.equal(getCommentAuthorFirstName(undefined), undefined);
+  assert.equal(getCommentAuthorFirstName({ display_name: 42 }), undefined);
+});
 
 const comment = (overrides: Partial<PageComment> = {}): PageComment => ({
   id: "00000000-0000-4000-8000-000000000001",

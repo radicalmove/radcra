@@ -5,6 +5,7 @@ import { Window } from "happy-dom";
 import { approvedControlStyles, commentListLayoutStyles, commentsButtonStyles, controlAlignmentStyles, createOverlayMarkup, helpButtonStyles, isTransientInteractionNavigationError, mountReviewOverlay, OVERLAY_HOST_ID, overlayStyles, panelTransitionStyles, semanticFilterHoverStyles, stabilisationUxStyles, tealOverlayOverrides } from "../src/overlay/root.ts";
 import { COMMENT_MARKER_CURSOR } from "../src/ui/comment-cursor.ts";
 import type { PanelStateStorage } from "../src/ui/panel-state.ts";
+import { sphereTokens } from "../src/ui/sphere-tokens.ts";
 
 const context = { course_url: "https://learn.example/course/view.php?id=1", page_url: "https://learn.example/mod/page/view.php?id=2", title: "Law", pageTitle: "Week 2", moodle_course_id: 1, identityConfidence: "confirmed" as const };
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -151,6 +152,25 @@ test("contrast audit reads colors from the overlay stylesheet", () => {
   assert.throws(() => auditOverlayContrast(overlayStyles.replace("outline:3px solid #ffd54f", "outline:3px solid #fff").replace("box-shadow:0 0 0 5px #000", "box-shadow:0 0 0 5px #fff")), /focus indicator/);
 });
 
+test("overlay emits the shared Sphere token layer and local Poppins faces", () => {
+  assert.match(sphereTokens, /--sphere-ink:#0C447C/);
+  assert.match(sphereTokens, /--sphere-primary:#185FA5/);
+  assert.match(sphereTokens, /--sphere-action:#378ADD/);
+  assert.match(sphereTokens, /--sphere-ground:#F4F9FF/);
+  assert.match(sphereTokens, /--sphere-space-1:4px/);
+  assert.match(sphereTokens, /--sphere-radius-control:6px/);
+  assert.match(sphereTokens, /--sphere-radius-container:8px/);
+  assert.match(sphereTokens, /@font-face[^}]*font-weight:400/);
+  assert.match(sphereTokens, /@font-face[^}]*font-weight:500/);
+  assert.match(sphereTokens, /@font-face[^}]*font-weight:600/);
+  assert.match(sphereTokens, /@font-face[^}]*font-weight:700/);
+  assert.match(sphereTokens, /fonts\/Poppins-Regular\.ttf/);
+  assert.match(sphereTokens, /fonts\/Poppins-Medium\.ttf/);
+  assert.match(sphereTokens, /fonts\/Poppins-SemiBold\.ttf/);
+  assert.match(sphereTokens, /fonts\/Poppins-Bold\.ttf/);
+  assert.doesNotMatch(sphereTokens, /--review-teal|#28c4c2|#0b6261/);
+});
+
 test("overlay styles remain isolated, keyboard-visible, and usable at 320 CSS pixels", () => {
   assert.match(overlayStyles, /^:host\{/);
   assert.match(overlayStyles, /all:initial/);
@@ -174,16 +194,16 @@ test("overlay host inline reset preserves the review typography inheritance", ()
   const window = new Window(); const document = window.document as unknown as Document;
   mountReviewOverlay(document, context, "connected");
   const host = document.getElementById(OVERLAY_HOST_ID)!;
-  assert.equal(host.style.fontFamily, "Poppins, Arial, sans-serif");
+  assert.equal(host.style.fontFamily, "Poppins, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif");
   assert.equal(host.style.fontSize, "16px");
   assert.equal(host.style.lineHeight, "1.5");
-  assert.equal(host.style.color, "#102f38");
+  assert.equal(host.style.color, "#0C447C");
 });
 
-test("0.3 visual treatment clearly separates the tool with teal and UCO accents", () => {
-  assert.match(tealOverlayOverrides, /--review-teal:#28c4c2/);
-  assert.match(tealOverlayOverrides, /--review-pale:#effafa/);
-  assert.match(tealOverlayOverrides, /border:4px solid var\(--review-teal\)/);
+test("Sphere visual treatment uses the approved blue ramp and pale ground", () => {
+  assert.match(tealOverlayOverrides, /--sphere-action:var\(--sphere-primary\)/);
+  assert.match(tealOverlayOverrides, /--sphere-ground:var\(--sphere-ground\)/);
+  assert.match(tealOverlayOverrides, /border:5px solid var\(--sphere-action\)/);
   assert.match(overlayStyles, /--review-red:#d73b3d/);
 });
 
@@ -208,13 +228,12 @@ test("responsive toolbar keeps three actions in one row at 600 and 360 pixels", 
   assert.match(styles, /@media\(max-width:360px\)/);
 });
 
-test("connected status stays textual with a decorative green indicator", () => {
+test("connected status stays textual without a decorative status dot", () => {
   const window = new Window(); const document = window.document as unknown as Document;
   mountReviewOverlay(document, context, "connected");
   const status = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!.querySelector<HTMLElement>("[data-auth-status]")!;
   assert.equal(status.textContent!.trim(), "Connected");
-  assert.equal(status.querySelector(".dot")?.getAttribute("aria-hidden"), "true");
-  assert.match(overlayStyles, /\.connected \.dot\{background:#16833b\}/);
+  assert.equal(status.querySelector(".dot"), null);
 });
 
 test("a successful comment refresh restores Connected without replacing the panel", () => {
@@ -876,7 +895,7 @@ test("thread popover remains positioned from its marker and markers have no whit
   assert.equal(deleteButton.className, "thread-delete");
   assert.equal(resolveButton.className, "resolve-toggle");
   assert.ok(resolveButton.querySelector(".status-hover-tick"));
-  assert.match(Array.from(shadow.querySelectorAll("style")).map((style) => style.textContent).join("\n"), /\.thread-delete\{right:8px;border:2px solid #d73b3d;background:#d73b3d/);
+  assert.match(Array.from(shadow.querySelectorAll("style")).map((style) => style.textContent).join("\n"), /\.thread-delete\{right:8px;border:2px solid var\(--sphere-danger\);background:var\(--sphere-danger\)/);
   assert.match(Array.from(shadow.querySelectorAll("style")).map((style) => style.textContent).join("\n"), /\.status-action:hover \.status-hover-tick\{opacity:\.28\}/);
   const before = popover.style.left; window.dispatchEvent(new window.Event("scroll"));
   assert.equal(popover.style.left, before); assert.equal(marker.getAttribute("aria-expanded"), "true");
@@ -1077,10 +1096,10 @@ test("comment controls use their semantic colours for selected and unselected st
     const style = window.getComputedStyle(shadow.querySelector<HTMLElement>(selector)! as any);
     return [style.backgroundColor, style.color];
   };
-  assert.deepEqual(colours('[data-comment-scope="course"]'), ["#a84f12", "#fff"]);
-  assert.deepEqual(colours('[data-comment-scope="page"]'), ["#fff", "#a84f12"]);
-  assert.deepEqual(colours('[data-comment-filter="open"]'), ["#176b43", "#fff"]);
-  assert.deepEqual(colours('[data-comment-filter="resolved"]'), ["#fff", "#176b43"]);
+  assert.deepEqual(colours('[data-comment-scope="course"]'), ["#378ADD", "#fff"]);
+  assert.deepEqual(colours('[data-comment-scope="page"]'), ["#fff", "#378ADD"]);
+  assert.deepEqual(colours('[data-comment-filter="open"]'), ["#3B6D11", "#fff"]);
+  assert.deepEqual(colours('[data-comment-filter="resolved"]'), ["#fff", "#3B6D11"]);
   assert.equal(shadow.querySelector<HTMLButtonElement>("[data-collapse-groups]")!.textContent, "Collapse all");
   overlay.destroy();
 });
@@ -1110,10 +1129,10 @@ test("comments button changes from outlined to solid while the panel is open", (
   const overlay = mountReviewOverlay(document, context, "connected"); const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
   const comments = shadow.querySelector<HTMLButtonElement>('[data-action="panel"]')!;
   const colours = () => { const style = window.getComputedStyle(comments as any); return [style.backgroundColor, style.color]; };
-  assert.deepEqual(colours(), ["#fff", "#0b6261"]);
+  assert.deepEqual(colours(), ["#fff", "#185FA5"]);
   comments.click();
   assert.equal(comments.getAttribute("aria-expanded"), "true");
-  assert.deepEqual(colours(), ["#0b6261", "#fff"]);
+  assert.deepEqual(colours(), ["#185FA5", "#fff"]);
   assert.match(commentsButtonStyles, /\[data-action="panel"\]\[aria-expanded="true"\]\{background:var\(--review-teal-dark\);border-color:var\(--review-teal-dark\);color:#fff\}/);
   assert.match(commentsButtonStyles, /\[data-action="panel"\]\[aria-expanded="true"\]:hover\{background:#fff;border-color:var\(--review-teal-dark\);color:var\(--review-teal-dark\)\}/);
   overlay.destroy();

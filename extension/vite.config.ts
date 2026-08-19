@@ -46,6 +46,19 @@ function extensionIconsPlugin(): Plugin {
   };
 }
 
+function extensionFontsPlugin(): Plugin {
+  return {
+    name: "copy-extension-fonts",
+    closeBundle() {
+      const destination = resolve("dist/fonts");
+      mkdirSync(destination, { recursive: true });
+      for (const weight of ["Regular", "Medium", "SemiBold", "Bold"]) {
+        copyFileSync(resolve(`public/fonts/Poppins-${weight}.ttf`), resolve(destination, `Poppins-${weight}.ttf`));
+      }
+    },
+  };
+}
+
 function classicEntryBundlesPlugin(): Plugin {
   return {
     name: "classic-self-contained-extension-entries",
@@ -76,5 +89,5 @@ export default defineConfig({
       output: { entryFileNames: "[name].js", chunkFileNames: "chunks/[name]-[hash].js" },
     },
   },
-  plugins: [manifestPlugin(), classicEntryBundlesPlugin(), extensionIconsPlugin()],
+  plugins: [manifestPlugin(), classicEntryBundlesPlugin(), extensionIconsPlugin(), extensionFontsPlugin()],
 });

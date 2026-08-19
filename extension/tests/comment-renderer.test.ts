@@ -4,6 +4,7 @@ import { Window } from "happy-dom";
 
 import { createCommentRenderer } from "../src/comment-renderer.ts";
 import type { PageComment } from "../src/background-bridge.ts";
+import { sphereTokens } from "../src/ui/sphere-tokens.ts";
 
 const pageUrl = "https://learn.example/mod/page/view.php?id=2";
 const otherPageUrl = "https://learn.example/mod/page/view.php?id=3";
@@ -50,7 +51,11 @@ test("renders and restores only comments for the renderer's exact page URL", () 
   renderer.setComments([comment(), comment({ id: "00000000-0000-4000-8000-000000000002", page_url: otherPageUrl })]);
 
   assert.equal(document.querySelectorAll("[data-moodle-review-stored-pin]").length, 1);
-  assert.equal(document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")?.dataset.moodleReviewStoredPin, comment().id);
+  const marker = document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]");
+  assert.equal(marker?.dataset.moodleReviewStoredPin, comment().id);
+  assert.equal(marker?.style.getPropertyValue("--sphere-ink"), "#0C447C");
+  assert.equal(marker?.style.getPropertyValue("--sphere-primary"), "#185FA5");
+  assert.equal(marker?.style.getPropertyValue("--sphere-radius-container"), "8px");
   assert.equal(document.getElementById("moodle-course-review-overlay"), null);
 
   renderer.setComments([]);
@@ -62,10 +67,30 @@ test("standalone SCORM threads use the established Poppins typography and button
   const renderer = createCommentRenderer(document, pageUrl);
   const host = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!;
   const css = host.shadowRoot!.querySelector<HTMLStyleElement>("style[data-comment-renderer-styles]")!.textContent!;
-  assert.match(host.style.cssText, /font:\s*16px\s*\/\s*1\.5\s+Poppins,\s*Arial,\s*sans-serif/);
+  assert.match(host.style.cssText, /font:\s*16px\s*\/\s*1\.5\s+Poppins,\s*system-ui/);
   assert.match(css, /button,textarea,input\{box-sizing:border-box;font:inherit\}/);
   assert.match(css, /button\{[^}]*font-weight:650/);
   assert.doesNotMatch(css, /button,textarea,input\{font:16px\/1\.5 Poppins,Arial,sans-serif\}/);
+  renderer.destroy();
+});
+
+test("standalone SCORM threads compose the shared Sphere tokens", () => {
+  const { document } = setup();
+  const renderer = createCommentRenderer(document, pageUrl);
+  const host = document.querySelector<HTMLElement>("[data-moodle-review-renderer-root]")!;
+  const css = host.shadowRoot!.querySelector<HTMLStyleElement>("style[data-comment-renderer-styles]")!.textContent!;
+  assert.match(css, /--sphere-ink:#0C447C/);
+  assert.match(css, /--sphere-primary:#185FA5/);
+  assert.match(css, /--sphere-action:#378ADD/);
+  assert.match(css, /--sphere-danger-deep:#8E2A22/);
+  assert.match(css, /--sphere-radius-control:6px/);
+  assert.match(css, /fonts\/Poppins-Regular\.ttf/);
+  assert.match(sphereTokens, /font-family:Poppins,system-ui/);
+  assert.doesNotMatch(css, /#28c4c2|#0b6261|#b8dcdc|#f8fbfb|var\(--review-teal/);
+  const definedTokens = new Set(Array.from(css.matchAll(/(--sphere-[a-z0-9-]+):/g), (match) => match[1]));
+  for (const token of new Set(Array.from(css.matchAll(/var\((--sphere-[a-z0-9-]+)/g), (match) => match[1]))) {
+    assert.ok(definedTokens.has(token), `Sphere token ${token} is referenced without a definition`);
+  }
   renderer.destroy();
 });
 
@@ -247,9 +272,9 @@ test("contextual thread controls use the established button styles", () => {
   assert.ok(remove.classList.contains("thread-delete"));
   assert.equal(remove.title, "Delete comment thread");
   assert.ok(remove.querySelector('[data-review-icon="delete"]'));
-  assert.match(root.querySelector("style")!.textContent!, /\.thread-delete\{[^}]*background:#d73b3d/);
-  assert.match(root.querySelector("style")!.textContent!, /\.thread-delete:hover\{border-color:#d73b3d;background:#fff;color:#d73b3d\}/);
-  assert.match(root.querySelector("style")!.textContent!, /button\.resolve-toggle\{right:50px;margin:0;border:2px solid #111;border-radius:2px;background:#fff\}/);
+  assert.match(root.querySelector("style")!.textContent!, /\.thread-delete\{[^}]*background:var\(--sphere-danger\)/);
+  assert.match(root.querySelector("style")!.textContent!, /\.thread-delete:hover\{border-color:var\(--sphere-danger\);background:#fff;color:var\(--sphere-danger\)\}/);
+  assert.match(root.querySelector("style")!.textContent!, /button\.resolve-toggle\{right:50px;margin:0;border:2px solid var\(--sphere-ink\);border-radius:2px;background:#fff\}/);
   assert.match(root.querySelector("style")!.textContent!, /button\.resolve-toggle:hover \.status-hover-tick/);
   assert.match(document.querySelector<HTMLElement>("[data-moodle-review-stored-pin]")?.title ?? "", /Open comment/);
 });
@@ -312,7 +337,7 @@ test("contextual thread uses whole-course open numbering and the requested actio
   for (const control of Array.from(root.querySelectorAll<HTMLElement>(".thread-previous, .thread-reply, .thread-next"))) {
     assert.equal(control.querySelector("svg"), null);
   }
-  assert.match(root.querySelector("style")!.textContent!, /\.thread-edit\{[^}]*right:92px[^}]*border:2px solid #a84f12/);
+  assert.match(root.querySelector("style")!.textContent!, /\.thread-edit\{[^}]*right:92px[^}]*border:2px solid var\(--sphere-action\)/);
   assert.match(root.querySelector("style")!.textContent!, /\.thread-navigation\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
 });
 
@@ -596,7 +621,7 @@ test("next scrolls a visual pin through its nested SCORM scroll container", asyn
   assert.equal(root.querySelector<HTMLElement>("[data-thread-position]")?.textContent, "Comment 2 of 2");
 });
 
-test("next restores the previous marker to its unfocused teal colour", async () => {
+test("next restores the previous marker to its unfocused Sphere colour", async () => {
   const { document } = setup();
   const secondTarget = document.createElement("div"); secondTarget.id = "second-target";
   secondTarget.getBoundingClientRect = () => ({ x: 10, y: 220, left: 10, top: 220, right: 210, bottom: 320, width: 200, height: 100, toJSON() {} });
@@ -613,8 +638,8 @@ test("next restores the previous marker to its unfocused teal colour", async () 
   await settle();
 
   assert.equal(firstMarker.getAttribute("aria-expanded"), "false");
-  assert.equal(firstMarker.style.background, "#28c4c2");
-  assert.equal(firstMarker.style.borderColor, "#0b6261");
+  assert.equal(firstMarker.style.background, "var(--sphere-primary)");
+  assert.equal(firstMarker.style.borderColor, "var(--sphere-ink)");
 });
 
 test("next requests same-page navigation when the target belongs to another hidden Rise interaction", async () => {
@@ -719,8 +744,8 @@ test("edit composer presents an icon save beside the editor and red cancel at bo
   assert.equal(actions.previousElementSibling?.getAttribute("data-thread-navigation"), "true", "cancel sits below the navigation row");
   assert.match(root.querySelector("style")!.textContent!, /\.comment-composer-field-row\{display:grid;grid-template-columns:minmax\(0,1fr\) 34px;gap:8px/);
   assert.match(root.querySelector("style")!.textContent!, /\.comment-composer-field-row\{[^}]*margin-right:-6px/);
-  assert.match(root.querySelector("style")!.textContent!, /\.comment-composer-save\{[^}]*width:34px;height:34px;min-height:34px[^}]*border:2px solid #176b43[^}]*background:#176b43/);
-  assert.match(root.querySelector("style")!.textContent!, /\.comment-composer-cancel\{[^}]*border:2px solid #d73b3d[^}]*background:#d73b3d[^}]*color:#fff/);
+  assert.match(root.querySelector("style")!.textContent!, /\.comment-composer-save\{[^}]*width:34px;height:34px;min-height:34px[^}]*border:2px solid var\(--sphere-success-deep\)[^}]*background:var\(--sphere-success-deep\)/);
+  assert.match(root.querySelector("style")!.textContent!, /\.comment-composer-cancel\{[^}]*border:2px solid var\(--sphere-danger\)[^}]*background:var\(--sphere-danger\)[^}]*color:#fff/);
   assert.match(root.querySelector("style")!.textContent!, /\.comment-composer-cancel\{[^}]*width:calc\(\(100% - 16px\)\/3\);[^}]*height:34px/);
   assert.match(root.querySelector("style")!.textContent!, /\.comment-composer-actions\{display:flex;justify-content:flex-end/);
 });

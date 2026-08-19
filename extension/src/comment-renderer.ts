@@ -3,6 +3,7 @@ import { recoverTextAnchor, renderTextHighlight } from "./anchors/recover.ts";
 import type { PageComment } from "./background-bridge.ts";
 import { createReviewIcon } from "./ui/icon-family.ts";
 import { projectCourseComments } from "./course-comment-order.ts";
+import { sphereFontFamily, sphereTokens } from "./ui/sphere-tokens.ts";
 
 export type UnresolvedAnchor = { id: string; label: string; quote?: string };
 
@@ -29,6 +30,30 @@ export type CommentRendererOptions = {
   confirmAction?: (trigger: HTMLElement, title: string, message: string, confirmLabel: string) => Promise<boolean>;
   currentViewer?: () => { display_name: string | null; email: string; role: string } | undefined;
 };
+
+const sphereizeRendererStyles = (styles: string): string => styles
+  .replaceAll("#073f3e", "var(--sphere-ink)")
+  .replaceAll("#102f38", "var(--sphere-ink)")
+  .replaceAll("#28c4c2", "var(--sphere-primary)")
+  .replaceAll("#0b6261", "var(--sphere-ink)")
+  .replaceAll("#082f2f", "var(--sphere-ink)")
+  .replaceAll("#8ad9d8", "var(--sphere-line)")
+  .replaceAll("#effafa", "var(--sphere-ground)")
+  .replaceAll("#356f9f", "var(--sphere-action)")
+  .replaceAll("#b85812", "var(--sphere-primary)")
+  .replaceAll("#7b3509", "var(--sphere-ink)")
+  .replaceAll("#176b43", "var(--sphere-success-deep)")
+  .replaceAll("#a84f12", "var(--sphere-action)")
+  .replaceAll("#6d4a8e", "var(--sphere-metadata)")
+  .replaceAll("#087d7a", "var(--sphere-action)")
+  .replaceAll("#8b5a2b", "var(--sphere-primary)")
+  .replaceAll("#a51d24", "var(--sphere-danger-deep)")
+  .replaceAll("#d73b3d", "var(--sphere-danger)")
+  .replaceAll("#b8dcdc", "var(--sphere-line)")
+  .replaceAll("#f8fbfb", "var(--sphere-surface)")
+  .replaceAll("#f4f4f4", "var(--sphere-ground)")
+  .replaceAll("#111", "var(--sphere-ink)")
+  .replaceAll("#52666c", "var(--sphere-metadata)");
 
 const rendererStyles = `:host{all:initial;font:16px/1.5 Poppins,Arial,sans-serif;color:#102f38}button,textarea,input{box-sizing:border-box;font:inherit}button{appearance:none;min-height:36px;border:2px solid #073f3e;border-radius:5px;background:#fff;color:#073f3e;font-weight:650;padding:7px 9px;cursor:pointer}.thread-action:hover,.thread-action[aria-pressed="true"]{background:#073f3e;color:#fff}.thread-top-actions{display:contents}.thread-edit,.thread-delete,button.resolve-toggle{position:absolute;top:8px;width:34px;min-height:34px;height:34px;padding:2px;border-radius:5px}.thread-edit{right:92px;border:2px solid #a84f12;background:#fff;color:#a84f12;font-size:23px;line-height:1}.thread-edit:hover,.thread-edit[aria-pressed="true"]{background:#a84f12;color:#fff}.thread-delete{right:8px;border:2px solid #d73b3d;background:#d73b3d;color:#fff}.thread-edit svg,.thread-delete svg,button.resolve-toggle svg,.thread-sme-toggle svg{display:block;width:100%;height:100%}.thread-delete:hover{border-color:#d73b3d;background:#fff;color:#d73b3d}button.resolve-toggle{right:50px;margin:0;border:2px solid #111;border-radius:2px;background:#fff}button.resolve-toggle:hover,.thread-sme-toggle:hover{border-color:#111;background:#f4f4f4}.status-hover-tick{opacity:0;transition:opacity .15s ease}button.resolve-toggle:hover .status-hover-tick,.thread-sme-toggle:hover .status-hover-tick{opacity:.28}.status-resolved-tick{opacity:1}.thread-status{margin:8px 0 0;color:#a51d24;font-size:13px;font-weight:650}.thread-navigation{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}.thread-navigation button{height:34px;min-height:34px;padding:3px 6px;white-space:nowrap}.thread-navigation button:disabled{cursor:default;opacity:.42}.thread-previous,.thread-next{border-color:#356f9f;color:#356f9f}.thread-previous:not(:disabled):hover,.thread-next:not(:disabled):hover{background:#356f9f;color:#fff}.thread-reply{border-color:#073f3e;color:#073f3e}.thread-reply:hover,.thread-reply[aria-expanded="true"]{background:#073f3e;color:#fff}.comment-composer[data-reply-composer]{margin-top:12px}.comment-composer-field-row{display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:8px;align-items:start;margin-right:-6px}.comment-composer-field-row textarea{min-width:0;width:100%;min-height:72px}.comment-composer-save{box-sizing:border-box;width:34px;height:34px;min-height:34px;padding:2px;border:2px solid #176b43;border-radius:5px;background:#176b43;color:#fff}.comment-composer-save svg{display:block;width:100%;height:100%}.comment-composer-save:hover{background:#fff;color:#176b43}.comment-composer-actions{display:flex;justify-content:flex-end;margin-top:8px}.comment-composer-cancel{box-sizing:border-box;width:calc((100% - 16px)/3);height:34px;min-height:34px;padding:3px 9px;border:2px solid #d73b3d;border-radius:5px;background:#d73b3d;color:#fff;font:inherit;font-weight:650;line-height:1}.comment-composer-cancel:hover{background:#fff;color:#d73b3d}.attachment-field{display:block;margin:10px 0;font-size:13px;font-weight:650}.attachment-field input{display:block;width:100%;margin-top:4px;font-size:12px;font-weight:400}`;
 
@@ -113,9 +138,9 @@ function createThreadRoot(document: Document): { root: ShadowRoot; dispose: () =
   const host = document.createElement("div");
   host.dataset.moodleReviewRendererRoot = "true";
   host.setAttribute("data-moodle-review-ui", "true");
-  host.style.cssText = "all:initial;position:fixed;inset:0;z-index:2147483646;pointer-events:none;font:16px/1.5 Poppins,Arial,sans-serif;color:#102f38";
+  host.style.cssText = `all:initial;position:fixed;inset:0;z-index:2147483646;pointer-events:none;font:16px/1.5 ${sphereFontFamily};color:#0C447C`;
   const root = host.attachShadow({ mode: "open" });
-  const style = document.createElement("style"); style.dataset.commentRendererStyles = "true"; style.textContent = rendererStyles + conversationStyles; root.append(style);
+  const style = document.createElement("style"); style.dataset.commentRendererStyles = "true"; style.textContent = sphereTokens + sphereizeRendererStyles(rendererStyles + conversationStyles); root.append(style);
   document.documentElement.append(host);
   return { root, dispose: () => host.remove() };
 }
@@ -124,7 +149,7 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
   const ownedRoot = options.root ? undefined : createThreadRoot(document);
   const root = options.root ?? ownedRoot!.root;
   if (options.root && !root.querySelector("style[data-comment-renderer-styles]")) {
-    const style = document.createElement("style"); style.dataset.commentRendererStyles = "true"; style.textContent = rendererStyles + conversationStyles; root.append(style);
+    const style = document.createElement("style"); style.dataset.commentRendererStyles = "true"; style.textContent = sphereTokens + sphereizeRendererStyles(rendererStyles + conversationStyles); root.append(style);
   }
   let comments = new Map<string, PageComment>();
   let projectedComments: PageComment[] = [];
@@ -211,7 +236,7 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
   const closeThread = (flushProjection = true) => {
     popoverCleanup?.(); popoverCleanup = undefined;
     root.querySelector("[data-thread-popover]")?.remove();
-    if (activeThreadId) { const marker = markers.get(activeThreadId); marker?.setAttribute("aria-expanded", "false"); if (marker) { marker.style.background = "#28c4c2"; marker.style.borderColor = "#0b6261"; } }
+    if (activeThreadId) { const marker = markers.get(activeThreadId); marker?.setAttribute("aria-expanded", "false"); if (marker) { marker.style.background = "var(--sphere-primary)"; marker.style.borderColor = "var(--sphere-ink)"; } }
     activeThreadId = undefined;
     if (flushProjection && pendingProjection) { const next = pendingProjection; pendingProjection = undefined; applyComments(next); }
   };
@@ -250,7 +275,7 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
       return;
     }
     closeThread(false);
-    activeThreadId = comment.id; marker.setAttribute("aria-expanded", "true"); marker.style.background = "#b85812"; marker.style.borderColor = "#7b3509";
+    activeThreadId = comment.id; marker.setAttribute("aria-expanded", "true"); marker.style.background = "var(--sphere-action)"; marker.style.borderColor = "var(--sphere-ink)";
     const article = document.createElement("article"); article.dataset.threadPopover = "true"; article.tabIndex = -1;
     const threadParticipants = new Map<string, number>();
     for (const participant of [comment.author, ...comment.replies.map((reply) => reply.author)]) participantColour(participant, threadParticipants);
@@ -386,7 +411,7 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
       const preferred = right + popoverWidth <= width - 8 && !overlapsPanel(right) ? right : left;
       article.style.left = `${preferred}px`; article.style.top = `${Math.max(8, Math.min(height - popoverHeight - 8, rect.top))}px`;
     };
-    article.style.cssText += ";box-sizing:border-box;position:fixed;pointer-events:auto;z-index:2147483647;width:min(360px,calc(100vw - 16px));max-height:min(620px,calc(100vh - 16px));overflow-y:auto;overflow-x:visible;background:white;border:4px solid #28c4c2;border-radius:10px;padding:14px;box-shadow:0 8px 28px #0006";
+    article.style.cssText += ";box-sizing:border-box;position:fixed;pointer-events:auto;z-index:2147483647;width:min(360px,calc(100vw - 16px));max-height:min(620px,calc(100vh - 16px));overflow-y:auto;overflow-x:visible;background:var(--sphere-surface);border:1px solid var(--sphere-line-strong);border-radius:var(--sphere-radius-container);padding:var(--sphere-space-4);box-shadow:0 8px 28px #0006";
     root.append(article); repositioners.add(position); startRepositioning(); position();
     popoverCleanup = () => { repositioners.delete(position); article.remove(); };
     article.focus({ preventScroll: true });
@@ -419,7 +444,7 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
   const clear = () => { closeThread(false); for (const cleanup of cleanups) cleanup(); cleanups = []; stopRepositioning(); markers.clear(); comments.clear(); };
 
   const renderMarker = (comment: PageComment, index: number, place: (marker: HTMLElement) => void) => {
-    const marker = document.createElement("button"); marker.type = "button"; marker.setAttribute("aria-label", `Open feedback: ${comment.body}`); marker.title = "Open comment"; marker.setAttribute("aria-expanded", "false"); marker.textContent = "💬"; marker.style.cssText = "position:fixed;z-index:900;width:38px;height:38px;border:2px solid #0b6261;border-radius:10px;background:#28c4c2;color:#082f2f;padding:4px;font:20px/1 sans-serif;box-shadow:0 3px 10px #0005";
+    const marker = document.createElement("button"); marker.type = "button"; marker.setAttribute("aria-label", `Open feedback: ${comment.body}`); marker.title = "Open comment"; marker.setAttribute("aria-expanded", "false"); marker.textContent = "💬"; marker.style.cssText = "--sphere-ink:#0C447C;--sphere-primary:#185FA5;--sphere-action:#378ADD;--sphere-radius-container:8px;position:fixed;z-index:900;width:38px;height:38px;border:2px solid var(--sphere-ink);border-radius:var(--sphere-radius-container);background:var(--sphere-primary);color:#fff;padding:4px;font:20px/1 sans-serif;box-shadow:0 3px 10px #0005";
     marker.addEventListener("click", () => openThread(comment, index, marker)); document.documentElement.append(marker); markers.set(comment.id, marker);
     const reposition = () => place(marker); repositioners.add(reposition); startRepositioning(); reposition();
     cleanups.push(() => { repositioners.delete(reposition); marker.remove(); });

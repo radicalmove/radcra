@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Window } from "happy-dom";
-import { capturePinAnchor, escapeCssIdentifier, recoverPinAnchor } from "../src/anchors/pin.ts";
+import { capturePinAnchor, escapeCssIdentifier, recoverPinAnchor, renderPin } from "../src/anchors/pin.ts";
 
 test("records a stable selector and relative coordinates and restores after resize", () => {
   const window = new Window(); const document = window.document;
@@ -36,4 +36,16 @@ test("CSS identifier escaping handles controls, leading digits, and non-ASCII", 
   assert.match(escapeCssIdentifier("1line\n café"), /^\\31 /);
   assert.match(escapeCssIdentifier("1line\n café"), /\\a /);
   assert.match(escapeCssIdentifier("1line\n café"), /é/);
+});
+
+test("rendered pin uses Sphere marker tokens and remains inert to page input", () => {
+  const window = new Window(); const document = window.document;
+  const target = document.createElement("div"); target.id = "target"; document.body.append(target);
+  Object.defineProperty(target, "getBoundingClientRect", { configurable: true, value: () => ({ left: 20, top: 30, width: 40, height: 40, right: 60, bottom: 70, x: 20, y: 30, toJSON: () => ({}) }) });
+  const cleanup = renderPin(document as unknown as Document, { css_selector: "#target", relative_x: 0.5, relative_y: 0.5 });
+  const marker = document.querySelector("[data-moodle-review-pin]") as unknown as HTMLElement;
+  assert.match(marker.style.cssText, /background:\s*var\(--sphere-primary\)/);
+  assert.match(marker.style.cssText, /border-radius:\s*6px/);
+  assert.equal(marker.style.pointerEvents, "none");
+  cleanup();
 });

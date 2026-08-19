@@ -16,7 +16,7 @@ test("fallback highlight follows changing range geometry and cleans up listeners
   const cleanup = renderTextHighlight(window.document as unknown as Document, range as unknown as Range);
   const marker = window.document.querySelector("[data-moodle-review-highlight]") as unknown as HTMLElement;
   assert.equal(marker.style.left, "10px");
-  assert.equal(marker.style.background, "rgba(255, 230, 106, 0.38)");
+  assert.equal(marker.style.background, "var(--sphere-action-wash)");
   rect = { left: 50, top: 60, width: 70, height: 80 };
   window.dispatchEvent(new window.Event("scroll"));
   assert.equal(marker.style.left, "50px");
@@ -27,6 +27,17 @@ test("fallback highlight follows changing range geometry and cleans up listeners
   rect = { left: 90, top: 90, width: 90, height: 90 };
   window.dispatchEvent(new window.Event("scroll"));
   assert.equal(marker.style.left, "50px");
+});
+
+test("recovered selected-text highlights use the shared Sphere action token", () => {
+  const window = new Window();
+  const range = window.document.createRange();
+  Object.defineProperty(range, "getBoundingClientRect", { value: () => ({ left: 10, top: 20, width: 30, height: 40 }) });
+  const cleanup = renderTextHighlight(window.document as unknown as Document, range as unknown as Range);
+  const marker = window.document.querySelector("[data-moodle-review-highlight]") as unknown as HTMLElement;
+  assert.match(marker.style.cssText, /background:\s*var\(--sphere-action-wash\)/);
+  assert.match(marker.style.cssText, /border-radius:\s*4px/);
+  cleanup();
 });
 
 test("distinguishes an accessible iframe fixture from simulated inaccessible content", () => {

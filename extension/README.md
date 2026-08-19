@@ -1,4 +1,4 @@
-# Moodle Course Review extension
+# Sphere - Course Review App (BETA)
 
 Optional screenshots use a deliberate two-step flow: the comment is saved first, then the reviewer clicks **Capture screenshot now** and chooses the current tab in the browser's sharing prompt. Cancelling or retrying screenshot capture never creates a duplicate comment. The extension does not request tab or screenshot permissions.
 
@@ -46,7 +46,7 @@ The default build is an explicitly non-production example build with unusable pl
 
 The release folder contains two different packages:
 
-* `radcra-web-store-v<version>.zip` is the root-level ZIP to upload as a
+* `sphere-web-store-v<version>.zip` is the root-level ZIP to upload as a
   private Chrome Web Store item. `manifest.json` is at the ZIP root and the
   generated 16, 48, and 128 pixel icons are included. Chrome manages updates
   for an item installed from the Web Store.

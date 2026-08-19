@@ -1,4 +1,4 @@
-# Chrome Web Store artwork
+# Sphere Chrome Web Store artwork
 
 `sphere-promo-440x280.png` is the generated 440×280 promotional tile for the Sphere listing. Upload it only to the matching Chrome Web Store promotional-image field; extension icons remain in `extension/public/icons/`.
 

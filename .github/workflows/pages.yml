@@ -1,23 +1,62 @@
-name: Deploy public RADCRA site
+name: Publish Sphere public site
+
 on:
   push:
     branches: [main]
-    paths: [site/**]
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
+
 permissions:
   contents: read
-  pages: write
-  id-token: write
+
 jobs:
-  deploy:
+  publish:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy committed public site before production packaging
-        run: test -f site/latest.json
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with: {path: site}
-      - uses: actions/deploy-pages@v4
+
+      - name: Validate committed Sphere site and legacy fixtures
+        run: |
+          set -euo pipefail
+          test -f site/index.html
+          test -f site/download/index.html
+          test -f site/privacy/index.html
+          test -f site/support/index.html
+          test -f site/latest.json
+          test -f site/legacy/radcra/index.html
+          test -f site/legacy/radcra/privacy/index.html
+          test -f site/legacy/radcra/support/index.html
+          test -f site/legacy/radcra/latest.json
+
+      - name: Stage and push external user-site paths
+        env:
+          SPHERE_PAGES_REPOSITORY_TOKEN: ${{ secrets.SPHERE_PAGES_REPOSITORY_TOKEN }}
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "${SPHERE_PAGES_REPOSITORY_TOKEN:-}" || { echo "SPHERE_PAGES_REPOSITORY_TOKEN is required" >&2; exit 1; }
+          echo "::add-mask::${SPHERE_PAGES_REPOSITORY_TOKEN}"
+          git -c "http.extraheader=AUTHORIZATION: bearer ${SPHERE_PAGES_REPOSITORY_TOKEN}" clone --branch main --depth 1 https://github.com/radicalmove/radicalmove.github.io.git "$RUNNER_TEMP/sphere-pages"
+          pages="$RUNNER_TEMP/sphere-pages"
+          test -d "$pages/.git"
+          git -C "$pages" config user.name "github-actions[bot]"
+          git -C "$pages" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # These are the only paths owned by this workflow in the user site.
+          rm -rf -- "$pages/sphere" "$pages/radcra"
+          mkdir -p "$pages/sphere" "$pages/radcra/privacy" "$pages/radcra/support"
+          cp -R site/. "$pages/sphere/"
+          cp site/legacy/radcra/index.html "$pages/radcra/index.html"
+          cp site/legacy/radcra/privacy/index.html "$pages/radcra/privacy/index.html"
+          cp site/legacy/radcra/support/index.html "$pages/radcra/support/index.html"
+          cp site/legacy/radcra/latest.json "$pages/radcra/latest.json"
+
+          git -C "$pages" add sphere radcra
+          if git -C "$pages" diff --cached --quiet; then
+            echo "Sphere public site is already current"
+          else
+            git -C "$pages" commit -m "Publish Sphere public site"
+            git -c "http.extraheader=AUTHORIZATION: bearer ${SPHERE_PAGES_REPOSITORY_TOKEN}" -C "$pages" push origin main
+          fi

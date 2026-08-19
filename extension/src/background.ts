@@ -233,7 +233,7 @@ async function deleteComment(commentId: string, courseId: string): Promise<unkno
     commentId,
     deleteRequest: () => api.request(`/api/comments/${commentId}`, { method: "DELETE" }),
     listComments: async () => validatePageCommentsResponse(await listCourseComments(courseId)),
-    onReconciled: (id, error) => console.warn("[RADCRA] DELETE response was lost; comment absent after reconciliation", { commentId: id, reason: error instanceof Error ? error.message : String(error) }),
+    onReconciled: (id, error) => console.warn("[Sphere] DELETE response was lost; comment absent after reconciliation", { commentId: id, reason: error instanceof Error ? error.message : String(error) }),
   });
   return {};
 }

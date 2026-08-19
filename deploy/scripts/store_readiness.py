@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the explicit RADCRA Chrome Web Store submission workspace."""
+"""Validate the explicit Sphere Chrome Web Store submission workspace."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ from PIL import Image
 
 
 REPOSITORY = "radicalmove/radcra"
-PUBLIC_ORIGIN = "https://radicalmove.github.io/radcra/"
+PUBLIC_ORIGIN = "https://radicalmove.github.io/sphere/"
 CONTACT = "rcadavies@gmail.com"
-NAME = "RADCRA - Course Review App (BETA)"
+NAME = "Sphere - Course Review App (BETA)"
 CHECK_NAMES = ("identity", "public_site", "privacy_disclosure", "support", "promo", "screenshot", "package", "checksum", "production_inputs")
 STORE_FILES = ("background.js", "content.js", "icons/icon128.png", "icons/icon16.png", "icons/icon48.png", "manifest.json")
 REPORT_FIELDS = {
@@ -27,7 +27,7 @@ REPORT_FIELDS = {
     "moodle_patterns", "optional_frame_patterns", "review_service_origin",
     "manifest_sha256", "public_key_sha256", "files", "zip_sha256",
 }
-FORBIDDEN_TEXT = ("radicalmove/Beta-testing-app", "radicalmove.github.io/Beta-testing-app", "richard.davies@canterbury.ac.nz", "RADCRA — Course Review")
+FORBIDDEN_TEXT = ("radicalmove/Beta-testing-app", "radicalmove.github.io/Beta-testing-app", "richard.davies@canterbury.ac.nz")
 
 
 def digest(data: bytes) -> str:
@@ -51,8 +51,8 @@ def main() -> None:
     parser.add_argument("--screenshot", type=Path)
     args = parser.parse_args()
     root = args.root.resolve()
-    promo = root / "store-assets/radcra-promo-440x280.png"
-    default_screenshot = root / "store-assets/radcra-screenshot-1280x800.png"
+    promo = root / "store-assets/sphere-promo-440x280.png"
+    default_screenshot = root / "store-assets/sphere-screenshot-1280x800.png"
     screenshot = args.screenshot.resolve() if args.screenshot else default_screenshot
     checks = {name: False for name in CHECK_NAMES}
     errors: list[str] = []
@@ -157,7 +157,7 @@ def main() -> None:
             moodle_patterns = manifest.get("content_scripts", [{}])[0].get("matches")
             optional_patterns = manifest.get("optional_host_permissions", [])
             host_permissions = manifest.get("host_permissions", [])
-            service_patterns = [item for item in host_permissions if item not in (moodle_patterns or []) and item != "https://radicalmove.github.io/radcra/*"]
+            service_patterns = [item for item in host_permissions if item not in (moodle_patterns or []) and item != "https://radicalmove.github.io/sphere/*"]
             if (moodle_patterns != report["moodle_patterns"] or optional_patterns != report["optional_frame_patterns"] or len(service_patterns) != 1
                     or not service_patterns[0].endswith("/*") or service_patterns[0][:-2] != report["review_service_origin"]):
                 raise ValueError

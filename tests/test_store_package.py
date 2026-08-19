@@ -23,7 +23,7 @@ class StorePackageTests(unittest.TestCase):
         (dist / "content.js").write_text(f"(() => {{ document.documentElement.dataset.active = 'yes'; }})();/*{self.BUILD_COMMIT}*/\n")
         manifest = {
             "manifest_version": 3,
-            "name": "RADCRA - Course Review App (BETA)",
+            "name": "Sphere - Course Review App (BETA)",
             "version": version,
             "description": "Review Moodle pages. THIS EXTENSION IS FOR BETA TESTING.",
             "icons": {"16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png"},
@@ -32,7 +32,7 @@ class StorePackageTests(unittest.TestCase):
             "host_permissions": [
                 "https://my.uconline.ac.nz/*",
                 "https://fld-mini.tail4ccaba.ts.net/*",
-                "https://radicalmove.github.io/radcra/*",
+                "https://radicalmove.github.io/sphere/*",
             ],
             "optional_host_permissions": ["https://packages.articulateusercontent.com/*"],
             "background": {"service_worker": "background.js"},
@@ -47,7 +47,7 @@ class StorePackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             dist = self.fixture(root)
-            output = root / "radcra-web-store-v0.5.35.zip"
+            output = root / "sphere-web-store-v0.5.35.zip"
             first = package_store(dist, output, "0.5.35", "radicalmove/radcra", self.BUILD_COMMIT)
             first_bytes = output.read_bytes()
             second = package_store(dist, output, "0.5.35", "radicalmove/radcra", self.BUILD_COMMIT)

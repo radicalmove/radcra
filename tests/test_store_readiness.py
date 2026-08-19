@@ -102,25 +102,25 @@ class StoreReadinessTests(unittest.TestCase):
         self.assertLess(build, package)
         self.assertLess(package, gate)
         self.assertLess(gate, publish)
-        artifacts = '$RUNNER_TEMP/radcra-release-assets'
-        exact_gate = '''python3 deploy/scripts/store_readiness.py --mode submission --root "$GITHUB_WORKSPACE" --package-report "$artifacts/radcra-web-store-v${release_version}.report.json" --checksum "$artifacts/radcra-web-store-v${release_version}.zip.sha256" --screenshot "$GITHUB_WORKSPACE/store-assets/radcra-screenshot-1280x800.png"'''
+        artifacts = '$RUNNER_TEMP/sphere-release-assets'
+        exact_gate = '''python3 deploy/scripts/store_readiness.py --mode submission --root "$GITHUB_WORKSPACE" --package-report "$artifacts/sphere-web-store-v${release_version}.report.json" --checksum "$artifacts/sphere-web-store-v${release_version}.zip.sha256" --screenshot "$GITHUB_WORKSPACE/store-assets/sphere-screenshot-1280x800.png"'''
         self.assertIn(artifacts, workflow)
         self.assertIn(exact_gate, workflow)
         for evidence in (
-            'radcra-web-store-v${release_version}.zip',
-            'radcra-web-store-v${release_version}.report.json',
-            'radcra-web-store-v${release_version}.zip.sha256',
-            "radcra-promo-440x280.png",
-            "radcra-screenshot-1280x800.png",
+            'sphere-web-store-v${release_version}.zip',
+            'sphere-web-store-v${release_version}.report.json',
+            'sphere-web-store-v${release_version}.zip.sha256',
+            "sphere-promo-440x280.png",
+            "sphere-screenshot-1280x800.png",
             "RELEASE_NOTES.md",
             "SHA256SUMS",
         ):
             self.assertIn(evidence, workflow)
-        self.assertIn('cp "$GITHUB_WORKSPACE/store-assets/radcra-promo-440x280.png" "$artifacts/"', workflow)
-        self.assertIn('cp "$GITHUB_WORKSPACE/store-assets/radcra-screenshot-1280x800.png" "$artifacts/"', workflow)
+        self.assertIn('cp "$GITHUB_WORKSPACE/store-assets/sphere-promo-440x280.png" "$artifacts/"', workflow)
+        self.assertIn('cp "$GITHUB_WORKSPACE/store-assets/sphere-screenshot-1280x800.png" "$artifacts/"', workflow)
         self.assertIn('--build-commit "$BUILD_COMMIT"', workflow)
-        self.assertNotIn("cp \"$GITHUB_WORKSPACE/store-assets/radcra-promo-440x280.png\" extension/dist", workflow)
-        self.assertNotIn("cp \"$GITHUB_WORKSPACE/store-assets/radcra-screenshot-1280x800.png\" extension/dist", workflow)
+        self.assertNotIn("cp \"$GITHUB_WORKSPACE/store-assets/sphere-promo-440x280.png\" extension/dist", workflow)
+        self.assertNotIn("cp \"$GITHUB_WORKSPACE/store-assets/sphere-screenshot-1280x800.png\" extension/dist", workflow)
 
     def test_local_release_script_packages_canonical_repository_and_build_commit(self):
         script = (ROOT / "deploy/scripts/release-pilot-extension.sh").read_text(encoding="utf-8")
@@ -129,14 +129,26 @@ class StoreReadinessTests(unittest.TestCase):
         self.assertNotIn("radicalmove/Beta-testing-app", script)
 
     def readiness_fixture(self, target: Path, *, screenshot: bool = False):
-        for relative in ("README.md", "docs/privacy-policy.md", "docs/chrome-web-store-listing.md", "docs/chrome-web-store-reviewer-guide.md", "site/index.html", "site/privacy/index.html", "site/support/index.html", "site/latest.json", "store-assets/README.md", "store-assets/radcra-promo-440x280.png", "extension/public/manifest.json", "tests/fixtures/store-public-key.txt"):
+        for relative in ("README.md", "docs/privacy-policy.md", "docs/chrome-web-store-listing.md", "docs/chrome-web-store-reviewer-guide.md", "site/index.html", "site/privacy/index.html", "site/support/index.html", "site/latest.json", "store-assets/README.md", "store-assets/sphere-promo-440x280.png", "extension/public/manifest.json", "tests/fixtures/store-public-key.txt"):
             source = ROOT / relative
             destination = target / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
+            if source.suffix in {".html", ".json", ".md"}:
+                # Keep this isolated fixture aligned with the current Sphere
+                # public contract while preserving the technical repository
+                # identifier used in immutable release metadata.
+                contents = source.read_text(encoding="utf-8")
+                contents = contents.replace("RADCRA", "Sphere")
+                contents = contents.replace("radicalmove.github.io/radcra", "radicalmove.github.io/sphere")
+                contents = contents.replace("radcra-web-store", "sphere-web-store")
+                contents = contents.replace("radcra-promo", "sphere-promo")
+                contents = contents.replace("radcra-screenshot", "sphere-screenshot")
+                destination.write_text(contents, encoding="utf-8")
+            else:
+                shutil.copy2(source, destination)
         (target / "extension/package.json").write_text('{"version":"0.5.36"}\n')
         if screenshot:
-            Image.new("RGB", (1280, 800), "white").save(target / "store-assets/radcra-screenshot-1280x800.png")
+            Image.new("RGB", (1280, 800), "white").save(target / "store-assets/sphere-screenshot-1280x800.png")
         dist = target / "dist"
         (dist / "icons").mkdir(parents=True)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=target, text=True).strip()
@@ -145,12 +157,12 @@ class StoreReadinessTests(unittest.TestCase):
         for size in (16, 48, 128):
             shutil.copy2(ROOT / f"extension/public/icons/icon{size}.png", dist / f"icons/icon{size}.png")
         manifest = json.loads((target / "extension/public/manifest.json").read_text())
-        manifest.update(version="0.5.36", host_permissions=["https://my.uconline.ac.nz/*", "https://fld-mini.tail4ccaba.ts.net/*", "https://radicalmove.github.io/radcra/*"], optional_host_permissions=["https://packages.articulateusercontent.com/*"])
+        manifest.update(version="0.5.36", host_permissions=["https://my.uconline.ac.nz/*", "https://fld-mini.tail4ccaba.ts.net/*", "https://radicalmove.github.io/sphere/*"], optional_host_permissions=["https://packages.articulateusercontent.com/*"])
         manifest["content_scripts"][0]["matches"] = ["https://my.uconline.ac.nz/*"]
         (dist / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-        package = target / "radcra.zip"
+        package = target / "sphere.zip"
         package_store(dist, package, "0.5.36", "radicalmove/radcra", commit)
-        checksum = target / "radcra.zip.sha256"
+        checksum = target / "sphere.zip.sha256"
         checksum.write_text(f"{hashlib.sha256(package.read_bytes()).hexdigest()}  {package.name}\n")
         return report_path_for(package), checksum
 
@@ -209,7 +221,7 @@ class StoreReadinessTests(unittest.TestCase):
                 subprocess.run(["git", "add", "seed"], cwd=root, check=True)
                 subprocess.run(["git", "commit", "-qm", "seed"], cwd=root, check=True)
                 report_path, checksum = self.readiness_fixture(root)
-                archive_path = root / "radcra.zip"
+                archive_path = root / "sphere.zip"
                 with zipfile.ZipFile(archive_path) as archive:
                     members = {name: archive.read(name) for name in archive.namelist()}
                 members[unexpected] = b"unexpected"
@@ -254,7 +266,7 @@ class StoreReadinessTests(unittest.TestCase):
             subprocess.run(["git", "add", "seed"], cwd=root, check=True)
             subprocess.run(["git", "commit", "-qm", "seed"], cwd=root, check=True)
             report_path, checksum = self.readiness_fixture(root)
-            archive_path = root / "radcra.zip"
+            archive_path = root / "sphere.zip"
             with zipfile.ZipFile(archive_path) as archive:
                 members = {name: archive.read(name) for name in archive.namelist()}
             members["content.js"] = b"/* runtime diagnostic removed */\n"
@@ -280,7 +292,7 @@ class StoreReadinessTests(unittest.TestCase):
             subprocess.run(["git", "add", "seed"], cwd=root, check=True)
             subprocess.run(["git", "commit", "-qm", "seed"], cwd=root, check=True)
             report_path, checksum = self.readiness_fixture(root)
-            archive_path = root / "radcra.zip"
+            archive_path = root / "sphere.zip"
             with zipfile.ZipFile(archive_path) as archive:
                 members = {name: archive.read(name) for name in archive.namelist()}
             members["background.js"] = members["background.js"].replace(b"https://fld-mini.tail4ccaba.ts.net", b"https://other-service.govt.nz")

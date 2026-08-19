@@ -18,9 +18,9 @@ import zipfile
 from pathlib import Path
 
 
-UPDATE_HOST = "https://radicalmove.github.io/radcra/*"
+UPDATE_HOST = "https://radicalmove.github.io/sphere/*"
 REPOSITORY = "radicalmove/radcra"
-STORE_NAME = "RADCRA - Course Review App (BETA)"
+STORE_NAME = "Sphere - Course Review App (BETA)"
 STORE_FILES = (
     "background.js",
     "content.js",

@@ -1,4 +1,4 @@
-name: RADCRA extension release
+name: Sphere extension release
 
 on:
   push:
@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: radcra-release
+  group: sphere-release
   cancel-in-progress: false
 
 jobs:
@@ -97,7 +97,7 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          key_file="$(mktemp "$RUNNER_TEMP/radcra-extension-key.XXXXXX.pem")"
+          key_file="$(mktemp "$RUNNER_TEMP/sphere-extension-key.XXXXXX.pem")"
           cleanup() { rm -f -- "$key_file"; }
           trap cleanup EXIT HUP INT TERM
           printf '%s' "$EXTENSION_PRIVATE_KEY_PEM" > "$key_file"
@@ -116,8 +116,8 @@ jobs:
         run: |
           set -euo pipefail
           release_version="$RELEASE_VERSION"
-          delivery="$RUNNER_TEMP/radcra-pilot-delivery"
-          artifacts="$RUNNER_TEMP/radcra-release-assets"
+          delivery="$RUNNER_TEMP/sphere-pilot-delivery"
+          artifacts="$RUNNER_TEMP/sphere-release-assets"
           mkdir -p "$artifacts"
           python3 deploy/scripts/release_artifacts.py \
             --root "$GITHUB_WORKSPACE" \
@@ -126,27 +126,27 @@ jobs:
             --version "$release_version"
           python3 deploy/scripts/store_package.py \
             --dist "$GITHUB_WORKSPACE/extension/dist" \
-            --output "$artifacts/radcra-web-store-v${release_version}.zip" \
+            --output "$artifacts/sphere-web-store-v${release_version}.zip" \
             --version "$release_version" \
             --repository "radicalmove/radcra" \
             --build-commit "$BUILD_COMMIT"
-          test -f "$artifacts/radcra-web-store-v${release_version}.report.json"
+          test -f "$artifacts/sphere-web-store-v${release_version}.report.json"
           cp "$delivery/moodle-review-extension-v${release_version}-chrome-edge.zip" "$artifacts/"
           cp "$delivery/moodle-review-extension-chrome-edge.zip" "$artifacts/"
-          cp "$GITHUB_WORKSPACE/store-assets/radcra-promo-440x280.png" "$artifacts/"
-          cp "$GITHUB_WORKSPACE/store-assets/radcra-screenshot-1280x800.png" "$artifacts/"
+          cp "$GITHUB_WORKSPACE/store-assets/sphere-promo-440x280.png" "$artifacts/"
+          cp "$GITHUB_WORKSPACE/store-assets/sphere-screenshot-1280x800.png" "$artifacts/"
           for archive in "$artifacts"/*.zip; do
             printf '%s  %s\n' "$(sha256sum "$archive" | awk '{print $1}')" "$(basename "$archive")" > "$archive.sha256"
           done
           # Publish one checksum file covering every uploaded ZIP.
           (cd "$artifacts" && sha256sum *.zip > SHA256SUMS)
           cat > "$artifacts/RELEASE_NOTES.md" <<EOF
-          # RADCRA ${release_version}
+          # Sphere ${release_version}
 
           **THIS EXTENSION IS FOR BETA TESTING.**
 
-          - Web Store upload: [radcra-web-store-v${release_version}.zip](https://github.com/radicalmove/radcra/releases/download/${RELEASE_TAG}/radcra-web-store-v${release_version}.zip)
-          - Web Store package report: [radcra-web-store-v${release_version}.report.json](https://github.com/radicalmove/radcra/releases/download/${RELEASE_TAG}/radcra-web-store-v${release_version}.report.json)
+          - Web Store upload: [sphere-web-store-v${release_version}.zip](https://github.com/radicalmove/radcra/releases/download/${RELEASE_TAG}/sphere-web-store-v${release_version}.zip)
+          - Web Store package report: [sphere-web-store-v${release_version}.report.json](https://github.com/radicalmove/radcra/releases/download/${RELEASE_TAG}/sphere-web-store-v${release_version}.report.json)
           - Private pilot (Chrome/Edge Load unpacked): [moodle-review-extension-v${release_version}-chrome-edge.zip](https://github.com/radicalmove/radcra/releases/download/${RELEASE_TAG}/moodle-review-extension-v${release_version}-chrome-edge.zip)
           - Read [releasing.md](https://github.com/radicalmove/radcra/blob/main/docs/releasing.md) for installation and update guidance.
 
@@ -169,7 +169,7 @@ jobs:
               "schema_version": 1,
               "version": version,
               "release_url": f"https://github.com/radicalmove/radcra/releases/tag/{tag}",
-              "download_url": "https://radicalmove.github.io/radcra/",
+              "download_url": "https://radicalmove.github.io/sphere/",
               "published_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
           }
           metadata = Path(os.environ["RELEASE_ASSETS"]) / "latest.json"
@@ -182,7 +182,7 @@ jobs:
           set -euo pipefail
           release_version="$RELEASE_VERSION"
           artifacts="$RELEASE_ASSETS"
-          python3 deploy/scripts/store_readiness.py --mode submission --root "$GITHUB_WORKSPACE" --package-report "$artifacts/radcra-web-store-v${release_version}.report.json" --checksum "$artifacts/radcra-web-store-v${release_version}.zip.sha256" --screenshot "$GITHUB_WORKSPACE/store-assets/radcra-screenshot-1280x800.png"
+          python3 deploy/scripts/store_readiness.py --mode submission --root "$GITHUB_WORKSPACE" --package-report "$artifacts/sphere-web-store-v${release_version}.report.json" --checksum "$artifacts/sphere-web-store-v${release_version}.zip.sha256" --screenshot "$GITHUB_WORKSPACE/store-assets/sphere-screenshot-1280x800.png"
 
       - name: Publish GitHub release assets and notes
         uses: softprops/action-gh-release@v2

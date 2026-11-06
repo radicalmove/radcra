@@ -47,7 +47,7 @@ test("version remains accessible without overlapping review controls at 320 CSS 
   }
 
   await host.locator('[data-action="help"]').click();
-  await expect(host.getByText("Pilot 0.6.6 · build 0000000")).toBeVisible();
+  await expect(host.getByText("Pilot 0.6.7 · build 0000000")).toBeVisible();
 });
 
 test("comment control rows stay distinct and fit even at a narrow zoomed viewport", async ({ page }) => {

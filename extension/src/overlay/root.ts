@@ -147,6 +147,7 @@ export function mountReviewOverlay(document: Document, context: CourseContext, s
   style.textContent += `.panel .comment-filter-row{display:grid;gap:8px;margin-bottom:8px}.panel .review-control-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}.panel .review-control-label{flex:0 0 3.5rem;font-size:.8rem;font-weight:650}.panel .comment-filters,.panel .comment-page-field{display:flex;gap:8px;flex-wrap:wrap;min-width:0;max-width:100%}.panel .comment-control{width:auto;min-width:90px;padding-inline:10px}.panel .review-workspace-button{width:auto;min-height:38px;padding-inline:10px}.panel .review-count-summary{font-size:.8rem;margin:0 0 8px}.panel .comment-results{min-height:0}`;
   style.textContent += `.shell .toolbar{background:var(--sphere-primary);color:#fff}.toolbar .identity :is(.course,.viewer,.status,.pilot-version){color:#fff}.toolbar .sign-out,.toolbar .sign-out:hover{color:#fff!important;text-decoration:underline}.toolbar .sign-out:hover{text-decoration-thickness:2px}.toolbar .sign-out:focus-visible{outline:2px solid #fff;outline-offset:3px}.toolbar-actions [data-action="panel"][aria-expanded="true"]{border-color:#fff!important}`;
   style.textContent += `.panel :is(.comment-control,.review-workspace-button){font-size:13px}`;
+  style.textContent += `.shell[data-panel-compact] .toolbar{padding-block:7px;row-gap:5px}.shell[data-panel-compact] .identity{min-height:32px}.shell[data-panel-compact] .course{padding-right:40px}.shell[data-panel-compact] :is(.viewer-line,.pilot-version,[data-auth-status][data-routine]){display:none}.shell[data-panel-compact] [data-auth-status]:not([data-routine]){white-space:normal;margin-right:32px}`;
   shadow.append(style);
   return createController(host, shadow, context, status, options, buildDiagnostics);
 }
@@ -214,6 +215,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
   const syncPanelControls = (open: boolean) => {
     const comments = shadow.querySelector<HTMLElement>('[data-action="panel"]');
     const minimise = shadow.querySelector<HTMLButtonElement>('[data-action="panel-minimise"]');
+    shadow.querySelector(".shell")?.toggleAttribute("data-panel-compact", !open && Boolean(minimise));
     for (const control of [comments, minimise]) {
       control?.setAttribute("aria-expanded", String(open));
       control?.setAttribute("aria-controls", "review-comments-panel");
@@ -327,6 +329,12 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     if (viewer) viewer.textContent = currentViewer ? `${currentViewer.display_name || currentViewer.email} · ${currentViewer.role === "ld_dcd" ? "Learning Designer / Course Developer" : currentViewer.role === "sme" ? "Subject Matter Expert" : currentViewer.role === "beta_tester" ? "Beta Tester" : "Administrator"}` : "";
     renderStateControls();
   };
+  const setToolbarMessage = (message: string, routine = false) => {
+    const statusNode = shadow.querySelector("[data-auth-status]");
+    statusNode?.toggleAttribute("data-routine", routine);
+    const node = statusNode?.querySelector("[data-status-message]");
+    if (node) node.textContent = message;
+  };
   const renderStateControls = (message?: string) => {
     if (message !== undefined) statusMessage = message;
     const displayMessage = !policyAcknowledged ? "Policy acknowledgement required" : message ?? statusMessage ?? statusLabels[status];
@@ -339,7 +347,8 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     const panelToggleHadFocus = shadow.activeElement === existingPanelToggle || shadow.activeElement === existingPanelMinimise;
     const panelMinimiseHadFocus = shadow.activeElement === existingPanelMinimise;
     const statusNode = toolbar.querySelector<HTMLElement>("[data-auth-status]");
-    if (statusNode) { statusNode.className = `status ${status}`; const messageNode = statusNode.querySelector<HTMLElement>("[data-status-message]"); if (messageNode) messageNode.textContent = displayMessage; }
+    if (statusNode) statusNode.className = `status ${status}`;
+    setToolbarMessage(displayMessage, status === "connected" && displayMessage === statusLabels.connected);
     toolbar.querySelector("[data-auth-action]")?.remove(); toolbar.querySelector("[data-review-controls]")?.remove();
     const wrapper = ownerDocument.createElement("div"); wrapper.innerHTML = createStateActions(status, readiness, canRegister, registering, policyAcknowledged); toolbar.append(...Array.from(wrapper.childNodes));
     if (status === "connected") updateUnresolvedCount();
@@ -687,8 +696,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
           catch { /* The saved comment remains available. */ }
         }
         if (captureQuiz && !quizAttached) {
-          const status = shadow.querySelector("[data-status-message]");
-          if (status) status.textContent = "Comment saved without a quiz screenshot. Check Sphere’s Chrome toolbar permission.";
+          setToolbarMessage("Comment saved without a quiz screenshot. Check Sphere’s Chrome toolbar permission.");
         }
         if (!file) { closeDialog(); return; }
         try {
@@ -697,8 +705,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
           const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ""; for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
           await options.uploadScreenshot(commentId, `data:${file.type};base64,${btoa(binary)}`);
         } catch {
-          const status = shadow.querySelector("[data-status-message]");
-          if (status) status.textContent = "Comment saved, but the file was not attached.";
+          setToolbarMessage("Comment saved, but the file was not attached.");
         }
         closeDialog();
       }
@@ -907,8 +914,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
           renderer.takeToContext(comment.id);
         } else if (options.navigateToComment) {
           void options.navigateToComment(comment.id, comment.page_url).catch(() => {
-            const status = shadow.querySelector("[data-status-message]");
-            if (status) status.textContent = "Could not open the comment location.";
+            setToolbarMessage("Could not open the comment location.");
           });
         }
       });

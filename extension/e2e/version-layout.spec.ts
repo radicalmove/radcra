@@ -20,6 +20,13 @@ test("version remains accessible without overlapping review controls at 320 CSS 
   const host = page.locator("#moodle-course-review-overlay");
   await expect.poll(() => host.evaluate((node: any) => Boolean(node.shadowRoot))).toBe(true);
 
+  await expect(host.locator(".pilot-version")).toBeHidden();
+  await expect(host.locator("[data-auth-status]")).toBeHidden();
+  await expect(host.locator('[data-action="add-comment"]')).toBeVisible();
+  const compactHeight = (await host.locator(".toolbar").boundingBox())!.height;
+  await host.getByRole("button", { name: "Expand comments" }).click();
+  await expect(host.locator(".pilot-version")).toBeVisible();
+  expect((await host.locator(".toolbar").boundingBox())!.height).toBeGreaterThan(compactHeight);
   const layout = await host.evaluate((node: any) => {
     const box = (selector: string) => node.shadowRoot.querySelector(selector).getBoundingClientRect().toJSON();
     return {
@@ -47,7 +54,7 @@ test("version remains accessible without overlapping review controls at 320 CSS 
   }
 
   await host.locator('[data-action="help"]').click();
-  await expect(host.getByText("Pilot 0.6.7 · build 0000000")).toBeVisible();
+  await expect(host.getByText("Pilot 0.6.8 · build 0000000")).toBeVisible();
 });
 
 test("comment control rows stay distinct and fit even at a narrow zoomed viewport", async ({ page }) => {

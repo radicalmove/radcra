@@ -36,6 +36,10 @@ test("version remains accessible without overlapping review controls at 320 CSS 
   }
   const intersects = (a: any, b: any) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
   expect(intersects(boxes[0], boxes[1])).toBe(false);
+  const minimise = await host.locator('[data-action="panel-minimise"]').boundingBox();
+  const version = await host.locator(".pilot-version").boundingBox();
+  expect(minimise!.x).toBeGreaterThan(version!.x + version!.width);
+  expect(minimise!.y).toBeLessThan(boxes[1].y);
   await expect(host.locator(".toolbar")).toHaveCSS("background-color", "rgb(24, 95, 165)");
   await expect(host.locator(".viewer")).toBeVisible();
   for (const selector of [".course", ".viewer", ".status", ".pilot-version", ".sign-out"]) {
@@ -43,7 +47,7 @@ test("version remains accessible without overlapping review controls at 320 CSS 
   }
 
   await host.locator('[data-action="help"]').click();
-  await expect(host.getByText("Pilot 0.6.5 · build 0000000")).toBeVisible();
+  await expect(host.getByText("Pilot 0.6.6 · build 0000000")).toBeVisible();
 });
 
 test("comment control rows stay distinct and fit even at a narrow zoomed viewport", async ({ page }) => {

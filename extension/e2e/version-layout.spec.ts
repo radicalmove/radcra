@@ -38,10 +38,10 @@ test("version remains accessible without overlapping review controls at 320 CSS 
   expect(intersects(boxes[0], boxes[1])).toBe(false);
 
   await host.locator('[data-action="help"]').click();
-  await expect(host.getByText("Pilot 0.6.1 · build 0000000")).toBeVisible();
+  await expect(host.getByText("Pilot 0.6.2 · build 0000000")).toBeVisible();
 });
 
-test("course comment controls remain equal height on one row", async ({ page }) => {
+test("comment control rows stay distinct and fit even at a narrow zoomed viewport", async ({ page }) => {
   await page.setViewportSize({ width: 760, height: 700 });
   await page.route("https://moodle.example.invalid/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Fixture</title><h1>Law</h1>" }));
   await page.addInitScript(() => {
@@ -58,14 +58,18 @@ test("course comment controls remain equal height on one row", async ({ page }) 
   await expect.poll(() => host.evaluate((node: any) => Boolean(node.shadowRoot))).toBe(true);
   await host.locator('[data-action="panel"]').click();
 
-  const controls = await host.evaluate((node: any) => Array.from(node.shadowRoot.querySelectorAll(".comment-control"), (control: any) => {
-    const box = control.getBoundingClientRect();
-    const style = getComputedStyle(control);
-    return { width: box.width, height: box.height, top: box.top, whiteSpace: style.whiteSpace };
-  }));
-  expect(controls).toHaveLength(5);
-  expect(new Set(controls.map((control: any) => control.width)).size).toBe(1);
-  expect(new Set(controls.map((control: any) => control.height)).size).toBe(1);
-  expect(new Set(controls.map((control: any) => control.top)).size).toBe(1);
-  expect(controls.every((control: any) => control.whiteSpace === "nowrap")).toBe(true);
+  for (const width of [760, 320]) {
+    await page.setViewportSize({ width, height: 700 });
+    const rows = await host.evaluate((node) => Array.from(node.shadowRoot!.querySelectorAll(".review-control-line"), (row) =>
+      Array.from(row.querySelectorAll("button"), (button) => button.getBoundingClientRect().toJSON())));
+    expect(rows.map((row) => row.length)).toEqual([2, 2, 2]);
+    for (const [first, second] of rows) {
+      expect(first.height).toBeGreaterThanOrEqual(38);
+      expect(second.height).toBeGreaterThanOrEqual(38);
+      expect(second.right).toBeLessThanOrEqual(width);
+      expect(second.left >= first.right + 4 || second.top >= first.bottom + 4).toBe(true);
+    }
+    expect(rows[1][0].top).toBeGreaterThan(rows[0][1].bottom);
+    expect(rows[2][0].top).toBeGreaterThan(rows[1][1].bottom);
+  }
 });

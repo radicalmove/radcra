@@ -144,6 +144,7 @@ export function mountReviewOverlay(document: Document, context: CourseContext, s
   style.textContent += sphereizeStyles(stabilisationUxStyles + policyDisclosureStyles + updateCheckStyles + `.existing-action{margin-top:12px}.existing-confirmation{display:grid;gap:6px;margin-top:14px;padding:12px;border:1px solid var(--review-line);border-radius:7px;background:var(--review-pale)}.existing-confirmation[hidden]{display:none}.admin-sign-in{margin-top:12px}`);
   style.textContent += sphereizeStyles(`.viewer-line{display:flex;align-items:center;gap:8px;min-width:0}.viewer-line[hidden]{display:none}.viewer-line .viewer{min-width:0}.sign-out{min-height:0!important;padding:0!important;border:0!important;background:transparent!important;color:#082f2f!important;font-size:12px;text-decoration:underline}.sign-out:hover{color:#7b235e!important}`);
   style.textContent += ":host{--sphere-ink:#0C447C;--sphere-primary:#185FA5;--sphere-action:#378ADD;--sphere-ground:#F4F9FF;--sphere-line:rgba(56,138,221,.2);--sphere-danger:#D73B3D}.toolbar-actions [data-action=\"panel\"]{background:#fff!important;color:#185FA5!important;border-color:#fff!important}.toolbar-actions [data-action=\"panel\"][aria-expanded=\"true\"]{background:#185FA5!important;color:#fff!important;border-color:#185FA5!important}.sign-out{color:#0C447C!important}.sign-out:hover{color:#185FA5!important}";
+  style.textContent += `.panel .comment-filter-row{display:grid;gap:8px;margin-bottom:8px}.panel .review-control-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}.panel .review-control-label{flex:0 0 3.5rem;font-size:.8rem;font-weight:650}.panel .comment-filters,.panel .comment-page-field{display:flex;gap:8px;flex-wrap:wrap;min-width:0;max-width:100%}.panel .comment-control{width:auto;min-width:90px;padding-inline:10px}.panel .review-workspace-button{width:auto;min-height:38px;padding-inline:10px}.panel .review-count-summary{font-size:.8rem;margin:0 0 8px}.panel .comment-results{min-height:0}`;
   shadow.append(style);
   return createController(host, shadow, context, status, options, buildDiagnostics);
 }
@@ -849,6 +850,13 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
       const scopes = ownerDocument.createElement("div"); scopes.className = "comment-filters"; scopes.setAttribute("role", "group"); scopes.setAttribute("aria-label", "Comment page scope");
       const filterRow = ownerDocument.createElement("div"); filterRow.className = "comment-filter-row";
       const pageField = ownerDocument.createElement("div"); pageField.className = "comment-page-field";
+      pageField.setAttribute("role", "group"); pageField.setAttribute("aria-label", "Comment actions");
+      const summary = ownerDocument.createElement("p"); summary.className = "review-count-summary";
+      const controlLine = (label: string, controls: HTMLElement) => {
+        const line = ownerDocument.createElement("div"); line.className = "review-control-line";
+        const caption = ownerDocument.createElement("span"); caption.className = "review-control-label"; caption.textContent = label;
+        caption.setAttribute("aria-hidden", "true"); line.append(caption, controls); return line;
+      };
       const collapseGroups = ownerDocument.createElement("button"); collapseGroups.type = "button"; collapseGroups.dataset.collapseGroups = "true"; collapseGroups.className = "comment-control comment-collapse-groups"; collapseGroups.textContent = "Collapse all";
       pageField.append(collapseGroups);
       const results = ownerDocument.createElement("div"); results.className = "comment-results"; results.setAttribute("role", "list");
@@ -861,6 +869,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
       const setGroupExpanded = (pageUrl: string, expanded: boolean) => { const rows = groupRows.get(pageUrl); const toggle = groupToggles.get(pageUrl); if (!rows || !toggle) return; if (expanded) expandedGroups.add(pageUrl); else expandedGroups.delete(pageUrl); rows.hidden = !expanded; const label = `${expanded ? "Collapse" : "Expand"} ${toggle.dataset.commentGroupTitle} comments`; toggle.setAttribute("aria-expanded", String(expanded)); toggle.setAttribute("aria-label", label); toggle.title = label; };
       const applyFilter = () => {
         updateUnresolvedCount();
+        summary.textContent = `${shadow.querySelector("[data-comment-count]")?.textContent ?? "0"} open ${commentListScope === "page" ? "on this page" : "across the course"}`;
         let visibleCount = 0;
         for (const group of projection.groups) {
           const container = groupContainers.get(group.pageUrl)!;
@@ -872,8 +881,11 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
             node.closest<HTMLElement>("[role=listitem]")!.hidden = !visible;
             if (visible) { groupVisible = true; visibleCount += 1; }
           });
-          container.hidden = commentListScope === "page" || !groupVisible;
+          container.hidden = !groupVisible;
+          const heading = container.querySelector<HTMLElement>("[data-comment-group-heading]");
+          if (heading) heading.hidden = commentListScope === "page";
           setGroupExpanded(group.pageUrl, expandedGroups.has(group.pageUrl));
+          if (commentListScope === "page" && matchesScope) groupRows.get(group.pageUrl)!.hidden = false;
         }
         empty.hidden = visibleCount > 0;
         collapseGroups.disabled = commentListScope === "page" || !Array.from(groupContainers.values()).some((group) => !group.hidden);
@@ -881,10 +893,11 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
         scopes.querySelectorAll<HTMLElement>("button").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.commentScope === commentListScope)));
       };
       for (const value of ["open", "resolved"] as const) { const filter = ownerDocument.createElement("button"); filter.type = "button"; filter.dataset.commentFilter = value; filter.className = "comment-control comment-status"; filter.innerHTML = `<span>${value === "open" ? "Open" : "Resolved"}</span>`; filter.addEventListener("click", () => { commentListFilter = value; renderer.setStatusFilter(value); applyFilter(); }); filters.append(filter); }
-      for (const value of ["course", "page"] as const) { const scope = ownerDocument.createElement("button"); scope.type = "button"; scope.dataset.commentScope = value; scope.className = "comment-control comment-scope"; scope.innerHTML = `<span>${value === "course" ? "Whole course" : "Current page"}</span>`; scope.addEventListener("click", () => { commentListScope = value; applyFilter(); }); scopes.append(scope); }
+      for (const value of ["course", "page"] as const) { const scope = ownerDocument.createElement("button"); scope.type = "button"; scope.dataset.commentScope = value; scope.className = "comment-control comment-scope"; scope.innerHTML = `<span>${value === "course" ? "Whole course" : "This page"}</span>`; scope.addEventListener("click", () => { commentListScope = value; applyFilter(); }); scopes.append(scope); }
       collapseGroups.addEventListener("click", () => { const expanded = !mainCollapseMode; for (const [pageUrl, container] of groupContainers) if (!container.hidden) setGroupExpanded(pageUrl, expanded); mainCollapseMode = !mainCollapseMode; collapseGroups.textContent = mainCollapseMode ? "Collapse all" : "Expand all"; });
       const workspace = ownerDocument.createElement("button");
-      workspace.type = "button"; workspace.textContent = "Full course review";
+      workspace.type = "button"; workspace.className = "review-workspace-button"; workspace.textContent = "View all comments";
+      workspace.title = "Open the full review to see comment history, check off changes, and export";
       workspace.onclick = () => openReviewWorkspace(shadow, context.page_url, [...loadedComments.values()], checkedChanges, (comment) => {
         if (comment.page_url === context.page_url && !comment.embedded_locator) {
           const filter = comment.status === "resolved" ? "resolved" : "open";
@@ -897,7 +910,9 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
           });
         }
       });
-      filterRow.append(scopes, filters, pageField); panelContent.append(currentPageHeading, workspace, filterRow, results, empty);
+      pageField.append(workspace);
+      filterRow.append(controlLine("Where", scopes), controlLine("Status", filters), controlLine("Actions", pageField));
+      panelContent.append(currentPageHeading, summary, filterRow, results, empty);
       for (const [groupIndex, group] of projection.groups.entries()) {
         const groupContainer = ownerDocument.createElement("section"); groupContainer.dataset.commentGroupContainer = group.pageUrl;
         const heading = ownerDocument.createElement("h3"); heading.dataset.commentGroupHeading = "true"; heading.className = "comment-group-heading";

@@ -21,9 +21,11 @@ export function openReviewWorkspace(shadow: ShadowRoot, page: string, comments: 
       : undefined;
     return { id: comment.id, page: comment.page_title, url: quiz ?? comment.parent_activity_url ?? comment.page_url, quiz, author: comment.author.display_name, created_at: comment.created_at ?? null, status: comment.status, comment: comment.body, original, current: found?.status === "resolved" && !found.approximate ? found.range.toString() : null, history: comment.status_history };
   });
-  make("h2", "Course review");
-  make("button", "Close").onclick = () => dialog.close();
-  for (const format of ["csv", "json"] as const) make("button", "Export " + format.toUpperCase()).onclick = () => {
+  const header = make("header", ""); header.style.cssText = "position:sticky;top:0;background:#f4f9ff;padding:8px 0;border-bottom:1px solid #bacde0;z-index:1;";
+  make("h2", "Course review", header).style.margin = "0 0 8px";
+  const toolbar = make("div", "", header); toolbar.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;";
+  make("button", "Close", toolbar).onclick = () => dialog.close();
+  for (const format of ["csv", "json"] as const) make("button", "Export " + format.toUpperCase(), toolbar).onclick = () => {
     const records = rows.map((row) => ({ ...row, checked: checked.has(row.id) }));
     const cell = (value: unknown) => {
       let text = value == null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value);
@@ -42,10 +44,12 @@ export function openReviewWorkspace(shadow: ShadowRoot, page: string, comments: 
     make("p", row.comment, article);
     if (row.original) { make("p", "Originally highlighted: " + row.original, article); make("p", "Current text: " + (row.current ?? "Not verified on this page"), article); }
     for (const event of row.history) make("p", event.status + " · " + event.actor + " · " + new Date(event.created_at).toLocaleString(), article);
-    const label = make("label", "", article); const box = make("input", "", label); box.type = "checkbox"; box.checked = checked.has(row.id); label.append(" Change checked ");
+    const actions = make("div", "", article); actions.style.cssText = "display:flex;align-items:center;flex-wrap:wrap;gap:12px;";
+    const label = make("label", "", actions); label.style.cssText = "display:inline-flex;align-items:center;gap:8px;min-height:38px;";
+    const box = make("input", "", label); box.type = "checkbox"; box.style.cssText = "width:20px;height:20px;min-height:0;margin:0;"; box.checked = checked.has(row.id); label.append("Reviewed this session");
     box.onchange = () => { if (box.checked) checked.add(row.id); else checked.delete(row.id); };
-    make("button", "Go to comment", article).onclick = () => { dialog.close(); jump(comments[index]); };
-    if (row.quiz) { const link = make("a", "Open quiz activity", article); link.href = row.quiz; }
+    make("button", "Go to comment", actions).onclick = () => { dialog.close(); jump(comments[index]); };
+    if (row.quiz) { const link = make("a", "Open quiz activity", actions); link.href = row.quiz; }
   }
   dialog.addEventListener("close", () => dialog.remove(), { once: true });
   shadow.append(dialog); dialog.showModal();

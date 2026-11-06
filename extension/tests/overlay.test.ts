@@ -1033,6 +1033,8 @@ test("whole-course comment links use concise bodies without dynamic list numbers
   const links = Array.from(shadow.querySelectorAll<HTMLElement>("[data-comment-item]")); assert.equal(links.every((link) => !link.hidden), true);
   shadow.querySelector<HTMLElement>('[data-comment-scope="page"]')!.click();
   assert.equal(links[0]!.hidden, true); assert.equal(links[1]!.hidden, false); assert.equal(links[1]!.textContent, 'Reviewer “Here”');
+  assert.equal(links[1]!.closest<HTMLElement>("[data-comment-group-container]")?.hidden, false);
+  assert.equal(shadow.querySelector(".review-count-summary")?.textContent, "1 open on this page");
   shadow.querySelector<HTMLElement>('[data-comment-scope="course"]')!.click(); assert.equal(links.every((link) => !link.hidden), true); assert.deepEqual(links.map((link) => link.textContent), ['Reviewer “Earlier”', 'Reviewer “Here”']);
   assert.match(links[1]!.getAttribute("aria-label") ?? "", /^Open comment in context\. Week 2.*Here.*Reviewer.*Status open/);
   assert.doesNotMatch(links[1]!.getAttribute("aria-label") ?? "", /Comment \d+/);
@@ -1067,14 +1069,14 @@ test("clicking a comment keeps the list open and scrolls its course content into
   overlay.destroy();
 });
 
-test("course scope and status filters share one compact row", () => {
+test("course scope, status, and actions have distinct labelled rows", () => {
   const window = new Window(); const document = window.document as unknown as Document;
   const overlay = mountReviewOverlay(document, context, "connected"); const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
   overlay.setPageComments([{ id: "00000000-0000-4000-8000-000000000041", body: "Feedback", category: "general", status: "open", author: { display_name: "Reviewer", role: "beta_tester" }, page_url: context.page_url, page_title: "Week 2", parent_activity_url: null, embedded_locator: null, anchor_type: "text_highlight", selected_quote: "missing", prefix: "", suffix: "", css_selector: null, dom_selector: null, relative_x: null, relative_y: null, replies: [], status_history: [], capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: false } }]);
   const row = shadow.querySelector<HTMLElement>(".comment-filter-row")!;
   assert.ok(row);
   assert.equal(row.querySelectorAll(".comment-control").length, 5);
-  assert.match(tealOverlayOverrides, /\.comment-filter-row\{display:flex/);
+  assert.deepEqual(Array.from(row.querySelectorAll(".review-control-label"), (label) => label.textContent), ["Where", "Status", "Actions"]);
   assert.match(approvedControlStyles, /--review-scope:#a84f12/);
   assert.match(approvedControlStyles, /--review-status:#176b43/);
 });
@@ -1101,7 +1103,7 @@ test("toolbar and semantic comment controls expose approved states", () => {
   assert.equal(panel.getAttribute("aria-expanded"), "true");
   const controls = Array.from(shadow.querySelectorAll<HTMLElement>(".comment-control"));
   assert.equal(controls.length, 5);
-  assert.deepEqual(controls.map((control) => control.textContent), ["Whole course", "Current page", "Open", "Resolved", "Collapse all"]);
+  assert.deepEqual(controls.map((control) => control.textContent), ["Whole course", "This page", "Open", "Resolved", "Collapse all"]);
   assert.ok(shadow.querySelector('[data-collapse-groups]'));
   assert.equal(shadow.querySelector('[role="listbox"]'), null);
   assert.match(controlAlignmentStyles, /\[data-action="help"\]\{[^}]*width:44px[^}]*height:44px/);
@@ -1362,7 +1364,7 @@ test("text controls remain free of review icon SVGs", () => {
     comments,
     ...Array.from(shadow.querySelectorAll<HTMLButtonElement>(".comment-control")),
   ];
-  assert.deepEqual(textControls.slice(2).map((button) => button.textContent), ["Whole course", "Current page", "Open", "Resolved", "Collapse all"]);
+  assert.deepEqual(textControls.slice(2).map((button) => button.textContent), ["Whole course", "This page", "Open", "Resolved", "Collapse all"]);
   for (const control of textControls) assert.equal(control.querySelector("svg"), null, `${control.textContent} must not contain an SVG`);
   shadow.querySelector<HTMLButtonElement>('[data-action="help"]')!.click();
   const closeHelp = shadow.querySelector<HTMLButtonElement>('[data-close-help]')!;

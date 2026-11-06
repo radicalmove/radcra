@@ -10,6 +10,31 @@ export type CourseContext = {
 
 const DISCARD_PARAMS = new Set(["sesskey", "session", "sessionid", "fbclid", "gclid", "mc_cid", "mc_eid"]);
 
+export function isQuizPreviewUrl(value: string, pageDocument = typeof document === "undefined" ? undefined : document): boolean {
+  try {
+    const url = new URL(value);
+    if (!/^https?:$/.test(url.protocol)) return false;
+    if (/\/mod\/quiz\/preview\.php$/.test(url.pathname)) return true;
+    if (!/\/mod\/quiz\/attempt\.php$/.test(url.pathname)) return false;
+    // Moodle renders the restart-preview form only for a preview attempt.
+    return Array.from(pageDocument?.querySelectorAll<HTMLFormElement>("#mod_quiz_navblock .othernav form[action]") ?? []).some((form) => {
+      const action = new URL(form.action, url);
+      return action.origin === url.origin && /\/mod\/quiz\/startattempt\.php$/.test(action.pathname)
+        && (action.searchParams.get("forcenew") === "1" || Boolean(form.querySelector('input[name="forcenew"][value="1"]')));
+    });
+  } catch { return false; }
+}
+
+export function quizActivityLink(value: string, activityId?: string): string | undefined {
+  try {
+    const url = new URL(value);
+    const cmid = activityId ?? url.searchParams.get("cmid");
+    if (/^https?:$/.test(url.protocol) && /\/mod\/quiz\/(?:attempt|preview)\.php$/.test(url.pathname) && cmid && /^[1-9]\d*$/.test(cmid)) {
+      return new URL(`view.php?id=${cmid}`, url).href;
+    }
+  } catch { /* No stable activity identifier. */ }
+}
+
 function isDiscardedParam(name: string): boolean {
   const lower = name.toLowerCase();
   return DISCARD_PARAMS.has(lower) || lower.startsWith("utm_");

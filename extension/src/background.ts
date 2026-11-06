@@ -3,6 +3,7 @@ import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommen
 import { EmbeddedCommentNavigation, handleCommentNavigationMessage } from "./embedded-comment-navigation.ts";
 import { EmbeddedAnchorCapabilities, issueEmbeddedAnchorFromWorker } from "./embedded-anchor-capabilities.ts";
 import { validateScreenshotDataUrl } from "./screenshot-validation.ts";
+import { isQuizPreviewUrl } from "./course-context.ts";
 import { grantOptionalFrameAccess, handleOptionalPermissionRevocation, optionalPatternForOrigin, reconcileOptionalContentScript } from "./optional-content-scripts";
 import { authoritativeNavigationFor, ReviewContextCache, validateContextMessage, type ReviewSender, type StoredReviewContext } from "./review-context.ts";
 import { ScreenshotCapabilities } from "./screenshot-capabilities.ts";
@@ -216,7 +217,7 @@ async function listPageComments(courseId: string, pageUrl: string): Promise<unkn
   return response.json();
 }
 async function listCourseComments(courseId: string): Promise<unknown> {
-  const api = await client(); const response = await api.request(`/api/comments?${new URLSearchParams({ course_id: courseId })}`);
+  const api = await client(); const response = await api.request(`/api/comments?${new URLSearchParams({ course_id: courseId, include_created_at: "true" })}`);
   if (!response.ok) throw new Error(`Course comment list failed (${response.status})`); return response.json();
 }
 
@@ -241,12 +242,22 @@ async function deleteComment(commentId: string, courseId: string): Promise<unkno
 chrome.tabs?.onRemoved?.addListener((tabId: number) => { latestWorkerEvent.delete(tabId); pendingWorkerReady.delete(tabId); seenWorkerEventIds.delete(tabId); workerProjections.delete(tabId); reviewContexts.removeTab(tabId); frameCoordination.removeTab(tabId); void chrome.storage.session.remove(`reviewContext:${tabId}`); });
 chrome.tabs?.onRemoved?.addListener((tabId: number) => { embeddedNavigation.cancel(tabId); void chrome.storage.session.remove(`commentNavigation:${tabId}`); });
 chrome.webNavigation?.onCommitted?.addListener((details: { tabId: number; frameId: number }) => { if (details.frameId === 0) { latestWorkerEvent.delete(details.tabId); pendingWorkerReady.delete(details.tabId); seenWorkerEventIds.delete(details.tabId); workerProjections.delete(details.tabId); reviewContexts.removeTab(details.tabId); frameCoordination.removeTab(details.tabId); void chrome.storage.session.remove(`reviewContext:${details.tabId}`); } });
+let captureContextRevision = 0;
+chrome.tabs.onActivated.addListener(() => { captureContextRevision++; });
+chrome.webNavigation.onCommitted.addListener((details: { frameId: number }) => { if (details.frameId === 0) captureContextRevision++; });
+chrome.storage.onChanged.addListener((changes: Record<string, { newValue?: unknown }>, area: string) => {
+  if (area !== "local" || !changes.spherePaused) return;
+  void chrome.tabs.query({}).then((tabs: Array<{ id?: number }>) => Promise.allSettled(tabs.flatMap((tab) =>
+    typeof tab.id === "number" ? [chrome.tabs.sendMessage(tab.id, { type: "SPHERE_PAUSE_CHANGED", paused: changes.spherePaused.newValue === true })] : [])));
+});
 
 chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & { tab?: { id?: number; windowId?: number } }, sendResponse: (value: unknown) => void) => {
   void screenshotCapabilities.cleanup().catch(() => undefined);
   void embeddedAnchorCapabilities.cleanup().catch(() => undefined);
   let operation: Promise<unknown> | undefined;
-  if (message && typeof message === "object" && (message as { type?: unknown }).type === "GET_POLICY_STATUS") {
+  if (message && typeof message === "object" && (message as { type?: unknown }).type === "GET_SPHERE_PAUSE") {
+    operation = chrome.storage.local.get("spherePaused").then((value: { spherePaused?: boolean }) => ({ paused: value.spherePaused === true }));
+  } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "GET_POLICY_STATUS") {
     operation = (async () => {
       validateGetPolicyStatusMessage(message);
       const state = await readPolicyState(chrome.storage.local);
@@ -583,6 +594,28 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
       if (!(await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: __OPTIONAL_FRAME_PATTERNS__, hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) })) || !reviewContexts.courseId(sender)) throw new Error("SME recipients course context unavailable");
       const api = await client(); const response = await api.request(`/api/comments/${record.comment_id}/sme-recipients`, setting ? { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user_ids: record.user_ids }) } : {});
       if (!response.ok) throw new Error(`SME recipients failed (${response.status})`); return response.json();
+    })();
+  } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "CAPTURE_QUIZ_PREVIEW") {
+    operation = (async () => {
+      await requireCurrentPolicyAcknowledgement();
+      const tab = sender.tab;
+      if (typeof tab?.id !== "number" || sender.frameId !== 0 || !sender.documentId || !sender.url
+        || !(await authorizeResolveSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, optionalPatterns: [], hasPermission: (pattern) => chrome.permissions.contains({ origins: [pattern] }) }))
+        || !reviewContexts.courseId(sender)) throw new Error("Quiz screenshot unavailable");
+      const verify = async () => {
+        const [active] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+        const frame = await chrome.webNavigation.getFrame({ tabId: tab.id, frameId: 0 });
+        if (active?.id !== tab.id || frame?.documentId !== sender.documentId || frame?.url !== sender.url) throw new Error("Quiz tab changed");
+      };
+      const [preview] = await chrome.scripting.executeScript({ target: { tabId: tab.id, documentIds: [sender.documentId] }, func: isQuizPreviewUrl, args: [sender.url] });
+      if (preview?.result !== true) throw new Error("This is not a quiz preview");
+      const revision = captureContextRevision;
+      await verify();
+      const dataUrl: string = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 75 });
+      await verify();
+      if (revision !== captureContextRevision) throw new Error("Quiz tab changed during capture");
+      validateScreenshotDataUrl(dataUrl);
+      return dataUrl;
     })();
   } else if (message && typeof message === "object" && (message as { type?: unknown }).type === "UPLOAD_SCREENSHOT") {
     operation = (async () => {

@@ -1,4 +1,5 @@
-import type { CourseContext } from "../course-context.ts";
+import { isQuizPreviewUrl, type CourseContext } from "../course-context.ts";
+import { openReviewWorkspace } from "./review-workspace.ts";
 import { captureTextAnchor, type TextAnchor } from "../anchors/text.ts";
 import { renderTextHighlight } from "../anchors/recover.ts";
 import { capturePinAnchor, renderPin, type PinAnchor } from "../anchors/pin.ts";
@@ -181,10 +182,17 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
   let embeddedMarkerActive = false;
   let loadingMarkerQueued = false;
   let loadedComments = new Map<string, PageComment>();
+  const checkedChanges = new Set<string>();
   const rowMutations = new Map<string, { pending: boolean; error?: string }>();
   const transientStatuses = new Map<string, { original: PageComment; nextStatus: "open" | "resolved"; timer: number }>();
   let commentListFilter: "open" | "resolved" = "open";
   let commentListScope: "course" | "page" = "course";
+  const updateUnresolvedCount = () => {
+    const count = [...loadedComments.values()].filter((comment) =>
+      (commentListScope === "course" || comment.page_url === context.page_url)
+      && (transientStatuses.get(comment.id)?.nextStatus ?? comment.status) !== "resolved").length;
+    shadow.querySelectorAll<HTMLElement>("[data-comment-count],[data-comment-count-short]").forEach((node) => { node.textContent = String(count); });
+  };
   let renderer: CommentRenderer;
   let rendererOrder = new Map<string, number>();
   let restoreRenderedCommentListGroup: ((pageUrl: string, status: "open" | "resolved") => boolean) | undefined;
@@ -331,6 +339,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     if (statusNode) { statusNode.className = `status ${status}`; const messageNode = statusNode.querySelector<HTMLElement>("[data-status-message]"); if (messageNode) messageNode.textContent = displayMessage; }
     toolbar.querySelector("[data-auth-action]")?.remove(); toolbar.querySelector("[data-review-controls]")?.remove();
     const wrapper = ownerDocument.createElement("div"); wrapper.innerHTML = createStateActions(status, readiness, canRegister, registering, policyAcknowledged); toolbar.append(...Array.from(wrapper.childNodes));
+    if (status === "connected") updateUnresolvedCount();
     bind();
     const panelToggle = toolbar.querySelector<HTMLElement>('[data-action="panel"]');
     if (panelToggle && !hadPanelToggle) setPanelOpen(readCoursePanelState(panelStateStorage, context.course_url), { animate: false, persist: false });
@@ -609,6 +618,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
   };
   const openDialog = (trigger: HTMLElement, label: string, anchor: CommentAnchor, embeddedCapability?: string) => {
     const contextSnapshot = { ...context };
+    const originalDocumentUrl = ownerDocument.URL;
     composerContext = contextSnapshot;
     returnFocus = trigger;
     const backdrop = ownerDocument.createElement("div");
@@ -622,6 +632,23 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
       if (event.key === "Tab" || outcome.close) event.preventDefault();
       if (outcome.close) closeDialog(); else if (event.key === "Tab") focusable[outcome.focusIndex]?.focus();
     });
+    const quizPreview = !embeddedCapability && options.captureScreenshot && isQuizPreviewUrl(ownerDocument.URL, ownerDocument);
+    if (quizPreview) {
+      let question = ownerDocument.getSelection()?.anchorNode?.parentElement?.closest(".que");
+      if (!question && anchor.css_selector) {
+        try { question = ownerDocument.querySelector(anchor.css_selector)?.closest(".que"); }
+        catch { /* The selection may no longer be in the DOM. */ }
+      }
+      const number = question?.querySelector(".qno")?.textContent?.trim();
+      const suffix = number ? ` — Quiz preview, question ${number.slice(0, 30)}` : " — Quiz preview";
+      contextSnapshot.pageTitle = contextSnapshot.pageTitle.slice(0, 512 - suffix.length) + suffix;
+      const notice = ownerDocument.createElement("label");
+      notice.className = "field";
+      const checkbox = ownerDocument.createElement("input");
+      checkbox.type = "checkbox"; checkbox.checked = true; checkbox.dataset.quizCapture = "true";
+      notice.append(checkbox, " Automatically attach a screenshot of this quiz preview. Click Sphere’s Chrome toolbar icon once to allow capture in this tab.");
+      backdrop.querySelector("[data-attachment]")?.closest("label")?.after(notice);
+    }
     backdrop.querySelector("[data-cancel]")?.addEventListener("click", closeDialog);
     backdrop.querySelector("[data-save]")?.addEventListener("click", async () => {
       const textarea = backdrop.querySelector<HTMLTextAreaElement>("textarea")!; const error = backdrop.querySelector<HTMLElement>(".error")!;
@@ -631,17 +658,46 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
       try {
         const file = backdrop.querySelector<HTMLInputElement>("[data-attachment]")!.files?.[0];
         if (file && file.size > 10 * 1024 * 1024) throw new Error("The attachment must be 10 MB or smaller.");
-        const wantsScreenshot = Boolean(file);
+        const captureQuiz = backdrop.querySelector<HTMLInputElement>("[data-quiz-capture]")?.checked === true;
+        let quizImage: string | undefined;
+        if (captureQuiz) {
+          const reviewUI = [host, ...Array.from(ownerDocument.querySelectorAll<HTMLElement>("[data-moodle-review-highlight],[data-moodle-review-stored-highlight],[data-moodle-review-stored-pin]"))];
+          const visibility = reviewUI.map((node) => node.style.visibility);
+          for (const node of reviewUI) node.style.visibility = "hidden";
+          try {
+            const view = ownerDocument.defaultView;
+            if (view) await new Promise<void>((resolve) => view.requestAnimationFrame(() => view.requestAnimationFrame(() => resolve())));
+            if (ownerDocument.URL === originalDocumentUrl) quizImage = await options.captureScreenshot?.();
+          } catch { /* Save the comment even if Chrome refused the screenshot. */ }
+          finally { reviewUI.forEach((node, index) => { node.style.visibility = visibility[index]; }); }
+          if (!backdrop.isConnected) return;
+        }
+        const wantsScreenshot = Boolean(file || quizImage);
         const embeddedSubmit = (options as ReviewOverlayOptions & { submitEmbedded?: (input: { capability: string; body: string; category: string; screenshot: boolean }) => Promise<{ id?: string; screenshot_available?: boolean } | void> }).submitEmbedded;
         const saved = embeddedCapability && embeddedSubmit
           ? await embeddedSubmit({ capability: embeddedCapability, body: textarea.value.trim(), category: "general", screenshot: wantsScreenshot })
           : await options.submit?.({ body: textarea.value.trim(), category: "general", anchor, screenshot: wantsScreenshot, embeddedFrameUnavailable: fallbackPin, contextSnapshot });
         fallbackPin = false;
+        let quizAttached = false;
+        if (quizImage && saved?.id && saved.screenshot_available !== false && options.uploadScreenshot) {
+          try { await options.uploadScreenshot(saved.id, quizImage); quizAttached = true; }
+          catch { /* The saved comment remains available. */ }
+        }
+        if (captureQuiz && !quizAttached) {
+          const status = shadow.querySelector("[data-status-message]");
+          if (status) status.textContent = "Comment saved without a quiz screenshot. Check Sphere’s Chrome toolbar permission.";
+        }
         if (!file) { closeDialog(); return; }
-        const commentId = saved && typeof saved.id === "string" ? saved.id : undefined;
-        if (!commentId || saved?.screenshot_available === false || !options.uploadScreenshot) throw new Error("Comment saved, but attachment upload is unavailable.");
-        const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ""; for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
-        await options.uploadScreenshot(commentId, `data:${file.type};base64,${btoa(binary)}`); closeDialog();
+        try {
+          const commentId = saved && typeof saved.id === "string" ? saved.id : undefined;
+          if (!commentId || saved?.screenshot_available === false || !options.uploadScreenshot) throw new Error("Attachment upload unavailable");
+          const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ""; for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+          await options.uploadScreenshot(commentId, `data:${file.type};base64,${btoa(binary)}`);
+        } catch {
+          const status = shadow.querySelector("[data-status-message]");
+          if (status) status.textContent = "Comment saved, but the file was not attached.";
+        }
+        closeDialog();
       }
       catch (caught) { error.textContent = caught instanceof Error ? caught.message : "Could not save comment."; error.hidden = false; save.disabled = false; }
     });
@@ -737,7 +793,8 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     update(next, nextStatus) {
       const pageChanged = context.page_url !== next.page_url;
       const courseChanged = context.course_url !== next.course_url;
-      if (pageChanged || courseChanged) { registrationDialogClose?.(); registering = false; }
+      if (pageChanged || courseChanged) { registrationDialogClose?.(); registering = false; shadow.querySelector<HTMLDialogElement>("[data-review-workspace]")?.close(); }
+      if (courseChanged) checkedChanges.clear();
       stateVersion += 1; authenticating = false; context = next; status = nextStatus; statusMessage = undefined; closeChoice(false);
       if (pageChanged) { renderer.destroy(); renderer = makeRenderer(); }
       updateLabels();
@@ -750,6 +807,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     },
     setStatus(nextStatus) {
       if (status === nextStatus) return;
+      if (nextStatus !== "connected") shadow.querySelector<HTMLDialogElement>("[data-review-workspace]")?.close();
       status = nextStatus; statusMessage = undefined;
       renderStateControls();
       if (nextStatus !== "connected") shadow.querySelectorAll<HTMLElement>("[data-comment-count],[data-comment-count-short]").forEach((node) => { node.textContent = "0"; });
@@ -765,15 +823,21 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
       if (!policyAcknowledged) openPolicyDisclosure();
     },
     setStatusMessage(message) { statusMessage = message; renderStateControls(); },
-    setViewer(viewer) { currentViewer = viewer; updateLabels(); },
+    setViewer(viewer) {
+      if (currentViewer?.email !== viewer?.email || currentViewer?.role !== viewer?.role) {
+        checkedChanges.clear();
+        shadow.querySelector<HTMLDialogElement>("[data-review-workspace]")?.close();
+      }
+      currentViewer = viewer; updateLabels();
+    },
     setCommentList(comments) {
+      shadow.querySelector<HTMLDialogElement>("[data-review-workspace]")?.close();
       restoreRenderedCommentListGroup = undefined;
       const previousResults = shadow.querySelector<HTMLElement>(".comment-results");
       const previousScrollTop = previousResults?.scrollTop ?? 0;
       const focusedCommentId = (shadow.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-comment-item]")?.dataset.commentItem;
       for (const [id, transient] of transientStatuses) if (!comments.some((comment) => comment.id === id)) comments = [...comments, transient.original];
       loadedComments = new Map(comments.map((comment) => [comment.id, comment]));
-      shadow.querySelectorAll<HTMLElement>("[data-comment-count],[data-comment-count-short]").forEach((node) => { node.textContent = String(comments.length); });
       const panel = shadow.querySelector<HTMLElement>(".panel")!;
       const panelContent = panel.querySelector<HTMLElement>("[data-panel-content]")!;
       panelContent.replaceChildren();
@@ -796,6 +860,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
       let mainCollapseMode = true;
       const setGroupExpanded = (pageUrl: string, expanded: boolean) => { const rows = groupRows.get(pageUrl); const toggle = groupToggles.get(pageUrl); if (!rows || !toggle) return; if (expanded) expandedGroups.add(pageUrl); else expandedGroups.delete(pageUrl); rows.hidden = !expanded; const label = `${expanded ? "Collapse" : "Expand"} ${toggle.dataset.commentGroupTitle} comments`; toggle.setAttribute("aria-expanded", String(expanded)); toggle.setAttribute("aria-label", label); toggle.title = label; };
       const applyFilter = () => {
+        updateUnresolvedCount();
         let visibleCount = 0;
         for (const group of projection.groups) {
           const container = groupContainers.get(group.pageUrl)!;
@@ -818,7 +883,21 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
       for (const value of ["open", "resolved"] as const) { const filter = ownerDocument.createElement("button"); filter.type = "button"; filter.dataset.commentFilter = value; filter.className = "comment-control comment-status"; filter.innerHTML = `<span>${value === "open" ? "Open" : "Resolved"}</span>`; filter.addEventListener("click", () => { commentListFilter = value; renderer.setStatusFilter(value); applyFilter(); }); filters.append(filter); }
       for (const value of ["course", "page"] as const) { const scope = ownerDocument.createElement("button"); scope.type = "button"; scope.dataset.commentScope = value; scope.className = "comment-control comment-scope"; scope.innerHTML = `<span>${value === "course" ? "Whole course" : "Current page"}</span>`; scope.addEventListener("click", () => { commentListScope = value; applyFilter(); }); scopes.append(scope); }
       collapseGroups.addEventListener("click", () => { const expanded = !mainCollapseMode; for (const [pageUrl, container] of groupContainers) if (!container.hidden) setGroupExpanded(pageUrl, expanded); mainCollapseMode = !mainCollapseMode; collapseGroups.textContent = mainCollapseMode ? "Collapse all" : "Expand all"; });
-      filterRow.append(scopes, filters, pageField); panelContent.append(currentPageHeading, filterRow, results, empty);
+      const workspace = ownerDocument.createElement("button");
+      workspace.type = "button"; workspace.textContent = "Full course review";
+      workspace.onclick = () => openReviewWorkspace(shadow, context.page_url, [...loadedComments.values()], checkedChanges, (comment) => {
+        if (comment.page_url === context.page_url && !comment.embedded_locator) {
+          const filter = comment.status === "resolved" ? "resolved" : "open";
+          commentListFilter = filter; renderer.setStatusFilter(filter); applyFilter();
+          renderer.takeToContext(comment.id);
+        } else if (options.navigateToComment) {
+          void options.navigateToComment(comment.id, comment.page_url).catch(() => {
+            const status = shadow.querySelector("[data-status-message]");
+            if (status) status.textContent = "Could not open the comment location.";
+          });
+        }
+      });
+      filterRow.append(scopes, filters, pageField); panelContent.append(currentPageHeading, workspace, filterRow, results, empty);
       for (const [groupIndex, group] of projection.groups.entries()) {
         const groupContainer = ownerDocument.createElement("section"); groupContainer.dataset.commentGroupContainer = group.pageUrl;
         const heading = ownerDocument.createElement("h3"); heading.dataset.commentGroupHeading = "true"; heading.className = "comment-group-heading";

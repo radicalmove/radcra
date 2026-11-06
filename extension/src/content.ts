@@ -4,7 +4,7 @@ declare const __EXTENSION_VERSION__: string;
 declare const __BUILD_COMMIT__: string;
 declare const chrome: any;
 
-import { canonicalCourseUrlFromDocument, courseTitleFromDocument, detectCourseContext, explicitActivityIdFromDocument, explicitCourseIdFromDocument, type CourseContext } from "./course-context.ts";
+import { canonicalCourseUrlFromDocument, courseTitleFromDocument, detectCourseContext, explicitActivityIdFromDocument, explicitCourseIdFromDocument, isQuizPreviewUrl, quizActivityLink, type CourseContext } from "./course-context.ts";
 import { resolveScormLaunchUrl } from "./scorm-launch.ts";
 import { mountReviewOverlay, type AccessLookupReadiness, type AuthenticationOutcome, type BuildDiagnostics, type ConnectionStatus, type ReviewOverlay } from "./overlay/root.ts";
 import type { PageComment } from "./background-bridge.ts";
@@ -216,7 +216,7 @@ export async function bootstrapContentScript(options: {
 }
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {
-  void bootstrapContentScript({
+  const activate = () => void bootstrapContentScript({
     url: window.location.href,
     document,
     moodlePatterns: __MOODLE_PATTERNS__,
@@ -228,6 +228,21 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
       return startEmbeddedReview(window, document, chrome.runtime, 200, 2_000, workerInstanceEpoch);
     },
   });
+  if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+    let changed = false;
+    chrome.runtime.onMessage.addListener((message: { type?: string; paused?: boolean }, sender: { id?: string }) => {
+      if (sender.id !== chrome.runtime.id || message?.type !== "SPHERE_PAUSE_CHANGED") return;
+      changed = true;
+      if (message.paused === true) {
+        const root = document.documentElement as OwnedRoot;
+        const previous = root[OWNER];
+        if (previous) { previous.cleanup(); root[OWNER] = { cleanup() {}, workerInstanceEpoch: previous.workerInstanceEpoch }; }
+      } else activate();
+    });
+    sendRuntimeMessage(chrome.runtime, { type: "GET_SPHERE_PAUSE" }, (response) => {
+      if (!changed && (response?.data as { paused?: boolean } | undefined)?.paused !== true) activate();
+    });
+  } else activate();
 }
 
 function pageLabel(document: Document): string {
@@ -235,12 +250,15 @@ function pageLabel(document: Document): string {
 }
 
 function currentContext(targetWindow: Window & typeof globalThis, targetDocument: Document): CourseContext {
+  const url = targetWindow.location.href;
+  const explicitActivityId = explicitActivityIdFromDocument(targetDocument);
+  const quiz = isQuizPreviewUrl(url, targetDocument) ? quizActivityLink(url, explicitActivityId) : undefined;
   return detectCourseContext({
-    url: targetWindow.location.href,
+    url: quiz ?? url,
     title: courseTitleFromDocument(targetDocument),
     pageTitle: pageLabel(targetDocument),
     explicitCourseId: explicitCourseIdFromDocument(targetDocument),
-    explicitActivityId: explicitActivityIdFromDocument(targetDocument),
+    explicitActivityId,
     canonicalCourseUrl: canonicalCourseUrlFromDocument(targetDocument),
   });
 }
@@ -538,7 +556,7 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
     courseId = undefined; courseHandle = undefined; canRegister = false; courseIds.delete(registrationCourseUrl); lastSignature = "";
     refresh();
     return { status: "connected" };
-  }, onTakeToContext: (id) => { overlay.takeToContext(id); }, submit: async ({ body, category, anchor, screenshot, embeddedFrameUnavailable, contextSnapshot }) => {
+  }, captureScreenshot: () => send<string>({ type: "CAPTURE_QUIZ_PREVIEW" }), onTakeToContext: (id) => { overlay.takeToContext(id); }, submit: async ({ body, category, anchor, screenshot, embeddedFrameUnavailable, contextSnapshot }) => {
     const snapshotCourseId = courseIds.get(contextSnapshot.course_url);
     if (!snapshotCourseId) throw new Error("The original course is no longer connected. Cancel and reopen the comment.");
     await refreshCourseBindingBeforeComment(send, contextSnapshot, snapshotCourseId);

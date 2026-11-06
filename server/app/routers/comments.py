@@ -18,11 +18,12 @@ def _reply_json(reply: CommentReply) -> dict[str, str]:
     return {"id": str(reply.id), "author_user_id": str(reply.author_user_id), "body": reply.body}
 
 
-def _page_comment_json(projected: PageComment, viewer: User, db: DbSession) -> dict:
+def _page_comment_json(projected: PageComment, viewer: User, db: DbSession, include_created_at: bool = False) -> dict:
     comment, location, author = projected.comment, projected.location, projected.author
     interaction_context = None if location.interaction_context is None else RiseInteractionContext.model_validate(location.interaction_context).model_dump(mode="json")
     return {
         "id": str(comment.id), "body": comment.body, "category": comment.category.value,
+        **({"created_at": comment.created_at.isoformat()} if include_created_at else {}),
         "status": comment.status.value, "author": {"display_name": author.display_name, "role": projected.author_role.value}, "page_url": location.page_url, "page_title": location.page_title,
         "parent_activity_url": location.parent_activity_url, "embedded_locator": location.embedded_locator, "interaction_context": interaction_context,
         "anchor_type": location.anchor_type.value if hasattr(location.anchor_type, "value") else location.anchor_type, "selected_quote": location.selected_quote,
@@ -103,12 +104,12 @@ def set_status(comment_id: uuid.UUID, payload: CommentStatusRequest, user: User 
 
 
 @router.get("")
-def list_comments(course_id: uuid.UUID, page_url: str | None = Query(default=None, min_length=1, max_length=4096), user: User = Depends(current_api_user), db: DbSession = Depends(get_session)) -> list[dict]:
+def list_comments(course_id: uuid.UUID, page_url: str | None = Query(default=None, min_length=1, max_length=4096), include_created_at: bool = False, user: User = Depends(current_api_user), db: DbSession = Depends(get_session)) -> list[dict]:
     require_course_access(user, course_id)
     if db.get(Course, course_id) is None:
         raise HTTPException(status_code=404, detail="Course not found")
     try:
-        return [_page_comment_json(comment, user, db) for comment in visible_page_comments_for(db, user, course_id, page_url)]
+        return [_page_comment_json(comment, user, db, include_created_at) for comment in visible_page_comments_for(db, user, course_id, page_url)]
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

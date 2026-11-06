@@ -286,6 +286,19 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
     const body = threadMessage(document, comment.author, comment.body, true, false, participantColour(comment.author, threadParticipants)); body.dataset.threadOriginal = "true";
     const topActions = document.createElement("div"); topActions.className = "thread-top-actions"; topActions.dataset.threadTopActions = "true";
     article.append(contextLine, byline, body, topActions);
+    if (comment.selected_quote) {
+      const recovered = recoverTextAnchor(document, { selected_quote: comment.selected_quote, prefix: comment.prefix ?? "", suffix: comment.suffix ?? "" });
+      const current = recovered.status === "resolved" && !recovered.approximate ? recovered.range.toString() : "";
+      if (current && current.replace(/\s+/g, " ").trim() !== comment.selected_quote.replace(/\s+/g, " ").trim()) {
+        const comparison = document.createElement("p");
+        comparison.textContent = `Originally highlighted: “${comment.selected_quote}” · Now: “${current}”`;
+        article.append(comparison);
+      } else if (recovered.status === "resolved" && recovered.approximate) {
+        const comparison = document.createElement("p");
+        comparison.textContent = `Approximate location. Originally highlighted: “${comment.selected_quote}” · The original text is no longer here.`;
+        article.append(comparison);
+      }
+    }
 
     if (comment.capabilities.can_edit && options.editThread) {
       const edit = document.createElement("button"); edit.type = "button"; edit.className = "thread-edit"; edit.append(createReviewIcon(document, "edit")); edit.setAttribute("aria-label", "Edit original comment"); edit.title = "Edit comment";
@@ -447,7 +460,20 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
   const renderMarker = (comment: PageComment, index: number, place: (marker: HTMLElement) => void) => {
     const marker = document.createElement("button"); marker.type = "button"; marker.setAttribute("aria-label", `Open feedback: ${comment.body}`); const authorFirstName = getCommentAuthorFirstName(comment.author); marker.title = authorFirstName ? `Open comment by ${authorFirstName}` : "Open comment"; marker.setAttribute("aria-expanded", "false"); marker.textContent = "💬"; marker.style.cssText = "--sphere-ink:#0C447C;--sphere-primary:#185FA5;--sphere-action:#378ADD;--sphere-radius-container:8px;position:fixed;z-index:900;width:38px;height:38px;border:2px solid var(--sphere-ink);border-radius:var(--sphere-radius-container);background:var(--sphere-primary);color:#fff;padding:4px;font:20px/1 sans-serif;box-shadow:0 3px 10px #0005";
     marker.addEventListener("click", () => openThread(comment, index, marker)); document.documentElement.append(marker); markers.set(comment.id, marker);
-    const reposition = () => place(marker); repositioners.add(reposition); startRepositioning(); reposition();
+    const courseIndex = courseOpenComments.findIndex((entry) => entry.id === comment.id);
+    marker.textContent = String(courseIndex < 0 ? index + 1 : courseIndex + 1);
+    const reposition = () => {
+      place(marker);
+      if (marker.hidden) return;
+      let left = Number.parseFloat(marker.style.left);
+      const top = Number.parseFloat(marker.style.top);
+      if (!Number.isFinite(left) || !Number.isFinite(top)) return;
+      for (const other of markers.values()) {
+        if (other === marker) break;
+        if (!other.hidden && Math.abs(Number.parseFloat(other.style.top) - top) < 38 && Math.abs(Number.parseFloat(other.style.left) - left) < 38) left += 40;
+      }
+      marker.style.left = `${left}px`;
+    }; repositioners.add(reposition); startRepositioning(); reposition();
     cleanups.push(() => { repositioners.delete(reposition); marker.remove(); });
   };
 
@@ -474,9 +500,18 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
           const recovered = recoverTextAnchor(document, { selected_quote: comment.selected_quote, prefix: comment.prefix ?? "", suffix: comment.suffix ?? "" });
           if (recovered.status === "unresolved") unresolved.push({ id: comment.id, label: `${comment.page_title} · ${comment.body}`, quote: comment.selected_quote });
           else {
-            cleanups.push(renderTextHighlight(document, recovered.range));
+            let highlight: HTMLElement | undefined;
+            if (!recovered.approximate) cleanups.push(renderTextHighlight(document, recovered.range, (element) => { highlight = element; }));
             renderMarker(comment, index, (marker) => { const rect = recovered.range.getBoundingClientRect(); const width = document.defaultView?.innerWidth ?? 800; const height = document.defaultView?.innerHeight ?? 600; marker.hidden = (rect.width === 0 && rect.height === 0) || rect.bottom <= 0 || rect.top >= height || rect.right <= 0 || rect.left >= width; if (!marker.hidden) { marker.style.left = `${rect.left}px`; marker.style.top = `${rect.bottom + 4}px`; } });
             markers.get(comment.id)!.id = `moodle-review-highlight-${comment.id}`; markers.get(comment.id)!.dataset.moodleReviewStoredHighlight = comment.id;
+            const marker = markers.get(comment.id)!;
+            if (recovered.approximate) marker.title = "Approximate comment location — original text removed";
+            if (highlight) {
+              const emphasize = () => {
+                if (highlight) highlight.style.filter = marker.matches(":hover, :focus") ? "saturate(2.8) brightness(.75)" : "";
+              };
+              for (const event of ["pointerenter", "pointerleave", "focus", "blur"]) marker.addEventListener(event, emphasize);
+            }
           }
         } else if (comment.anchor_type === "visual_pin" && comment.css_selector && comment.relative_x !== null && comment.relative_y !== null) {
           const anchor = { css_selector: comment.css_selector, relative_x: comment.relative_x, relative_y: comment.relative_y };

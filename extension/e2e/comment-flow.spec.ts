@@ -12,14 +12,17 @@ const viewers = {
   ld: { role: "ld_dcd", userId: "ld-1", email: "ld@example.test" },
 } satisfies Record<string, FixtureViewer>;
 
-async function installRuntime(page: Page, backend: StatefulCommentBackend) {
+async function installRuntime(page: Page, backend: StatefulCommentBackend, calls: string[] = [], screenshot?: () => Promise<string>) {
   await page.exposeFunction("__fixtureRuntime", (message: any) => {
+    calls.push(message.type);
+    if (message.type === "GET_POLICY_STATUS") return { ok: true, data: { acknowledged: true } };
+    if (message.type === "CAPTURE_QUIZ_PREVIEW") return screenshot ? screenshot().then((data) => ({ ok: true, data })) : { ok: false, error: "Chrome permission unavailable" };
     if (message.type === "RESOLVE_COURSE") return { ok: true, data: { id: courseId } };
     if (message.type === "GET_REVIEW_CONTEXT") return { ok: true, data: { course_id: courseId, course_title: "Law course", parent_activity_url: "https://moodle.example.invalid/page/one" } };
     if (message.type === "GET_CURRENT_VIEWER") return { ok: true, data: { id: viewers.ld.userId, email: viewers.ld.email, display_name: "Fixture reviewer", role: "ld_dcd" } };
     if (message.type === "LIST_COURSE_COMMENTS") return { ok: true, data: backend.list("https://moodle.example.invalid/page/one") };
     if (message.type === "CONSUME_COMMENT_NAVIGATION") return { ok: true, data: {} };
-    if (message.type === "CREATE_COMMENT") return { ok: true, data: backend.create(message.payload) };
+    if (message.type === "CREATE_COMMENT") return { ok: true, data: { ...backend.create(message.payload), screenshot_available: message.screenshot_requested === true } };
     return { ok: true, data: {} };
   });
   await page.addInitScript(() => {
@@ -77,6 +80,64 @@ test("beta creates a real highlight; reload recovers its beta/LD-only thread and
   expect(thread).toContain("Beta highlighted feedback"); expect(thread).not.toContain("SME reply must stay hidden");
   await page.evaluate(() => history.pushState({}, "", "/page/two"));
   await expect(page.locator("[data-moodle-review-stored-highlight]")).toHaveCount(0);
+});
+
+test("quiz preview requests a screenshot automatically and still saves when Chrome denies capture", async ({ page }) => {
+  const backend = new StatefulCommentBackend(); backend.setViewer(viewers.ld);
+  const calls: string[] = [];
+  await serve(page); await installRuntime(page, backend, calls);
+  await page.goto("https://moodle.example.invalid/mod/quiz/preview.php?cmid=42");
+  await page.addScriptTag({ path: contentScript });
+  const host = page.locator("#moodle-course-review-overlay");
+  await expect(host.locator('[data-action="add-comment"]')).toBeVisible();
+  await compose(page, "highlight", "Quiz wording feedback");
+  expect(calls.filter((type) => type === "CAPTURE_QUIZ_PREVIEW")).toHaveLength(1);
+  expect(calls.filter((type) => type === "CREATE_COMMENT")).toHaveLength(1);
+  expect(calls).not.toContain("UPLOAD_SCREENSHOT");
+  await expect(host.locator("[data-status-message]")).toContainText("saved without a quiz screenshot");
+});
+
+test("Moodle restart-preview form enables automatic screenshot attachment", async ({ page }) => {
+  const backend = new StatefulCommentBackend(); backend.setViewer(viewers.ld);
+  const calls: string[] = [];
+  await serve(page);
+  await page.route("https://moodle.example.invalid/mod/quiz/attempt.php?**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: '<h1>Quiz</h1><nav id="mod_quiz_navblock"><div class="othernav"><form action="/mod/quiz/startattempt.php"><input type="hidden" name="forcenew" value="1"></form></div></nav><div class="que"><span class="qno">3</span><p id="copy">An important phrase here</p></div>',
+  }));
+  await installRuntime(page, backend, calls, async () => "data:image/png;base64," + (await page.screenshot()).toString("base64"));
+  await page.goto("https://moodle.example.invalid/mod/quiz/attempt.php?attempt=5&cmid=42");
+  await page.addScriptTag({ path: contentScript });
+  await expect(page.locator("#moodle-course-review-overlay").locator('[data-action="add-comment"]')).toBeVisible();
+  await compose(page, "highlight", "Review question three");
+  expect(calls.filter((type) => ["CAPTURE_QUIZ_PREVIEW", "CREATE_COMMENT", "UPLOAD_SCREENSHOT"].includes(type))).toEqual(["CAPTURE_QUIZ_PREVIEW", "CREATE_COMMENT", "UPLOAD_SCREENSHOT"]);
+  expect(backend.list("https://moodle.example.invalid/mod/quiz/view.php?id=42")[0]?.page_title).toContain("question 3");
+});
+
+test("edited highlight keeps its marker and the review view exports before and after text", async ({ page }) => {
+  const backend = new StatefulCommentBackend(); backend.setViewer(viewers.ld);
+  await serve(page);
+  let wording = "important phrase";
+  await page.route("https://moodle.example.invalid/page/one", (route) => route.fulfill({ contentType: "text/html", body: `<h1>Fixture</h1><p id=copy>Here is a long stable beginning before the ${wording} with a long stable ending afterwards.</p>` }));
+  await installRuntime(page, backend);
+  await load(page);
+  const host = page.locator("#moodle-course-review-overlay");
+  await expect(host.locator('[data-action="add-comment"]')).toBeVisible();
+  await compose(page, "highlight", "Check the wording");
+  wording = "revised wording";
+  await page.reload(); await page.addScriptTag({ path: contentScript });
+  await expect(page.locator("[data-moodle-review-stored-highlight]")).toBeVisible();
+  await expect(host.locator("[data-comment-count]")).toHaveText("1");
+  await host.locator('[data-action="panel"]').click();
+  await host.getByRole("button", { name: "Full course review" }).click();
+  const workspace = host.getByRole("dialog", { name: "Course review" });
+  await expect(workspace).toContainText("Originally highlighted: important phrase");
+  await expect(workspace).toContainText("Current text: revised wording");
+  await workspace.getByRole("checkbox", { name: "Change checked" }).check();
+  const download = page.waitForEvent("download");
+  await workspace.getByRole("button", { name: "Export JSON" }).click();
+  expect((await download).suggestedFilename()).toBe("sphere-course-review.json");
+  await workspace.getByRole("button", { name: "Close" }).click();
 });
 
 test("SME creates a real geometric pin and LD/DCD sees its recovered thread after viewer refresh", async ({ page }) => {

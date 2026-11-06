@@ -9,7 +9,8 @@ test("version remains accessible without overlapping review controls at 320 CSS 
   await page.route("https://moodle.example.invalid/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Fixture</title><h1>Law</h1>" }));
   await page.addInitScript(() => {
     (globalThis as any).chrome = { runtime: { id: "fixture-extension", sendMessage(message: any, callback: (response: unknown) => void) {
-      if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174000" } });
+      if (message.type === "GET_POLICY_STATUS") callback({ ok: true, data: { acknowledged: true } });
+      else if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174000" } });
       else if (message.type === "GET_CURRENT_VIEWER") callback({ ok: true, data: { id: "123e4567-e89b-42d3-a456-426614174001", email: "ld@example.test", display_name: "Fixture LD", role: "ld_dcd" } });
       else callback({ ok: true, data: [] });
     } } };
@@ -37,7 +38,7 @@ test("version remains accessible without overlapping review controls at 320 CSS 
   expect(intersects(boxes[0], boxes[1])).toBe(false);
 
   await host.locator('[data-action="help"]').click();
-  await expect(host.getByText("Pilot 0.6.0 · build 0000000")).toBeVisible();
+  await expect(host.getByText("Pilot 0.6.1 · build 0000000")).toBeVisible();
 });
 
 test("course comment controls remain equal height on one row", async ({ page }) => {
@@ -45,7 +46,8 @@ test("course comment controls remain equal height on one row", async ({ page }) 
   await page.route("https://moodle.example.invalid/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Fixture</title><h1>Law</h1>" }));
   await page.addInitScript(() => {
     (globalThis as any).chrome = { runtime: { id: "fixture-extension", sendMessage(message: any, callback: (response: unknown) => void) {
-      if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174000" } });
+      if (message.type === "GET_POLICY_STATUS") callback({ ok: true, data: { acknowledged: true } });
+      else if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174000" } });
       else if (message.type === "GET_CURRENT_VIEWER") callback({ ok: true, data: { id: "123e4567-e89b-42d3-a456-426614174001", email: "ld@example.test", display_name: "Fixture LD", role: "ld_dcd" } });
       else callback({ ok: true, data: [] });
     } } };

@@ -71,7 +71,8 @@ export function validatePageCommentsResponse(value: unknown, requestedPageUrl?: 
   const statuses = ["open", "in_progress", "awaiting_sme", "resolved", "deferred"];
   return value.map((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return invalid();
-    const row = entry as Record<string, unknown>;
+    const { created_at, ...row } = entry as Record<string, unknown>;
+    if (created_at !== undefined && (!bounded(created_at, 64) || !Number.isFinite(Date.parse(created_at as string)))) return invalid();
     const hasInteractionContext = Object.prototype.hasOwnProperty.call(row, "interaction_context");
     const author = row.author as Record<string, unknown>;
     const capabilities = row.capabilities as Record<string, unknown>;
@@ -93,7 +94,7 @@ export function validatePageCommentsResponse(value: unknown, requestedPageUrl?: 
       if (!item || typeof item !== "object" || Array.isArray(item)) return invalid(); const event = item as Record<string, unknown>;
       if (!exactKeys(event, ["status", "created_at", "actor"]) || !statuses.includes(event.status as string) || !bounded(event.created_at, 64) || !bounded(event.actor, 100)) return invalid();
     }
-    return { ...row, interaction_context: hasInteractionContext ? row.interaction_context : null } as PageComment;
+    return { ...row, ...(created_at === undefined ? {} : { created_at }), interaction_context: hasInteractionContext ? row.interaction_context : null } as PageComment;
   });
 }
 

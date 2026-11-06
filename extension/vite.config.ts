@@ -29,6 +29,7 @@ function manifestPlugin(): Plugin {
       source.optional_host_permissions = optionalPatterns;
       source.content_scripts[0].matches = moodlePatterns;
       writeFileSync(resolve("dist/manifest.json"), `${JSON.stringify(source, null, 2)}\n`);
+      for (const asset of ["sphere-controls.html", "sphere-controls.js"]) copyFileSync(resolve("public", asset), resolve("dist", asset));
     },
   };
 }

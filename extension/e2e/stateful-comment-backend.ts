@@ -43,6 +43,7 @@ export class StatefulCommentBackend {
   list(pageUrl: string) {
     return this.comments.filter((comment) => comment.page_url === pageUrl && this.canView(comment)).map(({ authorId: _authorId, sharedSmeIds: _shares, ...comment }) => ({
       ...comment,
+      capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: false, can_edit: false },
       replies: comment.replies.filter((reply) => this.viewer.role !== "beta_tester" || reply.authorId === this.viewer.userId || reply.author.role === "ld_dcd").map(({ authorId: _replyAuthorId, ...reply }) => reply),
     }));
   }

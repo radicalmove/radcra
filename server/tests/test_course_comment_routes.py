@@ -181,6 +181,11 @@ def test_course_comment_list_includes_locations_and_excludes_other_courses(clien
     assert {item["page_title"] for item in response.json()} == {"Page 91", "Page 92"}
     assert all(item["page_url"].endswith(("91", "92")) for item in response.json())
     assert all(item["parent_activity_url"] is None and item["embedded_locator"] is None for item in response.json())
+    assert all("created_at" not in item for item in response.json())
+    dated = client.get(f"/api/comments?course_id={first}&include_created_at=true", headers=headers)
+    assert dated.status_code == 200
+    assert len(dated.json()) == 2
+    assert all(item["created_at"] for item in dated.json())
 
 
 def test_embedded_navigation_metadata_round_trips_through_course_comment_list(client):

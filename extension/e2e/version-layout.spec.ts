@@ -54,7 +54,7 @@ test("version remains accessible without overlapping review controls at 320 CSS 
   }
 
   await host.locator('[data-action="help"]').click();
-  await expect(host.getByText("Pilot 0.6.11 · build 0000000")).toBeVisible();
+  await expect(host.getByText("Pilot 0.6.12 · build 0000000")).toBeVisible();
 });
 
 test("comment control rows stay distinct and fit even at a narrow zoomed viewport", async ({ page }) => {
@@ -85,7 +85,12 @@ test("comment control rows stay distinct and fit even at a narrow zoomed viewpor
       expect(second.right).toBeLessThanOrEqual(width);
       expect(second.left >= first.right + 4 || second.top >= first.bottom + 4).toBe(true);
     }
-    expect(rows[1][0].top).toBeGreaterThan(rows[0][1].bottom);
-    expect(rows[2][0].top).toBeGreaterThan(rows[1][1].bottom);
+    if (width === 760) {
+      expect(rows[1][0].top).toBeCloseTo(rows[0][0].top, 0);
+      expect(rows[1][0].left).toBeGreaterThan(rows[0][1].right);
+    } else {
+      expect(rows[1][0].top).toBeGreaterThan(rows[0][1].bottom);
+    }
+    expect(rows[2][0].top).toBeGreaterThan(Math.max(rows[0][1].bottom, rows[1][1].bottom));
   }
 });

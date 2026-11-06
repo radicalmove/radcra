@@ -24,10 +24,17 @@ STORE_NAME = "Sphere - Course Review App (BETA)"
 STORE_FILES = (
     "background.js",
     "content.js",
+    "fonts/OFL.txt",
+    "fonts/Poppins-Bold.ttf",
+    "fonts/Poppins-Medium.ttf",
+    "fonts/Poppins-Regular.ttf",
+    "fonts/Poppins-SemiBold.ttf",
     "icons/icon128.png",
     "icons/icon16.png",
     "icons/icon48.png",
     "manifest.json",
+    "sphere-controls.html",
+    "sphere-controls.js",
 )
 
 _SEMVER = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
@@ -71,6 +78,8 @@ def _validate_manifest(dist: Path, version: str, files: set[str]) -> dict:
         raise ValueError(f"manifest version does not match requested version {version}")
     if manifest.get("name") != STORE_NAME:
         raise ValueError(f"manifest name must be {STORE_NAME}")
+    if manifest.get("action", {}).get("default_popup") != "sphere-controls.html":
+        raise ValueError("manifest must reference the bundled Sphere controls")
     if "THIS EXTENSION IS FOR BETA TESTING" not in str(manifest.get("description", "")):
         raise ValueError("manifest description must contain the beta-testing disclosure")
     icons = manifest.get("icons")
@@ -96,8 +105,7 @@ def validate_store_directory(dist: Path, version: str) -> list[str]:
     """Validate generated production output and return package file names.
 
     The validator is intentionally strict about files that could leak release
-    metadata or private signing material, while allowing any generated runtime
-    chunks/assets that a future build may add.
+    metadata or private signing material, and admits only the declared runtime files.
     """
 
     dist = Path(dist)

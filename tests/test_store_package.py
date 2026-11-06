@@ -36,11 +36,17 @@ class StorePackageTests(unittest.TestCase):
             ],
             "optional_host_permissions": ["https://packages.articulateusercontent.com/*"],
             "background": {"service_worker": "background.js"},
+            "action": {"default_popup": "sphere-controls.html"},
             "content_scripts": [{"matches": ["https://my.uconline.ac.nz/*"], "js": ["content.js"]}],
         }
         (dist / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         for size in (16, 48, 128):
             (dist / "icons" / f"icon{size}.png").write_bytes(b"PNG" + bytes([size]))
+        for name in STORE_FILES:
+            path = dist / name
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("fixture")
         return dist
 
     def test_package_is_root_level_deterministic_and_reports_files(self):

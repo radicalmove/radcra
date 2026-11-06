@@ -28,6 +28,7 @@ Use this exact copy for the private trusted-testers item.
 | `storage` | Stores bounded session/access and reconnect state and optional-host coordination, panel preferences, update-check state, and policy acknowledgement. |
 | `scripting` | Registers and injects the packaged content script only on approved optional embedded hosts. |
 | `webNavigation` | Observes trusted top-level navigation and enumerates the current-tab frame hierarchy. |
+| `activeTab` | Allows the reviewer to grant temporary access by opening the Sphere toolbar menu. Sphere then captures the visible tab only when saving an eligible staff quiz preview comment with screenshot capture enabled. |
 | configured Moodle host patterns | Runs Sphere only on approved Moodle origins; no `<all_urls>` access. |
 | configured HTTPS review-service origin | Sends authenticated course-review operations to the configured service. |
 | `https://radicalmove.github.io/sphere/*` | Reads strictly validated `latest.json` version metadata. It reads no Moodle content or credentials and cannot supply executable behaviour. |
@@ -61,4 +62,4 @@ Certify every Limited Use statement: data is not sold; is not used or transferre
 
 **Update metadata:** https://radicalmove.github.io/sphere/latest.json
 
-Distribute only to approved private trusted testers. Supply reviewer credentials and private URLs only in Store Test instructions or another approved private channel. Upload the exact root-level `sphere-web-store-v0.6.0.zip`; compare the Store Item ID and public key with the accepted pilot identity before submission. Use the generated Sphere promo tile and a genuine current product screenshot; do not fabricate Store evidence.
+Distribute only to approved private trusted testers. Supply reviewer credentials and private URLs only in Store Test instructions or another approved private channel. Upload the verified root-level Sphere Web Store ZIP; compare the Store Item ID and public key with the accepted pilot identity before submission. Use the approved Sphere promo tile and a genuine current product screenshot; do not fabricate Store evidence.

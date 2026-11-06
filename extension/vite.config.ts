@@ -53,6 +53,7 @@ function extensionFontsPlugin(): Plugin {
     closeBundle() {
       const destination = resolve("dist/fonts");
       mkdirSync(destination, { recursive: true });
+      copyFileSync(resolve("public/fonts/OFL.txt"), resolve(destination, "OFL.txt"));
       for (const weight of ["Regular", "Medium", "SemiBold", "Bold"]) {
         copyFileSync(resolve(`public/fonts/Poppins-${weight}.ttf`), resolve(destination, `Poppins-${weight}.ttf`));
       }

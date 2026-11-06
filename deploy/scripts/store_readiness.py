@@ -14,6 +14,10 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from PIL import Image
+if __package__:
+    from .store_package import STORE_FILES
+else:
+    from store_package import STORE_FILES
 
 
 REPOSITORY = "radicalmove/radcra"
@@ -21,7 +25,6 @@ PUBLIC_ORIGIN = "https://radicalmove.github.io/sphere/"
 CONTACT = "rcadavies@gmail.com"
 NAME = "Sphere - Course Review App (BETA)"
 CHECK_NAMES = ("identity", "public_site", "privacy_disclosure", "support", "promo", "screenshot", "package", "checksum", "production_inputs")
-STORE_FILES = ("background.js", "content.js", "icons/icon128.png", "icons/icon16.png", "icons/icon48.png", "manifest.json")
 REPORT_FIELDS = {
     "schema_version", "version", "repository", "build_mode", "build_commit",
     "moodle_patterns", "optional_frame_patterns", "review_service_origin",

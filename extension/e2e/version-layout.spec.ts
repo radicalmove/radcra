@@ -11,7 +11,7 @@ test("version remains accessible without overlapping review controls at 320 CSS 
     (globalThis as any).chrome = { runtime: { id: "fixture-extension", sendMessage(message: any, callback: (response: unknown) => void) {
       if (message.type === "GET_POLICY_STATUS") callback({ ok: true, data: { acknowledged: true } });
       else if (message.type === "RESOLVE_COURSE") callback({ ok: true, data: { id: "123e4567-e89b-12d3-a456-426614174000" } });
-      else if (message.type === "GET_CURRENT_VIEWER") callback({ ok: true, data: { id: "123e4567-e89b-42d3-a456-426614174001", email: "ld@example.test", display_name: "Fixture LD", role: "ld_dcd" } });
+      else if (message.type === "GET_CURRENT_VIEWER") callback({ ok: true, data: { user: { id: "123e4567-e89b-42d3-a456-426614174001", email: "ld@example.test", display_name: "Fixture LD", role: "ld_dcd" } } });
       else callback({ ok: true, data: [] });
     } } };
   });
@@ -36,9 +36,14 @@ test("version remains accessible without overlapping review controls at 320 CSS 
   }
   const intersects = (a: any, b: any) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
   expect(intersects(boxes[0], boxes[1])).toBe(false);
+  await expect(host.locator(".toolbar")).toHaveCSS("background-color", "rgb(24, 95, 165)");
+  await expect(host.locator(".viewer")).toBeVisible();
+  for (const selector of [".course", ".viewer", ".status", ".pilot-version", ".sign-out"]) {
+    await expect(host.locator(selector)).toHaveCSS("color", "rgb(255, 255, 255)");
+  }
 
   await host.locator('[data-action="help"]').click();
-  await expect(host.getByText("Pilot 0.6.2 · build 0000000")).toBeVisible();
+  await expect(host.getByText("Pilot 0.6.3 · build 0000000")).toBeVisible();
 });
 
 test("comment control rows stay distinct and fit even at a narrow zoomed viewport", async ({ page }) => {

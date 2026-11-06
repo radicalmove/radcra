@@ -5,7 +5,7 @@ import { renderTextHighlight } from "../anchors/recover.ts";
 import { capturePinAnchor, renderPin, type PinAnchor } from "../anchors/pin.ts";
 import type { PageComment } from "../background-bridge.ts";
 import { createCommentRenderer, type CommentRenderer, type UnresolvedAnchor } from "../comment-renderer.ts";
-import { coursePageJumpLabel, projectCourseComments } from "../course-comment-order.ts";
+import { courseCommentNumbers, coursePageJumpLabel, projectCourseComments } from "../course-comment-order.ts";
 import { createReviewIcon, reviewIconMarkup } from "../ui/icon-family.ts";
 import { COMMENT_MARKER_CURSOR } from "../ui/comment-cursor.ts";
 import { readCoursePanelState, writeCoursePanelState, type PanelStateStorage } from "../ui/panel-state.ts";
@@ -148,6 +148,7 @@ export function mountReviewOverlay(document: Document, context: CourseContext, s
   style.textContent += `.shell .toolbar{background:var(--sphere-primary);color:#fff}.toolbar .identity :is(.course,.viewer,.status,.pilot-version){color:#fff}.toolbar .sign-out,.toolbar .sign-out:hover{color:#fff!important;text-decoration:underline}.toolbar .sign-out:hover{text-decoration-thickness:2px}.toolbar .sign-out:focus-visible{outline:2px solid #fff;outline-offset:3px}.toolbar-actions [data-action="panel"][aria-expanded="true"]{border-color:#fff!important}`;
   style.textContent += `.panel :is(.comment-control,.review-workspace-button){font-size:13px}`;
   style.textContent += `.shell[data-panel-compact] .toolbar{padding-block:7px;row-gap:5px}.shell[data-panel-compact] .identity{min-height:32px}.shell[data-panel-compact] .course{padding-right:40px}.shell[data-panel-compact] :is(.viewer-line,.pilot-version,[data-auth-status][data-routine]){display:none}.shell[data-panel-compact] [data-auth-status]:not([data-routine]){white-space:normal;margin-right:32px}`;
+  style.textContent += `.comment-number-badge{display:inline-block;min-width:1.45em;padding:0 .24em;border-radius:4px;background:var(--sphere-primary);color:white;text-align:center;font-weight:700}`;
   shadow.append(style);
   return createController(host, shadow, context, status, options, buildDiagnostics);
 }
@@ -852,6 +853,7 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
       const panelContent = panel.querySelector<HTMLElement>("[data-panel-content]")!;
       panelContent.replaceChildren();
       const projection = projectCourseComments(comments, rendererOrder);
+      const commentNumbers = courseCommentNumbers(comments);
       const pageLabels = new Map<string, string>();
       for (const group of projection.groups) for (const { comment } of group.comments) pageLabels.set(comment.id, group.title);
       const currentPageHeading = ownerDocument.createElement("p"); currentPageHeading.className = "current-page-heading"; currentPageHeading.dataset.currentPageHeading = "true"; currentPageHeading.innerHTML = `<strong>Current page:</strong> ${escapeHtml(context.pageTitle.trim() || "Untitled page")}`;
@@ -947,6 +949,12 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
         const commentIndex = displayIndex - 1;
         const listItem = ownerDocument.createElement("div"); listItem.setAttribute("role", "listitem"); listItem.className = "comment-row"; listItem.dataset.commentRow = comment.id;
         const item = ownerDocument.createElement("button"); item.type = "button"; item.className = "comment-index-link"; item.dataset.commentItem = comment.id; item.dataset.commentIndex = String(commentIndex + 1); item.dataset.commentGroup = comment.status === "resolved" ? "resolved" : "open"; item.dataset.commentPageUrl = comment.page_url; const pageLabel = pageLabels.get(comment.id)!; const normalisedBody = comment.body.replace(/\s+/g, " ").trim(); const initialBody = normalisedBody.slice(0, 56); const conciseBody = `“${initialBody}${normalisedBody.length > 56 ? "…" : ""}”`; const excerpt = ownerDocument.createElement("span"); excerpt.className = "comment-excerpt"; const author = getCommentAuthorFirstName(comment.author); if (author) { const authorLabel = ownerDocument.createElement("span"); authorLabel.className = "comment-author"; authorLabel.textContent = `${author} `; excerpt.append(authorLabel); } const bodyLabel = ownerDocument.createElement("span"); bodyLabel.className = "comment-body"; bodyLabel.textContent = conciseBody; excerpt.append(bodyLabel); item.append(excerpt); const interactionLabel = comment.interaction_context ? interactionContextLabel(comment.interaction_context) : ""; if (interactionLabel) { const interaction = ownerDocument.createElement("span"); interaction.className = "comment-interaction-label"; interaction.textContent = interactionLabel; item.append(interaction); } const fullAuthor = typeof comment.author?.display_name === "string" ? comment.author.display_name : ""; item.setAttribute("aria-label", `Open comment in context. ${pageLabel}. ${interactionLabel ? `${interactionLabel}. ` : ""}${comment.body}. ${fullAuthor}. Status ${comment.status}.`);
+        const badge = ownerDocument.createElement("span");
+        badge.className = "comment-number-badge";
+        badge.textContent = String(commentNumbers.get(comment.id)!);
+        badge.setAttribute("aria-hidden", "true");
+        excerpt.prepend(badge, " ");
+        item.setAttribute("aria-label", `${item.getAttribute("aria-label")} Marker ${badge.textContent}.`);
         item.addEventListener("click", async () => {
           panelContent.querySelector("[data-comment-navigation-status]")?.remove();
           if (comment.page_url !== context.page_url) {

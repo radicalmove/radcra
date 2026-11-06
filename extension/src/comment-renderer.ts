@@ -2,7 +2,7 @@ import { recoverPinAnchor } from "./anchors/pin.ts";
 import { recoverTextAnchor, renderTextHighlight } from "./anchors/recover.ts";
 import type { PageComment } from "./background-bridge.ts";
 import { createReviewIcon } from "./ui/icon-family.ts";
-import { projectCourseComments } from "./course-comment-order.ts";
+import { courseCommentNumbers, projectCourseComments } from "./course-comment-order.ts";
 import { sphereFontFamily, sphereTokens } from "./ui/sphere-tokens.ts";
 import { getCommentAuthorFirstName } from "./ui/comment-author.ts";
 
@@ -155,6 +155,7 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
   let comments = new Map<string, PageComment>();
   let projectedComments: PageComment[] = [];
   let courseOpenComments: PageComment[] = [];
+  let commentNumbers: ReadonlyMap<string, number> = new Map();
   let physicalOrderIds: string[] = [];
   let cleanups: Array<() => void> = [];
   let markers = new Map<string, HTMLElement>();
@@ -460,8 +461,8 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
   const renderMarker = (comment: PageComment, index: number, place: (marker: HTMLElement) => void) => {
     const marker = document.createElement("button"); marker.type = "button"; marker.setAttribute("aria-label", `Open feedback: ${comment.body}`); const authorFirstName = getCommentAuthorFirstName(comment.author); marker.title = authorFirstName ? `Open comment by ${authorFirstName}` : "Open comment"; marker.setAttribute("aria-expanded", "false"); marker.textContent = "💬"; marker.style.cssText = "--sphere-ink:#0C447C;--sphere-primary:#185FA5;--sphere-action:#378ADD;--sphere-radius-container:8px;position:fixed;z-index:900;width:38px;height:38px;border:2px solid var(--sphere-ink);border-radius:var(--sphere-radius-container);background:var(--sphere-primary);color:#fff;padding:4px;font:20px/1 sans-serif;box-shadow:0 3px 10px #0005";
     marker.addEventListener("click", () => openThread(comment, index, marker)); document.documentElement.append(marker); markers.set(comment.id, marker);
-    const courseIndex = courseOpenComments.findIndex((entry) => entry.id === comment.id);
-    marker.textContent = String(courseIndex < 0 ? index + 1 : courseIndex + 1);
+    const number = commentNumbers.get(comment.id) ?? index + 1;
+    marker.textContent = String(number);
     const reposition = () => {
       place(marker);
       if (marker.hidden) return;
@@ -480,6 +481,7 @@ export function createCommentRenderer(document: Document, pageUrl: string, optio
   applyComments = (next) => {
       clear();
       projectedComments = [...next];
+      commentNumbers = courseCommentNumbers(next);
       root.querySelectorAll("[data-recovery-status], [data-recovery-quote]").forEach((node) => node.remove());
       const localAll = next.filter((comment) => comment.page_url === pageUrl && (!visibleCommentIds || visibleCommentIds.has(comment.id)));
       const local = localAll.filter((comment) => statusFilter === "resolved" ? comment.status === "resolved" : comment.status !== "resolved");

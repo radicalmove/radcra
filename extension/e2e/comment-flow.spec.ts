@@ -129,7 +129,11 @@ test("edited highlight keeps its marker and the review view exports before and a
   await expect(page.locator("[data-moodle-review-stored-highlight]")).toBeVisible();
   await expect(host.locator("[data-comment-count]")).toHaveText("1");
   await host.locator('[data-action="panel"]').click();
+  const badge = host.getByRole("button", { name: /Open comment in context.*Check the wording/ }).locator(".comment-number-badge");
+  const markerNumber = await page.locator("[data-moodle-review-stored-highlight]").textContent();
+  await expect(badge).toHaveText(markerNumber!);
   await host.locator('[data-comment-scope="page"]').click();
+  await expect(badge).toHaveText(markerNumber!);
   await expect(host.getByRole("button", { name: /Open comment in context.*Check the wording/ })).toBeVisible({ timeout: 2000 });
   await host.locator('[data-comment-filter="resolved"]').click();
   await expect(host.getByRole("button", { name: /Open comment in context.*Check the wording/ })).toBeHidden();

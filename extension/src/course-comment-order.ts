@@ -3,6 +3,12 @@ export type CourseCommentIdentity = {
   page_title: string;
 };
 
+// The service orders visible comments by creation time and ID. Number the full
+// response before applying page, status, interaction or physical-order filters.
+export function courseCommentNumbers(comments: readonly { id: string }[]): ReadonlyMap<string, number> {
+  return new Map(comments.map(({ id }, index) => [id, index + 1]));
+}
+
 export type ProjectedCourseComment<T extends CourseCommentIdentity> = {
   comment: T;
   displayIndex: number;

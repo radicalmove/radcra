@@ -1023,7 +1023,7 @@ test("resolving shows a large checked confirmation for three seconds", async () 
   overlay.destroy();
 });
 
-test("whole-course comment links use concise bodies without dynamic list numbers", () => {
+test("whole-course comment links retain their marker numbers when filtered", () => {
   assert.match(tealOverlayOverrides, /\.comment-index-link\{[^}]*text-decoration:none/);
   assert.match(tealOverlayOverrides, /\.comment-index-link:hover,\.comment-index-link:focus-visible\{text-decoration:underline\}/);
   const window = new Window(); const document = window.document as unknown as Document;
@@ -1032,10 +1032,10 @@ test("whole-course comment links use concise bodies without dynamic list numbers
   overlay.setPageComments([{ ...base, id: "00000000-0000-4000-8000-000000000032", page_url: "https://learn.example/mod/page/view.php?id=1", page_title: "Week 1", body: "Earlier" }, base]);
   const links = Array.from(shadow.querySelectorAll<HTMLElement>("[data-comment-item]")); assert.equal(links.every((link) => !link.hidden), true);
   shadow.querySelector<HTMLElement>('[data-comment-scope="page"]')!.click();
-  assert.equal(links[0]!.hidden, true); assert.equal(links[1]!.hidden, false); assert.equal(links[1]!.textContent, 'Reviewer “Here”');
+  assert.equal(links[0]!.hidden, true); assert.equal(links[1]!.hidden, false); assert.equal(links[1]!.textContent, '2 Reviewer “Here”');
   assert.equal(links[1]!.closest<HTMLElement>("[data-comment-group-container]")?.hidden, false);
   assert.equal(shadow.querySelector(".review-count-summary")?.textContent, "1 open on this page");
-  shadow.querySelector<HTMLElement>('[data-comment-scope="course"]')!.click(); assert.equal(links.every((link) => !link.hidden), true); assert.deepEqual(links.map((link) => link.textContent), ['Reviewer “Earlier”', 'Reviewer “Here”']);
+  shadow.querySelector<HTMLElement>('[data-comment-scope="course"]')!.click(); assert.equal(links.every((link) => !link.hidden), true); assert.deepEqual(links.map((link) => link.textContent), ['1 Reviewer “Earlier”', '2 Reviewer “Here”']);
   assert.match(links[1]!.getAttribute("aria-label") ?? "", /^Open comment in context\. Week 2.*Here.*Reviewer.*Status open/);
   assert.doesNotMatch(links[1]!.getAttribute("aria-label") ?? "", /Comment \d+/);
 });
@@ -1299,7 +1299,7 @@ test("comment excerpts show the author's first name separately from the quoted b
   overlay.setCommentList([{ id: "00000000-0000-8000-8000-000000000099", body: "  Needs   another pass.  ", category: "general", status: "open", author: { display_name: "  Ada   Lovelace  ", role: "beta_tester" }, page_url: context.page_url, page_title: "Week 2", parent_activity_url: null, embedded_locator: null, anchor_type: "text_highlight", selected_quote: "missing", prefix: "", suffix: "", css_selector: null, dom_selector: null, relative_x: null, relative_y: null, replies: [], status_history: [], capabilities: { can_reply: true, can_change_status: false, can_share_with_sme: false, can_delete: false } }]);
   const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
   const excerpt = shadow.querySelector<HTMLElement>(".comment-excerpt")!;
-  assert.equal(excerpt.textContent, "Ada “Needs another pass.”");
+  assert.equal(excerpt.textContent, "1 Ada “Needs another pass.”");
   assert.equal(excerpt.querySelector<HTMLElement>(".comment-author")?.textContent?.trim(), "Ada");
   assert.equal(excerpt.querySelector<HTMLElement>(".comment-body")?.textContent, "“Needs another pass.”");
   assert.match(excerpt.closest("button")?.getAttribute("aria-label") ?? "", /Ada/);
@@ -1345,7 +1345,7 @@ test("course comment rows expose capability-gated resolve, reopen, and delete ac
   overlay.setCommentList(records); shadow.querySelector<HTMLElement>(`[data-comment-row="${base.id}"]`)!.querySelector<HTMLButtonElement>('[data-comment-action="delete"]')!.click(); shadow.querySelector<HTMLButtonElement>("[data-confirm-cancel]")!.click(); await tick(); assert.deepEqual(deleteCalls, []);
   shadow.querySelector<HTMLElement>(`[data-comment-row="${base.id}"]`)!.querySelector<HTMLButtonElement>('[data-comment-action="delete"]')!.click(); assert.match(shadow.querySelector<HTMLElement>(".confirm-dialog")!.textContent!, /Delete this entire thread/); await acceptConfirmation(shadow);
   assert.deepEqual(deleteCalls, [base.id]); assert.deepEqual(navigationCalls, []);
-  assert.equal(shadow.querySelectorAll("[role='listitem']").length, 1); assert.equal(shadow.querySelector<HTMLButtonElement>("[data-comment-item]")!.textContent, 'Reviewer “Already resolved”');
+  assert.equal(shadow.querySelectorAll("[role='listitem']").length, 1); assert.match(shadow.querySelector<HTMLButtonElement>("[data-comment-item]")!.textContent!, /^\d+ Reviewer “Already resolved”$/);
 });
 
 test("text controls remain free of review icon SVGs", () => {
@@ -1614,7 +1614,7 @@ test("current-page overlay filtering matches the exact page_url including its ha
   overlay.setCommentList([base, { ...base, id: "00000000-0000-4000-8000-000000000511", page_url: "https://rise.example/activity#moodle-review-page=Lesson-1", page_title: "Embedded activity · Lesson 1" }]);
   shadow.querySelector<HTMLButtonElement>('[data-comment-scope="page"]')!.click();
   const visible = Array.from(shadow.querySelectorAll<HTMLButtonElement>("[data-comment-item]")).filter((item) => !item.hidden);
-  assert.equal(visible.length, 1); assert.equal(visible[0]!.textContent, 'Reviewer “SCORM feedback”'); assert.doesNotMatch(visible[0]!.textContent!, /Embedded activity/);
+  assert.equal(visible.length, 1); assert.equal(visible[0]!.textContent, '1 Reviewer “SCORM feedback”'); assert.doesNotMatch(visible[0]!.textContent!, /Embedded activity/);
 });
 
 test("course-list navigation reports the precise SCORM recovery instruction without closing the list", async () => {

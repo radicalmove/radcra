@@ -42,7 +42,7 @@ test("canonical package, lock, and beta manifest identity are deterministic", as
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const lockJson = JSON.parse(await readFile(new URL("../package-lock.json", import.meta.url), "utf8"));
   const manifest = JSON.parse(await readFile(new URL("../public/manifest.json", import.meta.url), "utf8"));
-  assert.equal(packageJson.version, "0.6.4");
+  assert.equal(packageJson.version, "0.6.5");
   assert.equal(lockJson.version, packageJson.version);
   assert.equal(lockJson.packages[""].version, packageJson.version);
   assert.equal(manifest.version, "0.0.0");

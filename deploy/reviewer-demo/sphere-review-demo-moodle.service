@@ -1,13 +1,15 @@
 [Unit]
 Description=Isolated Sphere Store-review Moodle
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 WorkingDirectory=/home/fldadmin/sphere-review-demo/moodle
 Environment=PHP_CLI_SERVER_WORKERS=4
 ExecStart=/usr/bin/php -d max_input_vars=5000 -d memory_limit=512M -d sendmail_path=/bin/false -S 127.0.0.1:8091 -t public
-Restart=on-failure
+Restart=always
+RestartSec=5s
 UMask=0077
 NoNewPrivileges=true
 

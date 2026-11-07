@@ -1,7 +1,8 @@
 [Unit]
 Description=Isolated Sphere Store-review gateway and API
 After=network.target sphere-review-demo-moodle.service
-Requires=sphere-review-demo-moodle.service
+Wants=sphere-review-demo-moodle.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -11,7 +12,8 @@ Environment=DATABASE_URL=sqlite+pysqlite:////home/fldadmin/sphere-review-demo/sp
 Environment=ATTACHMENT_STORAGE_DIR=/home/fldadmin/sphere-review-demo/attachments
 Environment=EXTENSION_REDIRECT_URIS=https://mohajifpffgbmkelnpdibcebmjpjngak.chromiumapp.org/
 ExecStart=/home/fldadmin/sphere-review-demo/venv/bin/python -m uvicorn app.reviewer_demo:build_demo --factory --host 127.0.0.1 --port 8023 --no-access-log
-Restart=on-failure
+Restart=always
+RestartSec=5s
 UMask=0077
 NoNewPrivileges=true
 

@@ -521,7 +521,14 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
       storage: commentListArrivalStorage,
       assign: (destination) => targetWindow.location.assign(destination),
     });
-  }, useAccessForm: () => Boolean(courseHandle), onAccessSubmit: async (input) => {
+  }, ...{ onReviewerEmail: async (action: "open" | "check") => {
+    if (!courseHandle) throw new Error("Course not enabled for review");
+    const result = await send<{ state: string }>({ type: action === "open" ? "OPEN_REVIEWER_REQUEST" : "CHECK_REVIEWER_REQUEST", course_handle: courseHandle });
+    if (result.state !== "approved") return false;
+    lastSignature = "";
+    refresh();
+    return true;
+  } }, useAccessForm: () => Boolean(courseHandle), onAccessSubmit: async (input) => {
     if (!courseHandle) throw new Error("Course not enabled for review");
     const response = await send<{ state: string }>({ type: "REDEEM_REVIEW_ACCESS", course_handle: courseHandle, display_name: input.displayName, email: input.email, role: input.role, invitation_code: input.code });
     if (response.state === "pending") { scheduleApprovalCheck(); return { status: "pending", message: waitingForApproval }; }

@@ -439,6 +439,49 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
     returnFocus = trigger;
     const backdrop = ownerDocument.createElement("div"); backdrop.className = "backdrop";
     backdrop.innerHTML = `<form class="dialog" data-access-form><h2>Join this course review</h2><div class="mode-tabs"><button type="button" data-mode="new" aria-pressed="true">New reviewer</button><button type="button" data-mode="existing" aria-pressed="false">Existing reviewer</button></div><div data-new-fields><label class="field">Name<input name="displayName" required maxlength="100"></label><label class="field">Role<select name="role"><option value="beta_tester">Beta tester</option><option value="sme">Subject matter expert</option><option value="ld_dcd">Learning designer / course developer</option></select></label><label class="field">Email<input name="email" type="email" required maxlength="320"></label><label class="field">Invitation code<input name="code" required maxlength="32" autocomplete="one-time-code"></label></div><div data-existing-fields hidden><label class="field">Email<input name="existingEmail" type="email" maxlength="320" autocomplete="email"></label><button type="button" class="primary existing-action" data-find-existing>Find reviewer</button><p data-no-saved hidden>No approved reviewer was found for this email in this course.</p><div class="existing-confirmation" data-existing-confirmation hidden><strong data-existing-label></strong><span data-existing-email></span><button type="button" class="primary" data-confirm-existing>Confirm and continue</button></div><hr><button type="button" class="primary admin-sign-in" data-admin-sign-in>Admin sign in</button></div><p class="error" role="alert" hidden></p><div class="actions"><button type="button" data-cancel>Cancel</button><button type="submit" class="primary" data-new-submit>Continue</button></div></form>`;
+    const emailOptions = options as typeof options & { onReviewerEmail?: (action: "open" | "check") => Promise<boolean> };
+    if (emailOptions.onReviewerEmail) {
+      backdrop.innerHTML = '<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="sphere-access-title"><h2 id="sphere-access-title">Join this course review</h2><p>New here or on a new device? Request a link by email. Already verified and approved? Check access to connect this browser.</p><div class="actions"><button type="button" class="primary" data-email-open>Request access</button><button type="button" data-email-check>Check access</button></div><p role="status" data-email-status></p><div class="actions"><button type="button" data-email-admin>Admin sign-in</button><button type="button" data-email-cancel>Cancel</button></div></section>';
+      const area = backdrop.querySelector("section")!;
+      const shell = shadow.querySelector<HTMLElement>(".shell")!;
+      shell.inert = true;
+      const close = () => { shell.inert = false; backdrop.remove(); trigger.focus(); };
+      const feedback = area.querySelector<HTMLElement>("[data-email-status]")!;
+      area.querySelector("[data-email-cancel]")?.addEventListener("click", close);
+      area.addEventListener("keydown", (event) => {
+        const controls = Array.from(area.querySelectorAll<HTMLButtonElement>("button:not([disabled]):not([hidden])"));
+        const outcome = handleDialogKey({ key: event.key, shiftKey: event.shiftKey, activeIndex: controls.indexOf(shadow.activeElement as HTMLButtonElement), focusableCount: controls.length });
+        if (outcome.close) { event.preventDefault(); close(); }
+        else if (event.key === "Tab") { event.preventDefault(); controls[outcome.focusIndex]?.focus(); }
+      });
+      const admin = area.querySelector<HTMLButtonElement>("[data-email-admin]")!;
+      admin.hidden = !options.onAuthenticate;
+      admin.addEventListener("click", async () => {
+        admin.disabled = true;
+        try {
+          const outcome = await options.onAuthenticate?.();
+          if (outcome?.status === "connected") { close(); status = outcome.status; renderStateControls(outcome.message); }
+          else feedback.textContent = outcome?.message ?? "Admin sign-in did not finish.";
+        } catch { feedback.textContent = "Could not sign in. Try again."; }
+        finally { admin.disabled = false; }
+      });
+      for (const action of ["open", "check"] as const) {
+        const button = area.querySelector<HTMLButtonElement>(`[data-email-${action}]`)!;
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try {
+            const connected = await emailOptions.onReviewerEmail!(action);
+            if (connected) { close(); return; }
+            feedback.textContent = action === "open" ? "Follow the steps in the new tab, then return here and choose Check access." : "Access isn’t ready yet. Check your email and confirm the request.";
+          } catch {
+            feedback.textContent = "Could not check course access. Try again.";
+          } finally { button.disabled = false; }
+        });
+      }
+      shadow.append(backdrop);
+      area.querySelector<HTMLButtonElement>("[data-email-open]")?.focus();
+      return;
+    }
     let matchedReviewer: { membershipId: string; label: string } | undefined;
     const setMode = (mode: "new" | "existing") => {
       backdrop.querySelector<HTMLElement>("[data-new-fields]")!.hidden = mode !== "new";

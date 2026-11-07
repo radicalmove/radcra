@@ -475,6 +475,25 @@ test("connected viewers can explicitly sign out without forgetting their course 
   assert.equal(shadow.querySelector<HTMLElement>('[data-viewer-line]')!.hidden, true);
 });
 
+test("reviewer sign-in offers email access and check without the old reviewer picker", async () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  const actions: string[] = [];
+  const options = {
+    onAccessSubmit: async () => ({ status: "signed-out" as const }),
+    onReviewerEmail: async (action: "open" | "check") => { actions.push(action); return action === "check"; },
+  };
+  mountReviewOverlay(document, context, "signed-out", options);
+  const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  shadow.querySelector<HTMLElement>('[data-action="authenticate"]')!.click();
+  const dialog = shadow.querySelector('[role="dialog"]')!;
+  assert.doesNotMatch(dialog.textContent!, /Find reviewer|Invitation code/);
+  dialog.querySelector<HTMLButtonElement>("[data-email-open]")!.click(); await tick();
+  assert.match(dialog.querySelector('[role="status"]')!.textContent!, /new tab/);
+  dialog.querySelector<HTMLButtonElement>("[data-email-check]")!.click(); await tick();
+  assert.deepEqual(actions, ["open", "check"]);
+  assert.equal(shadow.querySelector('[role="dialog"]'), null);
+});
+
 test("course access form finds an approved reviewer by email and confirms their identity", async () => {
   const window = new Window(); const document = window.document as unknown as Document;
   const submitted: any[] = [];

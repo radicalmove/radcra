@@ -17,6 +17,16 @@ test("unpacked Sphere pauses and resumes the injected overlay", async () => {
     const controls = await context.newPage();
     await controls.goto(`chrome-extension://${id}/sphere-controls.html`);
     await expect(controls.getByRole("button", { name: "Pause Sphere" })).toBeVisible();
+    await controls.evaluate(async (version) => {
+      const api = (globalThis as any).chrome;
+      await api.storage.local.set({ sphereUpdatedVersion: version });
+      await api.action.setBadgeText({ text: "NEW" });
+    }, manifest.version);
+    await controls.reload();
+    await expect(controls.getByText(`Sphere updated to v${manifest.version}.`)).toBeVisible();
+    await controls.getByRole("button", { name: "Dismiss update notice" }).click();
+    await expect(controls.getByRole("button", { name: "Dismiss update notice" })).toBeHidden();
+    expect(await controls.evaluate(() => (globalThis as any).chrome.action.getBadgeText({}))).toBe("");
     await context.route(`${site}/**`, (route) => route.fulfill({ contentType: "text/html", body: "<h1>Fixture course</h1>" }));
     const moodle = await context.newPage();
     const errors: string[] = [];

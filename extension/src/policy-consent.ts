@@ -1,3 +1,5 @@
+import { REVIEWER_DEVICE_PREFIX, REVIEWER_SESSION_PREFIX } from "./reviewer-course-access.ts";
+
 export const POLICY_VERSION = "2026-08-14";
 export const POLICY_STATE_KEY = "policyAcknowledgement";
 
@@ -7,7 +9,7 @@ type RemoveStorage = { remove(keys: string | string[]): Promise<void> };
 type LocalAccessStorage = RemoveStorage & { get?(key: string | null): Promise<Record<string, unknown>> };
 
 export type PolicyState = { acknowledged: boolean; version?: string };
-export type AccessStorage = { session: RemoveStorage; local: LocalAccessStorage };
+export type AccessStorage = { session: LocalAccessStorage; local: LocalAccessStorage };
 
 function policyRecord(value: unknown): { version: string } | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
@@ -40,12 +42,13 @@ export async function requiresPolicyAcknowledgement(storage: ReadStorage): Promi
 }
 
 export async function clearAccessState({ session, local }: AccessStorage): Promise<void> {
-  let pendingKeys: string[] = [];
-  try {
-    pendingKeys = Object.keys(await local.get?.(null) ?? {}).filter((key) => key.startsWith("pending-review-access:"));
-  } catch { /* unavailable storage still clears the known credentials below */ }
+  const keys = async (storage: LocalAccessStorage, prefixes: string[]) => {
+    try { return Object.keys(await storage.get?.(null) ?? {}).filter((key) => prefixes.some((prefix) => key.startsWith(prefix))); }
+    catch { return []; }
+  };
+  const [sessionKeys, localKeys] = await Promise.all([keys(session, [REVIEWER_SESSION_PREFIX]), keys(local, ["pending-review-access:", REVIEWER_DEVICE_PREFIX])]);
   await Promise.all([
-    session.remove(["apiToken", "expiresAt"]).catch(() => undefined),
-    local.remove(["courseTeamSession", "deviceCredential", "deviceCourseHandle", "reviewerEmail", "reviewerMembershipId", ...pendingKeys]).catch(() => undefined),
+    session.remove(["apiToken", "expiresAt", ...sessionKeys]).catch(() => undefined),
+    local.remove(["courseTeamSession", "deviceCredential", "deviceCourseHandle", "reviewerEmail", "reviewerMembershipId", ...localKeys]).catch(() => undefined),
   ]);
 }

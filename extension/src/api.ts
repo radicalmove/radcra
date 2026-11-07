@@ -46,6 +46,11 @@ export async function signInExistingReviewer(options: { serviceOrigin: string; c
   return parseReviewerAccess(body, options.now ?? Date.now);
 }
 
+export async function exchangeReviewerEmail(options: { serviceOrigin: string; courseHandle: string; code: string; fetch?: Fetch }): Promise<ReviewerAccess> {
+  const body = await publicJson(options.serviceOrigin, "/reviewer-access/exchange", { course_id: options.courseHandle, code: options.code }, options.fetch);
+  return parseReviewerAccess(body, Date.now);
+}
+
 export async function redeemReviewerInvitation(options: { serviceOrigin: string; courseHandle: string; displayName: string; email: string; role: string; invitationCode: string; fetch?: Fetch; now?: () => number }): Promise<ReviewerAccess> {
   const body = await publicJson(options.serviceOrigin, "/api/access/redeem", { course_handle: options.courseHandle, display_name: options.displayName, email: options.email, role: options.role, invitation_code: options.invitationCode }, options.fetch);
   return parseReviewerAccess(body, options.now ?? Date.now);

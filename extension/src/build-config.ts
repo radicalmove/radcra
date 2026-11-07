@@ -83,6 +83,13 @@ export function loadBuildConfig(env: Environment) {
   const optionalPatterns = split(env.OPTIONAL_FRAME_PATTERNS, ["https://rise.example.invalid/*", "https://scorm.example.invalid/*"]);
   [...moodlePatterns, ...optionalPatterns].forEach(validateMatchPattern);
   const serviceOrigin = validateServiceOrigin(env.REVIEW_SERVICE_ORIGIN ?? "https://review.example.invalid").origin;
+  const demoMoodleOrigin = env.REVIEW_DEMO_MOODLE_ORIGIN ?? "";
+  const demoServiceOrigin = env.REVIEW_DEMO_SERVICE_ORIGIN ?? "";
+  if (Boolean(demoMoodleOrigin) !== Boolean(demoServiceOrigin)) throw new Error("Both reviewer demo origins are required");
+  for (const origin of [demoMoodleOrigin, demoServiceOrigin].filter(Boolean)) {
+    const parsed = validateServiceOrigin(origin);
+    if (parsed.protocol !== "https:" || parsed.origin !== origin) throw new Error("Reviewer demo origins must use canonical HTTPS");
+  }
   const publicKey = env.EXTENSION_PUBLIC_KEY ?? EXAMPLE_PUBLIC_KEY;
   if (buildMode === "production") {
     if (!serviceOrigin.startsWith("https://")) throw new Error("Production review service origin must use HTTPS");
@@ -94,5 +101,5 @@ export function loadBuildConfig(env: Environment) {
     validateProductionPublicKey(publicKey);
   }
   const buildCommit = loadBuildCommit(buildMode, env.BUILD_COMMIT);
-  return { buildMode, moodlePatterns, optionalPatterns, serviceOrigin, publicKey, buildCommit };
+  return { buildMode, moodlePatterns, optionalPatterns, serviceOrigin, publicKey, buildCommit, demoMoodleOrigin, demoServiceOrigin };
 }

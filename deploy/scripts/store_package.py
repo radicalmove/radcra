@@ -177,8 +177,12 @@ def package_store(dist: Path, output: Path, version: str, repository: str, build
     manifest_bytes = (Path(dist) / "manifest.json").read_bytes()
     manifest = json.loads(manifest_bytes)
     host_permissions = manifest["host_permissions"]
-    moodle_patterns = manifest["content_scripts"][0]["matches"]
+    moodle_patterns = [pattern for script in manifest["content_scripts"] for pattern in script["matches"]]
     service_patterns = [item for item in host_permissions if item not in moodle_patterns and item != UPDATE_HOST]
+    demo_pattern = "https://fld-mini.tail4ccaba.ts.net:8443/*"
+    has_reviewer_demo = demo_pattern in service_patterns and any(pattern.startswith("https://fld-mini.tail4ccaba.ts.net/course/") for pattern in moodle_patterns)
+    if has_reviewer_demo:
+        service_patterns.remove(demo_pattern)
     if len(service_patterns) != 1:
         raise ValueError("manifest must contain exactly one review service origin")
     review_service_origin = service_patterns[0][:-2]
@@ -199,6 +203,8 @@ def package_store(dist: Path, output: Path, version: str, repository: str, build
         "files": files,
         "zip_sha256": hashlib.sha256(zip_bytes).hexdigest(),
     }
+    if has_reviewer_demo:
+        report["reviewer_demo_origin"] = demo_pattern[:-2]
     report_path_for(Path(output)).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return report
 

@@ -13,7 +13,7 @@ import {
 const packageJson = JSON.parse(readFileSync(resolve("package.json"), "utf8"));
 const lockJson = JSON.parse(readFileSync(resolve("package-lock.json"), "utf8"));
 const { version } = loadExtensionVersion(packageJson, lockJson);
-const { moodlePatterns, optionalPatterns, serviceOrigin, publicKey, buildCommit } = loadBuildConfig(process.env);
+const { moodlePatterns, optionalPatterns, serviceOrigin, publicKey, buildCommit, demoMoodleOrigin, demoServiceOrigin } = loadBuildConfig(process.env);
 
 function manifestPlugin(): Plugin {
   return {
@@ -25,9 +25,15 @@ function manifestPlugin(): Plugin {
       source.name = EXTENSION_NAME;
       source.description = EXTENSION_DESCRIPTION;
       source.key = publicKey;
-      source.host_permissions = [...moodlePatterns, `${serviceOrigin.replace(/\/$/, "")}/*`, UPDATE_METADATA_HOST_PERMISSION];
+      source.host_permissions = [...new Set([...moodlePatterns, `${serviceOrigin.replace(/\/$/, "")}/*`, ...(demoServiceOrigin ? [`${demoServiceOrigin}/*`] : []), UPDATE_METADATA_HOST_PERMISSION])];
       source.optional_host_permissions = optionalPatterns;
-      source.content_scripts[0].matches = moodlePatterns;
+      const broad = moodlePatterns.filter((pattern) => new URL(pattern).pathname === "/*");
+      const narrow = moodlePatterns.filter((pattern) => new URL(pattern).pathname !== "/*");
+      const script = source.content_scripts[0];
+      source.content_scripts = [
+        ...(broad.length ? [{ ...script, matches: broad }] : []),
+        ...(narrow.length ? [{ ...script, matches: narrow, match_origin_as_fallback: false }] : []),
+      ];
       writeFileSync(resolve("dist/manifest.json"), `${JSON.stringify(source, null, 2)}\n`);
       for (const asset of ["sphere-controls.html", "sphere-controls.js"]) copyFileSync(resolve("public", asset), resolve("dist", asset));
     },
@@ -67,7 +73,7 @@ function classicEntryBundlesPlugin(): Plugin {
     closeBundle() {
       const define = {
         __MOODLE_PATTERNS__: JSON.stringify(moodlePatterns), __OPTIONAL_FRAME_PATTERNS__: JSON.stringify(optionalPatterns),
-        __REVIEW_SERVICE_ORIGIN__: JSON.stringify(serviceOrigin), __EXTENSION_VERSION__: JSON.stringify(version), __BUILD_COMMIT__: JSON.stringify(buildCommit),
+        __REVIEW_SERVICE_ORIGIN__: JSON.stringify(serviceOrigin), __EXTENSION_VERSION__: JSON.stringify(version), __BUILD_COMMIT__: JSON.stringify(buildCommit), __REVIEW_DEMO_MOODLE_ORIGIN__: JSON.stringify(demoMoodleOrigin), __REVIEW_DEMO_SERVICE_ORIGIN__: JSON.stringify(demoServiceOrigin),
       };
       for (const entry of ["background", "content"]) buildSync({ entryPoints: [resolve(`src/${entry}.ts`)], outfile: resolve(`dist/${entry}.js`), bundle: true, format: "iife", platform: "browser", target: "chrome120", define, minify: true });
       rmSync(resolve("dist/chunks"), { recursive: true, force: true });
@@ -81,6 +87,8 @@ export default defineConfig({
     __MOODLE_PATTERNS__: JSON.stringify(moodlePatterns),
     __OPTIONAL_FRAME_PATTERNS__: JSON.stringify(optionalPatterns),
     __REVIEW_SERVICE_ORIGIN__: JSON.stringify(serviceOrigin),
+    __REVIEW_DEMO_MOODLE_ORIGIN__: JSON.stringify(demoMoodleOrigin),
+    __REVIEW_DEMO_SERVICE_ORIGIN__: JSON.stringify(demoServiceOrigin),
     __EXTENSION_VERSION__: JSON.stringify(version),
     __BUILD_COMMIT__: JSON.stringify(buildCommit),
   },

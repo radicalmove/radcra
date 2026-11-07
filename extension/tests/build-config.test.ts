@@ -42,7 +42,7 @@ test("canonical package, lock, and beta manifest identity are deterministic", as
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const lockJson = JSON.parse(await readFile(new URL("../package-lock.json", import.meta.url), "utf8"));
   const manifest = JSON.parse(await readFile(new URL("../public/manifest.json", import.meta.url), "utf8"));
-  assert.equal(packageJson.version, "0.6.14");
+  assert.equal(packageJson.version, "0.6.15");
   assert.equal(lockJson.version, packageJson.version);
   assert.equal(lockJson.packages[""].version, packageJson.version);
   assert.equal(manifest.version, "0.0.0");
@@ -80,6 +80,19 @@ test("production validates a full build commit and development uses the zero com
   for (const commit of [undefined, "", "abc1234", "g123456789abcdef0123456789abcdef01234567", "0123456789ABCDEF0123456789ABCDEF01234567", "0123456789abcdef0123456789abcdef012345678"]) {
     assert.throws(() => loadBuildCommit("production", commit), /build_commit/i);
   }
+});
+
+test("narrow Moodle paths disable origin fallback without broadening demo injection", async () => {
+  await execFileAsync("npm", ["run", "build"], {
+    cwd: new URL("..", import.meta.url),
+    env: { ...process.env, MOODLE_HOST_PATTERNS: "https://moodle.example.org/*,https://demo.example.org/course/*,https://demo.example.org/mod/*" },
+  });
+  const manifest = JSON.parse(await readFile(new URL("../dist/manifest.json", import.meta.url), "utf8"));
+  assert.equal(manifest.content_scripts.length, 2);
+  assert.deepEqual(manifest.content_scripts[0].matches, ["https://moodle.example.org/*"]);
+  assert.equal(manifest.content_scripts[0].match_origin_as_fallback, true);
+  assert.deepEqual(manifest.content_scripts[1].matches, ["https://demo.example.org/course/*", "https://demo.example.org/mod/*"]);
+  assert.equal(manifest.content_scripts[1].match_origin_as_fallback, false);
 });
 
 test("build config validates Chrome match patterns including wildcard root hosts", () => {

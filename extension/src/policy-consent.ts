@@ -1,6 +1,6 @@
 import { REVIEWER_DEVICE_PREFIX, REVIEWER_SESSION_PREFIX } from "./reviewer-course-access.ts";
 
-export const POLICY_VERSION = "2026-08-14";
+export const POLICY_VERSION = "2026-11-07";
 export const POLICY_STATE_KEY = "policyAcknowledgement";
 
 type ReadStorage = { get(key: string): Promise<Record<string, unknown>> };
@@ -46,7 +46,7 @@ export async function clearAccessState({ session, local }: AccessStorage): Promi
     try { return Object.keys(await storage.get?.(null) ?? {}).filter((key) => prefixes.some((prefix) => key.startsWith(prefix))); }
     catch { return []; }
   };
-  const [sessionKeys, localKeys] = await Promise.all([keys(session, [REVIEWER_SESSION_PREFIX]), keys(local, ["pending-review-access:", REVIEWER_DEVICE_PREFIX])]);
+  const [sessionKeys, localKeys] = await Promise.all([keys(session, [REVIEWER_SESSION_PREFIX, "review-demo:"]), keys(local, ["pending-review-access:", REVIEWER_DEVICE_PREFIX, "review-demo:"])]);
   await Promise.all([
     session.remove(["apiToken", "expiresAt", ...sessionKeys]).catch(() => undefined),
     local.remove(["courseTeamSession", "deviceCredential", "deviceCourseHandle", "reviewerEmail", "reviewerMembershipId", ...localKeys]).catch(() => undefined),

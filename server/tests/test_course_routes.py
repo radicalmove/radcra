@@ -249,7 +249,7 @@ def test_register_rejects_an_invalid_or_incomplete_identity(client, payload):
     check.close()
 
 
-def test_register_rejects_a_numeric_id_already_bound_to_another_moodle_origin(client):
+def test_register_allows_the_same_numeric_id_at_another_moodle_origin(client):
     headers = extension_headers(client, UserRole.ADMIN)
     first = client.post(
         "/api/courses/register",
@@ -271,8 +271,8 @@ def test_register_rejects_a_numeric_id_already_bound_to_another_moodle_origin(cl
     )
 
     assert first.status_code == 201
-    assert conflicting.status_code == 409
-    assert "different Moodle origin" in conflicting.json()["detail"]
+    assert conflicting.status_code == 201
+    assert first.json()["id"] != conflicting.json()["id"]
     check = client.db_factory()
-    assert check.query(Course).count() == 1
+    assert check.query(Course).count() == 2
     check.close()

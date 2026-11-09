@@ -75,6 +75,34 @@ def bound_extension_headers(client, course: Course, role=UserRole.BETA_TESTER, *
     return {"Authorization": f"Bearer {raw_token}"}
 
 
+def test_equal_numeric_ids_on_two_hosts_isolate_access_and_comments(client):
+    db = client.db_factory()
+    uco = resolve_course(db, moodle_course_id=3598, course_url="https://my.uconline.ac.nz/course/view.php?id=3598", title="UCO")
+    learn = resolve_course(db, moodle_course_id=3598, course_url="https://learn.canterbury.ac.nz/course/view.php?id=3598", title="LEARN")
+    ids = [uco.id, learn.id]
+    assert ids[0] != ids[1]
+    refs = [Course(id=item, moodle_course_id="3598") for item in ids]
+    db.close()
+    headers = [bound_extension_headers(client, ref, UserRole.LD_DCD, email=f"host-{index}@example.test") for index, ref in enumerate(refs)]
+    for index, origin in enumerate(("https://my.uconline.ac.nz", "https://learn.canterbury.ac.nz")):
+        lookup = client.post("/api/access/course", json={"moodle_origin": origin, "moodle_course_id": 3598})
+        assert lookup.json()["course_handle"] == str(ids[index])
+        created = client.post("/api/comments", headers=headers[index], json={"course_id": str(ids[index]), "page_url": f"{origin}/mod/page/view.php?id=1", "page_title": "Page", "body": f"Host {index}", "anchor_type": "text_highlight", "selected_quote": "Host", "css_selector": "#main"})
+        assert created.status_code == 201
+        assert client.get(f"/api/me?course_id={ids[1-index]}", headers=headers[index]).status_code == 404
+        assert client.get(f"/api/comments?course_id={ids[1-index]}", headers=headers[index]).status_code == 404
+    for index in range(2):
+        listed = client.get(f"/api/comments?course_id={ids[index]}", headers=headers[index])
+        assert [item["body"] for item in listed.json()] == [f"Host {index}"]
+    canonical = client.post("/api/access/course", json={"moodle_origin": "HTTPS://LEARN.Canterbury.ac.nz:443/", "moodle_course_id": 3598})
+    assert canonical.json()["course_handle"] == str(ids[1])
+
+
+@pytest.mark.parametrize("origin", ["https://user:password@learn.canterbury.ac.nz", "https://learn.canterbury.ac.nz?host=other", "https://learn.canterbury.ac.nz#other", "https://learn.canterbury.ac.nz:invalid"])
+def test_public_lookup_rejects_unsafe_or_non_origin_input(client, origin):
+    assert client.post("/api/access/course", json={"moodle_origin": origin, "moodle_course_id": 3598}).status_code == 422
+
+
 def test_course_membership_roles_drive_sme_thread_labels_and_private_replies(client):
     session = client.db_factory()
     course = resolve_course(session, moodle_course_id=899, course_url="https://moodle.example/course/view.php?id=899", title="Law")

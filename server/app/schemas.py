@@ -138,10 +138,13 @@ class CourseLookupRequest(BaseModel):
     @field_validator("moodle_origin")
     @classmethod
     def origin_is_http_origin(cls, value: str) -> str:
+        from app.services.courses import normalize_url
+
         parsed = urlsplit(value.strip())
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.path not in {"", "/"}:
+        if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
             raise ValueError("moodle_origin must be an http or https origin")
-        return f"{parsed.scheme}://{parsed.netloc}".lower()
+        canonical = urlsplit(normalize_url(value))
+        return f"{canonical.scheme}://{canonical.netloc}"
 
 
 class InvitationCreateRequest(BaseModel):

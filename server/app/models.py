@@ -116,7 +116,7 @@ class Course(Base):
     __tablename__ = "courses"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    moodle_course_id: Mapped[str | None] = mapped_column(String(64), unique=True)
+    moodle_course_id: Mapped[str | None] = mapped_column(String(64))
     normalized_url: Mapped[str] = mapped_column(Text, nullable=False)
     moodle_origin: Mapped[str | None] = mapped_column(String(255))
     title: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -126,6 +126,7 @@ class Course(Base):
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
+        UniqueConstraint("moodle_origin", "moodle_course_id", name="uq_courses_moodle_origin_id"),
         UniqueConstraint("normalized_url", "identity_title", name="uq_courses_temporary_identity"),
         Index("ix_courses_moodle_course_id", "moodle_course_id"),
     )

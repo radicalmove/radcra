@@ -6,6 +6,47 @@ from app.models import Comment, Course, User
 from app.services.courses import confirm_course, find_registered_course, register_course, resolve_course
 
 
+@pytest.mark.parametrize("create", [register_course, resolve_course])
+def test_same_numeric_id_on_learn_and_uco_is_distinct_and_never_moves(create, db_session):
+    uco = create(db_session, moodle_course_id=3598, course_url="https://my.uconline.ac.nz/course/view.php?id=3598", title="UCO")
+    original_id = uco.id
+    learn = create(db_session, moodle_course_id=3598, course_url="https://learn.canterbury.ac.nz/course/view.php?id=3598", title="LEARN")
+    assert learn.id != original_id
+    assert uco.moodle_origin == "https://my.uconline.ac.nz"
+    assert uco.title == "UCO"
+    for course in (uco, learn):
+        assert find_registered_course(db_session, moodle_course_id=3598, course_url=course.normalized_url, title="Changed") is course
+        assert create(db_session, moodle_course_id=3598, course_url=course.normalized_url, title="Changed").id == course.id
+
+
+def test_resolve_cannot_overwrite_an_existing_stable_identity(db_session):
+    original = resolve_course(db_session, moodle_course_id=1, course_url="https://moodle.example/course/view.php?id=1", title="Law")
+    with pytest.raises(ValueError, match="already belongs"):
+        resolve_course(db_session, moodle_course_id=2, course_url=original.normalized_url, title=original.title)
+    assert original.moodle_course_id == "1"
+
+
+def test_temporary_course_cannot_be_mapped_to_a_different_moodle_origin(db_session):
+    temporary = resolve_course(db_session, course_url="https://learn.canterbury.ac.nz/course/view.php?id=3598", title="LEARN")
+    uco = register_course(db_session, moodle_course_id=3598, course_url="https://my.uconline.ac.nz/course/view.php?id=3598", title="UCO")
+    with pytest.raises(ValueError, match="different Moodle origin"):
+        confirm_course(db_session, temporary, target_course_id=uco.id)
+    assert db_session.get(Course, temporary.id) is temporary
+
+
+def test_default_https_port_and_host_case_share_canonical_identity(db_session):
+    first = register_course(db_session, moodle_course_id=3598, course_url="https://LEARN.Canterbury.ac.nz:443/course/view.php?id=3598", title="LEARN")
+    second = register_course(db_session, moodle_course_id=3598, course_url="https://learn.canterbury.ac.nz/course/view.php?id=3598", title="LEARN")
+    assert first.id == second.id
+    assert first.moodle_origin == "https://learn.canterbury.ac.nz"
+
+
+@pytest.mark.parametrize("url", ["https://user:secret@learn.canterbury.ac.nz/course/view.php?id=3598", "https://learn.canterbury.ac.nz:invalid/course/view.php?id=3598"])
+def test_course_identity_rejects_unsafe_authority(db_session, url):
+    with pytest.raises(ValueError):
+        register_course(db_session, moodle_course_id=3598, course_url=url, title="LEARN")
+
+
 def test_find_registered_course_is_read_only_for_existing_and_missing_identities(db_session):
     registered = resolve_course(
         db_session,

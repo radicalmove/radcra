@@ -16,6 +16,8 @@
     <form class="admin-form" method="post" action="/admin/memberships/{{ membership.id }}/approve-request">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <p><strong>{{ member.display_name }}</strong><br>{{ member.email }} · {{ course.title }}</p>
+      {% set detail = request_details.get(membership.id) %}
+      {% if detail %}<p>Requested role: {{ detail.requested_role }} (advisory only) · {{ 'Email verified' if detail.confirmed_at else 'Email unverified' }}</p>{% endif %}
       <label>Course role <select name="role" required><option value="">Choose role…</option><option value="beta_tester">Beta tester</option><option value="sme">SME</option><option value="ld_dcd">Learning Designer / DCD</option></select></label>
       <button>Approve</button>
     </form>

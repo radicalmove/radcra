@@ -215,10 +215,25 @@ def deliver_access_mail(db, settings, send):
         if release_mail:
             recipient = settings.reviewer_access_admin_email
         body = f"{challenge.display_name or challenge.email} ({challenge.email}) requested access to {course.title}.\n\nReview pending requests: {origin}/admin"
+        if challenge.admin_first:
+            body += f"\n\nEmail unverified. Requested role: {challenge.requested_role} (advisory only). Choose the actual course role when approving."
     else:
         field = "approval_mail_pending"
         subject = "[Sphere test] Course access approved"
         body = f"Your course access was approved. Open {course.normalized_url} and choose Check access in Sphere."
+        if challenge.admin_first:
+            proof = mail_proof(secret.get_secret_value(), challenge.browser_hash)
+            if challenge.proof_expires_at.replace(tzinfo=utc_now().tzinfo) <= utc_now() or token_hash(proof) != challenge.proof_hash:
+                challenge.approval_mail_pending = False
+                db.commit()
+                return True
+            member = db.scalar(select(CourseMembership).join(User, User.id == CourseMembership.user_id).where(
+                CourseMembership.course_id == course.id, User.email == challenge.email))
+            role = member.role.value if member else "reviewer"
+            body = (f"Your access to {course.title} was approved. Assigned role: {role}.\n\n"
+                    f"Confirm your email in the same Chrome profile within 20 minutes:\n{origin}/reviewer-access/verify#{proof}\n\n"
+                    f"Then return to Moodle: {course.moodle_origin}/course/view.php?id={course.moodle_course_id}\n"
+                    "Choose Check access in Sphere to connect this browser.")
     if release_mail and field != "verification_mail_pending":
         member = db.scalar(select(CourseMembership).join(User, User.id == CourseMembership.user_id).where(
             CourseMembership.course_id == course.id, User.email == challenge.email, User.deleted_at.is_(None)))

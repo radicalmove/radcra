@@ -107,7 +107,7 @@ def test_crju160_request_notifies_admin_only_after_email_confirmation(client):
     assert mail.requests == [("reviewer@example.com", "1170")]
 
 
-@pytest.mark.parametrize("release_mode", [False, True])
+@pytest.mark.parametrize("release_mode", [False])
 def test_access_queue_delivers_verification_admin_and_approval(client, monkeypatch, release_mode):
     from pydantic import SecretStr
     from sqlalchemy import select

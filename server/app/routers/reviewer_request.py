@@ -51,11 +51,11 @@ def _course_link(course: Course | None) -> str | None:
 
 
 @router.get("/request/{course_id}")
-def request_page(request: Request, course_id: uuid.UUID, db: DbSession = Depends(get_session)):
+def request_page(request: Request, course_id: uuid.UUID, mode: str = "", email: str = "", db: DbSession = Depends(get_session)):
     course = db.get(Course, course_id)
     if not course or not course.is_confirmed:
         raise HTTPException(status_code=404, detail="Course not enabled for review")
-    return _page(request, course=course)
+    return _page(request, course=course, signin=mode == "signin", email=email if len(email) <= 320 else "")
 
 
 @router.post("/request/{course_id}")
@@ -63,15 +63,21 @@ async def submit_request(request: Request, course_id: uuid.UUID, mailer=Depends(
     form = await _form_with_csrf(request)
     email = form.get("email", "").strip().lower()
     settings = get_settings()
+    signin = form.get("mode") == "signin"
+    generic = "If this address is eligible, follow the email instructions. New requests need admin approval, then confirm your email in this same Chrome profile. Return to Moodle and choose Check access."
     if isinstance(mailer, str) and not settings.reviewer_access_enabled and (course_id != settings.notification_pilot_course_id or email != settings.notification_pilot_recipient):
         return _page(request, message="This course access pilot is not available for that address.")
     try:
-        proof, browser_secret = begin(db, course_id, email, form.get("display_name", ""), mail_secret=mailer if isinstance(mailer, str) else None)
+        proof, browser_secret = begin(db, course_id, email, form.get("display_name", ""), mail_secret=mailer if isinstance(mailer, str) else None,
+            admin_first=settings.reviewer_access_enabled, requested_role=form.get("requested_role", "beta_tester"), signin=signin)
     except AccessDenied:
+        if settings.reviewer_access_enabled:
+            return _page(request, message=generic, request_link=f"/reviewer-access/request/{course_id}")
         return _page(request, course=db.get(Course, course_id), message="Check the details and try again.")
-    if not isinstance(mailer, str):
+    if not isinstance(mailer, str) and not settings.reviewer_access_enabled:
         mailer.verification(course_id, email, proof)
-    response = _page(request, message="Check your email and open the link in this same Chrome profile.")
+    response = _page(request, message=generic if settings.reviewer_access_enabled else "Check your email and open the link in this same Chrome profile.",
+                     request_link=f"/reviewer-access/request/{course_id}" if settings.reviewer_access_enabled else None)
     response.set_cookie(COOKIE, browser_secret, secure=True, httponly=True, samesite="lax", max_age=604800, path="/")
     return response
 

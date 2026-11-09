@@ -66,7 +66,14 @@ def users_page(request: Request, course_id: uuid.UUID | None = None, user: User 
         .where(CourseMembership.state == MembershipState.PENDING,
                User.deleted_at.is_(None), Course.is_confirmed.is_(True))
         .order_by(CourseMembership.created_at)).all()
-    response = templates.TemplateResponse(request, "admin/users.html", {"users": db.scalars(select(User).where(User.deleted_at.is_(None)).order_by(User.created_at)).all(), "deleted_users": db.scalars(select(User).where(User.deleted_at.is_not(None)).order_by(User.deleted_at.desc())).all(), "courses": courses, "selected_course": selected_course, "memberships": memberships, "pending": pending, "csrf_token": token, "roles": list(UserRole)})
+    request_details = {}
+    for membership, member, course in pending:
+        challenge = db.scalar(select(ReviewerEmailChallenge).where(
+            ReviewerEmailChallenge.course_id == course.id, ReviewerEmailChallenge.email == member.email
+        ).order_by(ReviewerEmailChallenge.browser_expires_at.desc()).limit(1))
+        if challenge:
+            request_details[membership.id] = challenge
+    response = templates.TemplateResponse(request, "admin/users.html", {"users": db.scalars(select(User).where(User.deleted_at.is_(None)).order_by(User.created_at)).all(), "deleted_users": db.scalars(select(User).where(User.deleted_at.is_not(None)).order_by(User.deleted_at.desc())).all(), "courses": courses, "selected_course": selected_course, "memberships": memberships, "pending": pending, "request_details": request_details, "csrf_token": token, "roles": list(UserRole)})
     if request.cookies.get("csrf_token") != token:
         response.set_cookie("csrf_token", token, secure=True, samesite="lax")
     return response
@@ -175,7 +182,7 @@ async def approve_course_request(request: Request, membership_id: uuid.UUID, use
     row = db.execute(select(CourseMembership, User).join(User, User.id == CourseMembership.user_id)
         .join(Course, Course.id == CourseMembership.course_id)
         .where(CourseMembership.id == membership_id, User.deleted_at.is_(None),
-               Course.is_confirmed.is_(True)).with_for_update(of=CourseMembership)).first()
+               Course.is_confirmed.is_(True), User.role != UserRole.ADMIN).with_for_update(of=CourseMembership)).first()
     if row is None:
         raise HTTPException(status_code=404, detail="Course request not found")
     membership, reviewer = row
@@ -189,12 +196,15 @@ async def approve_course_request(request: Request, membership_id: uuid.UUID, use
     challenge = db.scalar(select(ReviewerEmailChallenge).where(
         ReviewerEmailChallenge.course_id == membership.course_id,
         ReviewerEmailChallenge.email == reviewer.email,
-        ReviewerEmailChallenge.confirmed_at.is_not(None),
-    ).order_by(ReviewerEmailChallenge.confirmed_at.desc()).limit(1))
+    ).order_by(ReviewerEmailChallenge.browser_expires_at.desc()).limit(1))
     if challenge is not None:
         if reviewer.approved_at is None:
             reviewer.approved_at = membership.approved_at
         challenge.approval_mail_pending = True
+        if challenge.admin_first:
+            from datetime import timedelta
+            challenge.proof_expires_at = membership.approved_at + timedelta(minutes=20)
+            challenge.admin_mail_pending = False
     db.commit()
     return RedirectResponse(f"/admin/users?course_id={membership.course_id}#pending-requests", status_code=303)
 

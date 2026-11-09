@@ -1,9 +1,9 @@
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sphere course access</title><link rel="stylesheet" href="/static/app.css"></head>
-<body><main class="auth-card">
-  <p class="eyebrow">Sphere</p><h1>{% if course %}Request access or sign in{% else %}Course access{% endif %}</h1>
+{% extends "auth/shell.html" %}
+{% block title %}Sphere · Course access{% endblock %}
+{% block content %}
+  <h1>{% if course %}{% if signin %}Sign in{% else %}Request access{% endif %}{% else %}Course access{% endif %}</h1>
   {% if message %}<p role="status">{{ message }}</p>{% endif %}
+  {% if request_link %}<p><a href="{{ request_link }}">Request access</a></p>{% endif %}
   {% if course_link %}
   <p><a class="button secondary" href="{{ course_link }}">Open course in Moodle</a></p>
   <p>{% if awaiting_approval %}Once approved, choose{% else %}Choose{% endif %} <strong>Check access</strong> in Sphere to connect this browser.</p>
@@ -12,9 +12,15 @@
   <p>{{ course.title }}</p>
   <form method="post" action="/reviewer-access/request/{{ course.id }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label>Name <small>(new reviewers only)</small><input name="display_name" autocomplete="name" maxlength="100"></label>
-    <label>Email<input type="email" name="email" autocomplete="email" required maxlength="320"></label>
-    <button>Email me a link</button>
+    {% if signin %}<input type="hidden" name="mode" value="signin">{% else %}
+    <label>Name<input name="display_name" autocomplete="name" maxlength="100" required></label>
+    {% endif %}
+    <label>Email address<input type="email" name="email" autocomplete="email" required maxlength="320" value="{{ email|default('') }}"></label>
+    {% if not signin %}
+    <label>Requested role<select name="requested_role" required><option value="beta_tester">Beta tester</option><option value="sme">SME</option><option value="ld_dcd">Learning Designer / DCD</option></select></label>
+    <p>Your administrator assigns your actual course role. After approval, confirm your email, return to Moodle and choose Check access.</p>
+    {% endif %}
+    <button>{% if signin %}Send sign-in link{% else %}Request access{% endif %}</button>
   </form>
   {% elif verify %}
   <form method="post" action="/reviewer-access/verify">
@@ -24,4 +30,4 @@
   </form>
   <script src="/static/reviewer-request.js" defer></script>
   {% endif %}
-</main></body></html>
+{% endblock %}

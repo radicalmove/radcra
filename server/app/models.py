@@ -171,6 +171,8 @@ class ReviewerEmailChallenge(Base):
     verification_mail_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     admin_mail_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     approval_mail_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    admin_first: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    requested_role: Mapped[str] = mapped_column(String(20), nullable=False, default="beta_tester")
 
 
 class ReviewerInvitation(Base):

@@ -92,11 +92,15 @@ def _generic_login_error() -> HTTPException:
 
 @router.get("/register", response_class=HTMLResponse)
 def register_page(request: Request) -> HTMLResponse:
+    if get_settings().reviewer_access_enabled:
+        return _csrf_response(request, "auth/reviewer_request.html", {"message": "Open your course in Moodle and choose Request access in Sphere. Your administrator approves your course role before you confirm your email. Then return to Moodle and choose Check access."})
     return _csrf_response(request, "auth/register.html")
 
 
 @router.post("/register")
 async def register_form(request: Request, db: DbSession = Depends(get_session)) -> RedirectResponse:
+    if get_settings().reviewer_access_enabled:
+        raise HTTPException(status_code=403, detail="Request access from your Moodle course")
     data = await _form_with_csrf(request)
     try:
         payload = RegistrationRequest.model_validate(data)
@@ -110,6 +114,8 @@ async def register_form(request: Request, db: DbSession = Depends(get_session)) 
 
 @router.post("/auth/register", status_code=status.HTTP_201_CREATED)
 def register_json(payload: RegistrationRequest, db: DbSession = Depends(get_session)) -> dict[str, str]:
+    if get_settings().reviewer_access_enabled:
+        raise HTTPException(status_code=403, detail="Request access from your Moodle course")
     try:
         user = register_account(db, email=payload.email, password=payload.password, display_name=payload.display_name)
     except AccountAlreadyExistsError as exc:

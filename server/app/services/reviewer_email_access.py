@@ -16,7 +16,8 @@ def mail_proof(secret, browser_hash):
     return hmac.digest(secret.encode(), f"sphere-reviewer-email:{browser_hash}".encode(), "sha256").hex()
 
 
-def begin(db, course_id, email, display_name="", *, mail_secret=None):
+def begin(db, course_id, email, display_name="", *, mail_secret=None, admin_first=False,
+          requested_role="beta_tester", signin=False):
     course = db.get(Course, course_id)
     name = display_name.strip()
     try:
@@ -24,6 +25,8 @@ def begin(db, course_id, email, display_name="", *, mail_secret=None):
     except EmailNotValidError as exc:
         raise AccessDenied("Invalid access request") from exc
     if not course or not course.is_confirmed or len(name) > 100:
+        raise AccessDenied("Invalid access request")
+    if admin_first and requested_role not in {"beta_tester", "sme", "ld_dcd"}:
         raise AccessDenied("Invalid access request")
     now = utc_now()
     browser_secret = generate_token()
@@ -38,9 +41,37 @@ def begin(db, course_id, email, display_name="", *, mail_secret=None):
         if len(recent) >= 30 or sum(row.email == address for row in recent) >= 3:
             raise AccessDenied("Please wait before requesting another email")
     proof = mail_proof(mail_secret, browser_hash) if mail_secret else generate_token()
+    pending = False
+    if admin_first:
+        user = db.scalar(select(User).where(User.email == address).with_for_update())
+        if user and (user.deleted_at or user.role is UserRole.ADMIN):
+            raise AccessDenied("Unable to request reviewer access")
+        membership = None if user is None else db.scalar(select(CourseMembership).where(
+            CourseMembership.user_id == user.id, CourseMembership.course_id == course_id).with_for_update())
+        if membership and membership.state not in {MembershipState.PENDING, MembershipState.APPROVED}:
+            raise AccessDenied("Unable to request reviewer access")
+        if signin and (not membership or membership.state is not MembershipState.APPROVED):
+            raise AccessDenied("Unable to request reviewer access")
+        if membership is None:
+            if not name:
+                raise AccessDenied("Enter your name to request access")
+            if user is None:
+                user = User(email=address, display_name=name, password_hash=hash_password(generate_token()),
+                            role=UserRole.BETA_TESTER, created_at=now)
+                db.add(user)
+                db.flush()
+            membership = CourseMembership(user_id=user.id, course_id=course_id, role=UserRole.BETA_TESTER,
+                state=MembershipState.PENDING, created_at=now, updated_at=now)
+            db.add(membership)
+            pending = True
+        elif membership.state is MembershipState.PENDING:
+            # Retain the original browser request and a single admin notification.
+            raise AccessDenied("Unable to request reviewer access")
     db.add(ReviewerEmailChallenge(course_id=course_id, email=address, display_name=name,
-        proof_hash=token_hash(proof), browser_hash=browser_hash, verification_mail_pending=bool(mail_secret),
-        proof_expires_at=now + timedelta(minutes=20), browser_expires_at=now + timedelta(days=7)))
+        proof_hash=token_hash(proof), browser_hash=browser_hash,
+        admin_first=admin_first, requested_role=requested_role,
+        admin_mail_pending=pending, verification_mail_pending=bool(mail_secret) and not pending,
+        proof_expires_at=now if pending else now + timedelta(minutes=20), browser_expires_at=now + timedelta(days=7)))
     db.commit()
     return proof, browser_secret
 
@@ -59,6 +90,16 @@ def confirm_email(db, proof, browser_secret, *, queue_mail=False):
     user = db.scalar(select(User).where(User.email == challenge.email))
     if course is None or not course.is_confirmed or (user and (user.deleted_at or user.role is UserRole.ADMIN)):
         raise AccessDenied("Unable to request reviewer access")
+    if challenge.admin_first:
+        membership = None if user is None else db.scalar(select(CourseMembership).where(
+            CourseMembership.user_id == user.id, CourseMembership.course_id == challenge.course_id,
+            CourseMembership.state == MembershipState.APPROVED))
+        if membership is None or challenge.browser_expires_at.replace(tzinfo=now.tzinfo) <= now:
+            raise AccessDenied("Unable to request reviewer access")
+        challenge.confirmed_at = now
+        challenge.verification_mail_pending = challenge.approval_mail_pending = False
+        db.commit()
+        return membership, False
     try:
         if user is None:
             if not challenge.display_name:

@@ -7,6 +7,25 @@ from app.services.courses import confirm_course, find_registered_course, registe
 
 
 @pytest.mark.parametrize("create", [register_course, resolve_course])
+def test_zero_padded_numeric_ids_reuse_the_same_uuid(create, db_session):
+    original = create(db_session, moodle_course_id="03598", course_url="https://learn.canterbury.ac.nz/course/view.php?id=03598", title="LEARN")
+    same = create(db_session, moodle_course_id=3598, course_url="https://learn.canterbury.ac.nz/course/view.php?id=3598", title="LEARN renamed")
+    assert same.id == original.id
+    assert original.moodle_course_id == "3598"
+    assert find_registered_course(db_session, moodle_course_id="0003598", course_url=same.normalized_url, title="LEARN") is original
+    temporary = resolve_course(db_session, course_url="https://learn.canterbury.ac.nz/temporary", title="Temporary")
+    assert confirm_course(db_session, temporary, moodle_course_id="003598", course_url=same.normalized_url, title="LEARN").id == original.id
+
+
+@pytest.mark.parametrize("operation", [register_course, resolve_course, find_registered_course])
+@pytest.mark.parametrize("invalid_id", ["0", "000", "-1", "", " ", "1.0", "²"])
+def test_stable_identity_requires_positive_decimal_integer(db_session, operation, invalid_id):
+    with pytest.raises(ValueError, match="moodle_course_id"):
+        operation(db_session, moodle_course_id=invalid_id, course_url="https://learn.canterbury.ac.nz/course/view.php?id=1", title="LEARN")
+    assert db_session.query(Course).count() == 0
+
+
+@pytest.mark.parametrize("create", [register_course, resolve_course])
 def test_same_numeric_id_on_learn_and_uco_is_distinct_and_never_moves(create, db_session):
     uco = create(db_session, moodle_course_id=3598, course_url="https://my.uconline.ac.nz/course/view.php?id=3598", title="UCO")
     original_id = uco.id

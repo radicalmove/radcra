@@ -31,16 +31,21 @@ def normalize_title(value: str) -> tuple[str, str]:
     return title, title.casefold()
 
 
+def normalize_moodle_course_id(value: int | str | None) -> str:
+    if value is None:
+        raise ValueError("moodle_course_id is required")
+    raw = str(value).strip()
+    if not raw or not raw.isascii() or not raw.isdecimal() or int(raw) < 1:
+        raise ValueError("moodle_course_id must be a positive numeric integer")
+    return str(int(raw))
+
+
 def find_registered_course(db: DbSession, *, course_url: str, title: str, moodle_course_id: int | str | None = None) -> Course | None:
     url = normalize_url(course_url)
     parsed_url = urlsplit(url)
     origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
     normalize_title(title)
-    if moodle_course_id is None:
-        raise ValueError("moodle_course_id is required")
-    stable_id = str(moodle_course_id).strip()
-    if not stable_id or not stable_id.isdigit():
-        raise ValueError("moodle_course_id must be numeric")
+    stable_id = normalize_moodle_course_id(moodle_course_id)
     with db.no_autoflush:
         return db.scalar(select(Course).where(
             Course.moodle_course_id == stable_id,
@@ -54,11 +59,7 @@ def register_course(db: DbSession, *, course_url: str, title: str, moodle_course
     parsed_url = urlsplit(url)
     origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
     clean_title, identity_title = normalize_title(title)
-    if moodle_course_id is None:
-        raise ValueError("moodle_course_id is required")
-    stable_id = str(moodle_course_id).strip()
-    if not stable_id or not stable_id.isdigit():
-        raise ValueError("moodle_course_id must be numeric")
+    stable_id = normalize_moodle_course_id(moodle_course_id)
 
     with db.no_autoflush:
         course = db.scalar(select(Course).where(Course.moodle_origin == origin, Course.moodle_course_id == stable_id))
@@ -98,9 +99,8 @@ def register_course(db: DbSession, *, course_url: str, title: str, moodle_course
 def resolve_course(db: DbSession, *, course_url: str, title: str, moodle_course_id: int | str | None = None) -> Course:
     url = normalize_url(course_url)
     clean_title, identity_title = normalize_title(title)
-    stable_id = str(moodle_course_id).strip() if moodle_course_id is not None else None
-    if stable_id:
-        return register_course(db, course_url=url, title=clean_title, moodle_course_id=stable_id)
+    if moodle_course_id is not None:
+        return register_course(db, course_url=url, title=clean_title, moodle_course_id=moodle_course_id)
     course = db.scalar(select(Course).where(Course.normalized_url == url, Course.identity_title == identity_title))
     if course is None:
         course = Course(normalized_url=url, title=clean_title, identity_title=identity_title, is_confirmed=False, created_at=utc_now())

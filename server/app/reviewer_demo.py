@@ -39,6 +39,7 @@ def build_demo(directory: Path | None = None, factory=None):
         Base.metadata.create_all(engine)
         factory = SessionLocal
     app = create_app()
+    base_route_count = len(app.router.routes)
     def db_session():
         with factory() as db:
             yield db
@@ -160,4 +161,7 @@ def build_demo(directory: Path | None = None, factory=None):
             db.commit()
         return {"state": "approved", "role": "ld_dcd", "session_token": token, "expires_in": 28800, "device_credential": device}
 
+    # This isolated wrapper owns its password-gated access endpoints. Keep
+    # them ahead of identically named production onboarding routes.
+    app.router.routes[:] = app.router.routes[base_route_count:] + app.router.routes[:base_route_count]
     return app

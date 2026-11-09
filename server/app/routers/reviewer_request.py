@@ -14,13 +14,22 @@ from app.config import get_settings
 from app.models import Course, CourseMembership, MembershipState, ReviewerEmailChallenge, User
 from app.routers.auth import _csrf_response, _form_with_csrf, extension_redirect_uris
 from app.routers.access import _access_json
-from app.security import token_hash, utc_now
+from app.security import generate_token, token_hash, utc_now
 from app.services.access import AccessDenied
 from app.services.reviewer_email_access import begin, confirm_email, exchange
 from app.url_validation import canonical_https_url
 
 router = APIRouter(prefix="/reviewer-access")
 COOKIE = "__Host-sphere-reviewer-request"
+
+
+def course_cookie(course_id):
+    return f"{COOKIE}-{course_id}"
+
+
+def _browser_cookie(response, name, secret):
+    response.set_cookie(name, secret, secure=True, httponly=True, samesite="lax", max_age=604800, path="/")
+    return response
 
 
 def request_mailer():
@@ -51,11 +60,11 @@ def _course_link(course: Course | None) -> str | None:
 
 
 @router.get("/request/{course_id}")
-def request_page(request: Request, course_id: uuid.UUID, mode: str = "", email: str = "", db: DbSession = Depends(get_session)):
+def request_page(request: Request, course_id: uuid.UUID, mode: str = "", db: DbSession = Depends(get_session)):
     course = db.get(Course, course_id)
     if not course or not course.is_confirmed:
         raise HTTPException(status_code=404, detail="Course not enabled for review")
-    return _page(request, course=course, signin=mode == "signin", email=email if len(email) <= 320 else "")
+    return _page(request, course=course, signin=mode == "signin", admin_first=get_settings().reviewer_access_enabled)
 
 
 @router.post("/request/{course_id}")
@@ -72,14 +81,25 @@ async def submit_request(request: Request, course_id: uuid.UUID, mailer=Depends(
             admin_first=settings.reviewer_access_enabled, requested_role=form.get("requested_role", "beta_tester"), signin=signin)
     except AccessDenied:
         if settings.reviewer_access_enabled:
-            return _page(request, message=generic, request_link=f"/reviewer-access/request/{course_id}")
-        return _page(request, course=db.get(Course, course_id), message="Check the details and try again.")
+            response = _page(request, message=generic, request_link=f"/reviewer-access/request/{course_id}")
+            name = course_cookie(course_id)
+            saved = request.cookies.get(name, "")
+            # Keep a genuine in-progress request usable, but never echo an
+            # arbitrary cookie: that would disclose which addresses qualified.
+            own_request = saved and db.scalar(select(ReviewerEmailChallenge.id).where(
+                ReviewerEmailChallenge.course_id == course_id,
+                ReviewerEmailChallenge.email == email,
+                ReviewerEmailChallenge.browser_hash == token_hash(saved),
+                ReviewerEmailChallenge.browser_expires_at > utc_now(),
+                ReviewerEmailChallenge.exchanged_at.is_(None),
+            ))
+            return _browser_cookie(response, name, saved if own_request else generate_token())
+        return _page(request, course=db.get(Course, course_id), message="Check the details and try again.", admin_first=False)
     if not isinstance(mailer, str) and not settings.reviewer_access_enabled:
         mailer.verification(course_id, email, proof)
     response = _page(request, message=generic if settings.reviewer_access_enabled else "Check your email and open the link in this same Chrome profile.",
                      request_link=f"/reviewer-access/request/{course_id}" if settings.reviewer_access_enabled else None)
-    response.set_cookie(COOKIE, browser_secret, secure=True, httponly=True, samesite="lax", max_age=604800, path="/")
-    return response
+    return _browser_cookie(response, course_cookie(course_id) if settings.reviewer_access_enabled else COOKIE, browser_secret)
 
 
 @router.get("/verify")
@@ -90,8 +110,11 @@ def verify_page(request: Request):
 @router.post("/verify")
 async def verify_request(request: Request, mailer=Depends(request_mailer), db: DbSession = Depends(get_session)):
     form = await _form_with_csrf(request)
+    proof = form.get("proof", "")
+    challenge = db.scalar(select(ReviewerEmailChallenge).where(ReviewerEmailChallenge.proof_hash == token_hash(proof)))
+    cookie_name = course_cookie(challenge.course_id) if challenge and challenge.admin_first else COOKIE
     try:
-        membership, created = confirm_email(db, form.get("proof", ""), request.cookies.get(COOKIE, ""), queue_mail=isinstance(mailer, str))
+        membership, created = confirm_email(db, proof, request.cookies.get(cookie_name, ""), queue_mail=isinstance(mailer, str))
     except AccessDenied:
         return _page(request, message="This link is expired, already used, or opened in a different Chrome profile.")
     if created and not isinstance(mailer, str):
@@ -109,10 +132,15 @@ async def verify_request(request: Request, mailer=Depends(request_mailer), db: D
 def finish(request: Request, course_id: uuid.UUID, redirect_uri: str, db: DbSession = Depends(get_session)):
     if redirect_uri not in extension_redirect_uris() or "#" in redirect_uri:
         raise HTTPException(status_code=400, detail="Unapproved redirect URI")
-    browser_secret = request.cookies.get(COOKIE, "")
+    browser_secret = request.cookies.get(course_cookie(course_id), "")
+    scoped = True
+    if not browser_secret:
+        browser_secret = request.cookies.get(COOKIE, "")
+        scoped = False
     challenge = db.scalar(select(ReviewerEmailChallenge).where(
         ReviewerEmailChallenge.course_id == course_id,
         ReviewerEmailChallenge.browser_hash == token_hash(browser_secret),
+        ReviewerEmailChallenge.admin_first.is_(scoped),
         ReviewerEmailChallenge.browser_expires_at > utc_now(),
         ReviewerEmailChallenge.exchanged_at.is_(None),
         ReviewerEmailChallenge.confirmed_at.is_not(None),

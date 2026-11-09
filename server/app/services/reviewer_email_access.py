@@ -11,6 +11,8 @@ from app.models import Course, CourseMembership, MembershipState, ReviewerEmailC
 from app.security import generate_token, hash_password, token_hash, utc_now
 from app.services.access import AccessDenied, AccessResult, _issue_access
 
+ROLE_LABELS = {"beta_tester": "Beta tester", "sme": "SME", "ld_dcd": "Learning Designer / DCD"}
+
 
 def mail_proof(secret, browser_hash):
     return hmac.digest(secret.encode(), f"sphere-reviewer-email:{browser_hash}".encode(), "sha256").hex()

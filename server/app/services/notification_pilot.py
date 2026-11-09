@@ -216,7 +216,8 @@ def deliver_access_mail(db, settings, send):
             recipient = settings.reviewer_access_admin_email
         body = f"{challenge.display_name or challenge.email} ({challenge.email}) requested access to {course.title}.\n\nReview pending requests: {origin}/admin"
         if challenge.admin_first:
-            body += f"\n\nEmail unverified. Requested role: {challenge.requested_role} (advisory only). Choose the actual course role when approving."
+            from app.services.reviewer_email_access import ROLE_LABELS
+            body += f"\n\nEmail unverified. Requested role: {ROLE_LABELS.get(challenge.requested_role, 'Reviewer')} ({challenge.requested_role}, advisory only). Choose the actual course role when approving."
     else:
         field = "approval_mail_pending"
         subject = "[Sphere test] Course access approved"
@@ -229,7 +230,8 @@ def deliver_access_mail(db, settings, send):
                 return True
             member = db.scalar(select(CourseMembership).join(User, User.id == CourseMembership.user_id).where(
                 CourseMembership.course_id == course.id, User.email == challenge.email))
-            role = member.role.value if member else "reviewer"
+            from app.services.reviewer_email_access import ROLE_LABELS
+            role = f"{ROLE_LABELS.get(member.role.value, 'Reviewer')} ({member.role.value})" if member else "Reviewer"
             body = (f"Your access to {course.title} was approved. Assigned role: {role}.\n\n"
                     f"Confirm your email in the same Chrome profile within 20 minutes:\n{origin}/reviewer-access/verify#{proof}\n\n"
                     f"Then return to Moodle: {course.moodle_origin}/course/view.php?id={course.moodle_course_id}\n"

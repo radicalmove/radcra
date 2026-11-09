@@ -13,15 +13,16 @@
   <form method="post" action="/reviewer-access/request/{{ course.id }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     {% if signin %}<input type="hidden" name="mode" value="signin">{% else %}
-    <label>Name<input name="display_name" autocomplete="name" maxlength="100" required></label>
+    <label>Name{% if not admin_first %} <small>(new reviewers only)</small>{% endif %}<input name="display_name" autocomplete="name" maxlength="100"{% if admin_first %} required{% endif %}></label>
     {% endif %}
-    <label>Email address<input type="email" name="email" autocomplete="email" required maxlength="320" value="{{ email|default('') }}"></label>
-    {% if not signin %}
+    <label>Email address<input type="email" name="email" autocomplete="email" required maxlength="320"{% if signin %} id="sphere-signin-email"{% endif %}></label>
+    {% if admin_first and not signin %}
     <label>Requested role<select name="requested_role" required><option value="beta_tester">Beta tester</option><option value="sme">SME</option><option value="ld_dcd">Learning Designer / DCD</option></select></label>
     <p>Your administrator assigns your actual course role. After approval, confirm your email, return to Moodle and choose Check access.</p>
     {% endif %}
-    <button>{% if signin %}Send sign-in link{% else %}Request access{% endif %}</button>
+    <button>{% if signin %}Send sign-in link{% elif admin_first %}Request access{% else %}Email me a link{% endif %}</button>
   </form>
+  {% if signin %}<script src="/static/reviewer-request.js" defer></script>{% endif %}
   {% elif verify %}
   <form method="post" action="/reviewer-access/verify">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

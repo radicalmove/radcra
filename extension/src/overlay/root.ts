@@ -450,8 +450,13 @@ function createController(host: HTMLElement, shadow: ShadowRoot, initial: Course
       const feedback = area.querySelector<HTMLElement>("[data-email-status]")!;
       area.querySelector("[data-email-cancel]")?.addEventListener("click", close);
       area.addEventListener("keydown", (event) => {
-        const controls = Array.from(area.querySelectorAll<HTMLButtonElement>("button:not([disabled]):not([hidden])"));
-        const outcome = handleDialogKey({ key: event.key, shiftKey: event.shiftKey, activeIndex: controls.indexOf(shadow.activeElement as HTMLButtonElement), focusableCount: controls.length });
+        const controls = Array.from(area.querySelectorAll<HTMLElement>("button:not([disabled]):not([hidden]), input:not([disabled])"));
+        const outcome = handleDialogKey({ key: event.key, shiftKey: event.shiftKey, activeIndex: controls.indexOf(shadow.activeElement as HTMLElement), focusableCount: controls.length });
+        if (event.key === "Enter" && shadow.activeElement?.matches('input[name="reviewerEmail"]')) {
+          event.preventDefault();
+          area.querySelector<HTMLButtonElement>("[data-email-signin]")?.click();
+          return;
+        }
         if (outcome.close) { event.preventDefault(); close(); }
         else if (event.key === "Tab") { event.preventDefault(); controls[outcome.focusIndex]?.focus(); }
       });

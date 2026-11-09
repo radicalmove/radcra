@@ -330,7 +330,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
         if (matches) return { state: "approved" };
         const destination = new URL(`/reviewer-access/request/${course}`, origin);
         destination.searchParams.set("mode", "signin");
-        destination.searchParams.set("email", value.email.trim());
+        destination.hash = new URLSearchParams({ email: value.email.trim() }).toString();
         await chrome.tabs.create({ url: destination.href });
         return { state: "opened" };
       }

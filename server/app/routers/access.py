@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.db import get_session
+from app.config import get_settings
 from app.dependencies import current_dashboard_user, current_extension_user, require_course_access
 from app.models import AuditEvent, Course, CourseMembership, MembershipState, User, UserRole
 from app.schemas import CourseLookupRequest, CourseReviewerListRequest, DeviceRenewRequest, ExistingReviewerSignInRequest, InvitationCreateRequest, InvitationRedeemRequest, MembershipResumeRequest, MembershipStateRequest
@@ -42,6 +43,8 @@ def lookup_course(payload: CourseLookupRequest, db: DbSession = Depends(get_sess
 
 @router.post("/api/access/reviewers")
 def approved_reviewers(payload: CourseReviewerListRequest, db: DbSession = Depends(get_session)) -> dict:
+    if get_settings().reviewer_access_enabled:
+        raise HTTPException(status_code=403, detail="Use email sign-in for course access")
     try:
         if payload.email is None:
             reviewers = list_approved_reviewers(db, course_id=payload.course_handle)
@@ -60,6 +63,9 @@ def approved_reviewers(payload: CourseReviewerListRequest, db: DbSession = Depen
 
 @router.post("/api/access/reviewers/sign-in")
 def sign_in_existing(payload: ExistingReviewerSignInRequest, db: DbSession = Depends(get_session)) -> dict:
+    settings = get_settings()
+    if settings.reviewer_access_enabled or (settings.reviewer_access_mail_secret and payload.course_handle == settings.notification_pilot_course_id):
+        raise HTTPException(status_code=403, detail="Use email sign-in for this course")
     try:
         return _access_json(sign_in_existing_reviewer(db, course_id=payload.course_handle, membership_id=payload.membership_id))
     except AccessDenied as exc:

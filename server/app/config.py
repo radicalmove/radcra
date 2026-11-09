@@ -1,6 +1,7 @@
 from functools import lru_cache
+from uuid import UUID
 
-from pydantic import PositiveInt
+from pydantic import PositiveInt, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +20,16 @@ class Settings(BaseSettings):
     dashboard_session_hours: int = 8
     attachment_storage_dir: str = "var/attachments"
     attachment_max_bytes: PositiveInt = 10 * 1024 * 1024
+    notification_pilot_course_id: UUID | None = None
+    notification_pilot_recipient: str | None = None
+    notification_pilot_sender: str | None = None
+    notification_pilot_url: str | None = None
+    notification_pilot_preview_comment_id: UUID | None = None
+    reviewer_access_mail_secret: SecretStr | None = None
+    reviewer_access_enabled: bool = False
+    reviewer_access_admin_email: str | None = None
+    reviewer_access_origin: str | None = None
+    reviewer_access_sender: str | None = None
 
 
 @lru_cache

@@ -7,6 +7,7 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
+from app.config import get_settings
 from app.models import AuditEvent, CourseMembership, DeviceCredential, ExtensionLoginCode, MembershipState, ReconnectCredential, ReviewerInvitation, Session, User, UserRole
 from app.security import generate_token, hash_password, token_hash, utc_now, verify_password
 
@@ -184,6 +185,7 @@ def verify_extension_access(db: DbSession, token: str, *, now=None) -> Extension
         raise AuthenticationError("Unknown session user")
     _approved(user)
     if row.membership_id is None:
+        _require_legacy_extension_access(user)
         return ExtensionAccess(user.id, user.email, user.display_name, user.role, None, None)
     membership = db.get(CourseMembership, row.membership_id)
     if membership is None or membership.user_id != user.id or membership.state is not MembershipState.APPROVED:
@@ -204,8 +206,14 @@ def revoke_session(db: DbSession, token: str, *, now=None) -> None:
         db.commit()
 
 
+def _require_legacy_extension_access(user: User) -> None:
+    if get_settings().reviewer_access_enabled and user.role is not UserRole.ADMIN:
+        raise AuthenticationError("Reviewers must sign in through their course")
+
+
 def create_extension_login_code(db: DbSession, user: User, redirect_uri: str, *, now=None, ttl=timedelta(minutes=5)) -> str:
     _approved(user)
+    _require_legacy_extension_access(user)
     issued_at = _now(now)
     code = generate_token()
     db.add(ExtensionLoginCode(user_id=user.id, code_hash=token_hash(code), redirect_uri=redirect_uri, expires_at=issued_at + ttl, created_at=issued_at))
@@ -234,6 +242,7 @@ def exchange_extension_login_code(db: DbSession, code: str, redirect_uri: str, *
     if user is None:
         raise AuthenticationError("Unknown code user")
     _approved(user)
+    _require_legacy_extension_access(user)
     token = generate_token()
     db.add(Session(user_id=user.id, token_hash=token_hash(token), kind="extension", expires_at=instant + session_ttl, created_at=instant))
     db.commit()

@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Index, String, Text, Uuid, UniqueConstraint
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, Uuid, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -154,6 +154,24 @@ class CourseMembership(Base):
     )
 
 
+class ReviewerEmailChallenge(Base):
+    __tablename__ = "reviewer_email_challenges"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    course_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    proof_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    browser_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    proof_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    browser_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    exchanged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verification_mail_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    admin_mail_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    approval_mail_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
 class ReviewerInvitation(Base):
     __tablename__ = "reviewer_invitations"
 
@@ -287,6 +305,15 @@ class CommentStatusEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (Index("ix_comment_status_events_comment_time", "comment_id", "created_at"),)
+
+
+class NotificationOutbox(Base):
+    __tablename__ = "notification_outbox"
+
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("comment_status_events.id", ondelete="CASCADE"), primary_key=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class CommentReadState(Base):

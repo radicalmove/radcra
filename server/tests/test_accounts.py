@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session as SqlAlchemySession, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
+from app.config import get_settings
 from app.models import Session, User, UserRole
 from app.security import verify_password
 from app.services.accounts import (
@@ -20,6 +21,7 @@ from app.services.accounts import (
     register_account,
     revoke_session,
     verify_dashboard_session,
+    verify_extension_access,
     verify_extension_session,
 )
 
@@ -42,6 +44,21 @@ def approved_user(db_session):
     user.approved_at = datetime.now(UTC)
     db_session.commit()
     return user
+
+
+def test_release_rejects_old_unscoped_reviewer_tokens_and_codes(db_session, monkeypatch):
+    reviewer = approved_user(db_session)
+    redirect = "https://extension.chromiumapp.org/"
+    token = exchange_extension_login_code(db_session, create_extension_login_code(db_session, reviewer, redirect), redirect)
+    unused = create_extension_login_code(db_session, reviewer, redirect)
+    assert verify_extension_access(db_session, token).course_id is None
+    monkeypatch.setattr(get_settings(), "reviewer_access_enabled", True)
+    with pytest.raises(AuthenticationError):
+        verify_extension_access(db_session, token)
+    with pytest.raises(AuthenticationError):
+        create_extension_login_code(db_session, reviewer, redirect)
+    with pytest.raises(AuthenticationError):
+        exchange_extension_login_code(db_session, unused, redirect)
 
 
 def test_registration_is_pending_and_password_is_argon2_hashed(db_session):

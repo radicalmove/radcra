@@ -53,6 +53,8 @@ def extension_redirect_uris() -> set[str]:
 def _validated_login_continuation(value: str | None) -> str | None:
     if not value:
         return None
+    if value == "/admin":
+        return "/admin"
     parts = urlsplit(value)
     query = parse_qsl(parts.query, keep_blank_values=True)
     if (
@@ -183,7 +185,10 @@ def extension_authorize(
     except AuthenticationError:
         continuation = f"/extension/authorize?{urlencode({'redirect_uri': redirect_uri})}"
         return RedirectResponse(f"/login?{urlencode({'next': continuation})}", status_code=status.HTTP_303_SEE_OTHER)
-    code = create_extension_login_code(db, user, redirect_uri)
+    try:
+        code = create_extension_login_code(db, user, redirect_uri)
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     parts = urlsplit(redirect_uri)
     query = urlencode([*parse_qsl(parts.query, keep_blank_values=True), ("code", code)])
     return RedirectResponse(urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment)), status_code=303)

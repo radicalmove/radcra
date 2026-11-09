@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sphere course access</title><link rel="stylesheet" href="/static/app.css"></head>
+<body><main class="auth-card">
+  <p class="eyebrow">Sphere</p><h1>{% if course %}Request access or sign in{% else %}Course access{% endif %}</h1>
+  {% if message %}<p role="status">{{ message }}</p>{% endif %}
+  {% if course_link %}
+  <p><a class="button secondary" href="{{ course_link }}">Open course in Moodle</a></p>
+  <p>{% if awaiting_approval %}Once approved, choose{% else %}Choose{% endif %} <strong>Check access</strong> in Sphere to connect this browser.</p>
+  {% endif %}
+  {% if course %}
+  <p>{{ course.title }}</p>
+  <form method="post" action="/reviewer-access/request/{{ course.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>Name <small>(new reviewers only)</small><input name="display_name" autocomplete="name" maxlength="100"></label>
+    <label>Email<input type="email" name="email" autocomplete="email" required maxlength="320"></label>
+    <button>Email me a link</button>
+  </form>
+  {% elif verify %}
+  <form method="post" action="/reviewer-access/verify">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="proof" id="sphere-email-proof">
+    <button id="sphere-confirm-email" disabled>Confirm email</button>
+  </form>
+  <script src="/static/reviewer-request.js" defer></script>
+  {% endif %}
+</main></body></html>

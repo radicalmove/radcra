@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session as DbSession
 from app.models import AnchorType, Attachment, Comment, CommentCategory, CommentReadState, CommentReply, CommentShare, CommentStatus, CommentStatusEvent, CourseMembership, MembershipState, PageLocation, User, UserRole
 from app.url_validation import canonical_https_url
 from app.security import utc_now
+from app.services.notification_pilot import queue_pilot_event
 
 
 class AuthorizationError(Exception):
@@ -338,7 +339,9 @@ def create_comment(db: DbSession, author: User, *, course_id: uuid.UUID, page_ur
     comment = Comment(course_id=course_id, location_id=location.id, author_user_id=author.id, author_role=course_role_for(db, author, course_id), body=body.strip(), category=CommentCategory(category), status=CommentStatus.OPEN, created_at=instant, updated_at=instant)
     db.add(comment)
     db.flush()
-    db.add(CommentStatusEvent(comment_id=comment.id, actor_user_id=author.id, status=CommentStatus.OPEN, created_at=instant))
+    event = CommentStatusEvent(comment_id=comment.id, actor_user_id=author.id, status=CommentStatus.OPEN, created_at=instant)
+    db.add(event)
+    queue_pilot_event(db, comment, event)
     db.commit()
     db.refresh(comment)
     return comment
@@ -359,7 +362,10 @@ def update_comment_status(db: DbSession, actor: User, comment: Comment, status: 
         raise ValueError(f"Invalid status transition: {comment.status.value} -> {new_status.value}")
     instant = utc_now()
     comment.status, comment.updated_at = new_status, instant
-    db.add(CommentStatusEvent(comment_id=comment.id, actor_user_id=actor.id, status=new_status, created_at=instant))
+    event = CommentStatusEvent(comment_id=comment.id, actor_user_id=actor.id, status=new_status, created_at=instant)
+    db.add(event)
+    if new_status is CommentStatus.RESOLVED:
+        queue_pilot_event(db, comment, event)
     db.commit()
     db.refresh(comment)
     return comment

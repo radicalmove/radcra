@@ -1,14 +1,30 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Review administration</title><link rel="stylesheet" href="/static/app.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sphere administration</title><link rel="stylesheet" href="/static/app.css"><link rel="stylesheet" href="/static/admin.css"></head>
 <body>
-<main class="page">
-  <p class="eyebrow">Administration</p>
-  <h1>Course review access</h1>
+<a class="skip-link" href="#sphere-admin">Skip to administration</a>
+<main class="page sphere-admin" id="sphere-admin">
+  <header class="admin-heading">
+    <div><p class="eyebrow">Sphere · Administration</p><h1>Course review access</h1>
+    <p>Choose a course to invite reviewers and manage who can access it.</p></div>
+    <a class="button secondary" href="/dashboard">Review dashboard</a>
+  </header>
+
+  <section class="card" id="pending-requests" aria-labelledby="pending-title">
+    <h2 id="pending-title">Pending requests <span class="chip pending">{{ pending|length }}</span></h2>
+    {% for membership, member, course in pending %}
+    <form class="admin-form" method="post" action="/admin/memberships/{{ membership.id }}/approve-request">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <p><strong>{{ member.display_name }}</strong><br>{{ member.email }} · {{ course.title }}</p>
+      <label>Course role <select name="role" required><option value="">Choose role…</option><option value="beta_tester">Beta tester</option><option value="sme">SME</option><option value="ld_dcd">Learning Designer / DCD</option></select></label>
+      <button>Approve</button>
+    </form>
+    {% else %}<p>No course access requests waiting for approval.</p>{% endfor %}
+  </section>
 
   <section class="card">
     <h2>1. Select a course</h2>
-    <form method="get" action="/admin/users">
+    <form class="admin-form" method="get" action="/admin/users">
       <label>Course <select name="course_id" required><option value="">Choose a course…</option>{% for course in courses %}<option value="{{ course.id }}" {% if selected_course and selected_course.id == course.id %}selected{% endif %}>{{ course.title }}</option>{% endfor %}</select></label>
       <button>View reviewers</button>
     </form>
@@ -18,7 +34,7 @@
   <h2>2. Manage {{ selected_course.title }}</h2>
   <section class="card">
     <h3>Create reviewer invitation</h3>
-    <form method="post" action="/admin/courses/{{ selected_course.id }}/invitations">
+    <form class="admin-form" method="post" action="/admin/courses/{{ selected_course.id }}/invitations">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Email <input type="email" name="email" required></label>
       <label>Role <select name="role"><option value="beta_tester">Beta tester</option><option value="sme">SME</option><option value="ld_dcd">LD/DCD</option></select></label>
@@ -26,12 +42,12 @@
     </form>
   </section>
   <h3>Reviewers for this course</h3>
-  <table><thead><tr><th>Reviewer</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+  <div class="admin-table" tabindex="0" role="region" aria-label="Course reviewers"><table><thead><tr><th>Reviewer</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>
   {% for membership, member in memberships %}<tr><td>{{ member.display_name }}<br><small>{{ member.email }}</small></td><td>{{ membership.role.value }}</td><td>{{ membership.state.value }}</td><td><form class="inline" method="post" action="/admin/memberships/{{ membership.id }}/state"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><select name="state"><option value="approved" {% if membership.state.value == 'approved' %}selected{% endif %}>Approved</option><option value="rejected" {% if membership.state.value == 'rejected' %}selected{% endif %}>Rejected</option><option value="revoked" {% if membership.state.value == 'revoked' %}selected{% endif %}>Revoked</option></select><button>Update</button></form></td></tr>{% else %}<tr><td colspan="4">No reviewers for this course yet.</td></tr>{% endfor %}
-  </tbody></table>
+  </tbody></table></div>
   {% else %}<p>Select a course above to create invitations and manage its reviewers.</p>{% endif %}
 
-  <details>
+  <details class="admin-account-section">
     <summary>Active account administration</summary>
     <p class="archive-warning">Deleting an account archives it rather than destroying it. The user will be signed out and lose access; the deleted-account area lists and restores archived accounts, while course comments and review history remain available in course review.</p>
     <table><thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Role</th><th>Actions</th></tr></thead><tbody>
@@ -39,7 +55,7 @@
     </tbody></table>
   </details>
 
-  <details class="deleted-accounts">
+  <details class="admin-account-section deleted-accounts">
     <summary>Deleted accounts ({{ deleted_users|length }})</summary>
     <p>These accounts are archived and cannot sign in. Their comments and review history remain available.</p>
     <table><thead><tr><th>Name</th><th>Email</th><th>Deleted</th><th>Role</th><th>Actions</th></tr></thead><tbody>

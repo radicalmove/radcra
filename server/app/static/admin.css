@@ -1,0 +1,37 @@
+.sphere-admin {
+  --admin-blue: #245b91;
+  --admin-line: #d2deeb;
+  width: min(1120px, calc(100% - 2rem));
+  max-width: none;
+  margin: clamp(1rem, 5vh, 3rem) auto;
+  padding: clamp(1rem, 3vw, 2rem);
+  border-color: var(--admin-line);
+}
+.admin-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin-bottom: 1.25rem;
+}
+.admin-heading h1, .admin-heading p { margin-bottom: .35rem; }
+.admin-heading .eyebrow, .sphere-admin a { color: var(--admin-blue); }
+.sphere-admin .card, .admin-account-section {
+  background: #f5f9fd;
+  border: 1px solid var(--admin-line);
+  border-radius: 10px;
+  padding: 1rem;
+}
+.sphere-admin .card h2, .sphere-admin .card h3 { margin: 0 0 .75rem; }
+.sphere-admin .card + .card { margin-top: 1rem; }
+.admin-form { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
+.admin-form label { flex: 1 1 12rem; margin: 0; min-width: 0; }
+.sphere-admin button:not(.danger) { background: var(--admin-blue); }
+.sphere-admin button:not(.danger):hover { background: #184371; }
+.admin-table, .admin-account-section { overflow-x: auto; }
+.sphere-admin table { background: white; }
+.sphere-admin th { background: #eaf2fa; }
+.sphere-admin td, .sphere-admin th { border-color: var(--admin-line); }
+.admin-account-section { margin-top: 1.25rem; }
+.admin-account-section summary { cursor: pointer; font-weight: 700; color: #183b61; }

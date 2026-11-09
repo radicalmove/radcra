@@ -9,15 +9,27 @@ from sqlalchemy.orm import Session as DbSession
 
 from app.db import get_session
 from app.dependencies import current_dashboard_user
-from app.models import Course, CourseMembership, MembershipState, User, UserRole
+from app.models import Course, CourseMembership, MembershipState, ReviewerEmailChallenge, User, UserRole
 from app.routers.auth import _form_with_csrf
 from app.security import generate_token
+from app.services.accounts import AuthenticationError, verify_dashboard_session
 from app.schemas import RoleChangeRequest
 from app.services.accounts import AuthorizationError, approve_account, archive_account, change_role, restore_account
 from app.services.access import AccessDenied, create_invitation
 
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory="app/templates")
+
+
+@router.get("", include_in_schema=False)
+@router.get("/", include_in_schema=False)
+def admin_shortcut(request: Request, db: DbSession = Depends(get_session)):
+    try:
+        user = verify_dashboard_session(db, request.cookies.get("dashboard_session", ""))
+    except AuthenticationError:
+        return RedirectResponse("/login?next=%2Fadmin", status_code=303)
+    _admin(user)
+    return RedirectResponse("/admin/users", status_code=303)
 
 
 def _admin(user: User) -> User:
@@ -48,7 +60,13 @@ def users_page(request: Request, course_id: uuid.UUID | None = None, user: User 
         if selected_course is None or not selected_course.is_confirmed:
             raise HTTPException(status_code=404, detail="Course not found")
         memberships = db.execute(select(CourseMembership, User).join(User, User.id == CourseMembership.user_id).where(CourseMembership.course_id == course_id, User.deleted_at.is_(None)).order_by(User.display_name)).all()
-    response = templates.TemplateResponse(request, "admin/users.html", {"users": db.scalars(select(User).where(User.deleted_at.is_(None)).order_by(User.created_at)).all(), "deleted_users": db.scalars(select(User).where(User.deleted_at.is_not(None)).order_by(User.deleted_at.desc())).all(), "courses": courses, "selected_course": selected_course, "memberships": memberships, "csrf_token": token, "roles": list(UserRole)})
+    pending = db.execute(select(CourseMembership, User, Course)
+        .join(User, User.id == CourseMembership.user_id)
+        .join(Course, Course.id == CourseMembership.course_id)
+        .where(CourseMembership.state == MembershipState.PENDING,
+               User.deleted_at.is_(None), Course.is_confirmed.is_(True))
+        .order_by(CourseMembership.created_at)).all()
+    response = templates.TemplateResponse(request, "admin/users.html", {"users": db.scalars(select(User).where(User.deleted_at.is_(None)).order_by(User.created_at)).all(), "deleted_users": db.scalars(select(User).where(User.deleted_at.is_not(None)).order_by(User.deleted_at.desc())).all(), "courses": courses, "selected_course": selected_course, "memberships": memberships, "pending": pending, "csrf_token": token, "roles": list(UserRole)})
     if request.cookies.get("csrf_token") != token:
         response.set_cookie("csrf_token", token, secure=True, samesite="lax")
     return response
@@ -142,6 +160,43 @@ async def create_course_invitation(request: Request, course_id: uuid.UUID, user:
     except (AccessDenied, ValueError) as exc:
         raise HTTPException(status_code=422, detail="Could not create invitation") from exc
     return HTMLResponse(f'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Reviewer invitation</title><link rel="stylesheet" href="/static/app.css"></head><body><main class="page"><p class="eyebrow">Invitation created</p><h1>{course.title}</h1><p>Send this one-time code privately to the reviewer. It will not be shown again.</p><output class="code">{raw}</output><p><a href="/admin/users?course_id={course.id}">Return to this course</a></p></main></body></html>')
+
+
+@router.post("/memberships/{membership_id}/approve-request")
+async def approve_course_request(request: Request, membership_id: uuid.UUID, user: User = Depends(current_dashboard_user), db: DbSession = Depends(get_session)):
+    _admin(user)
+    form = await _form_with_csrf(request)
+    try:
+        role = UserRole(str(form.get("role", "")))
+        if role is UserRole.ADMIN:
+            raise ValueError
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Choose a course reviewer role") from exc
+    row = db.execute(select(CourseMembership, User).join(User, User.id == CourseMembership.user_id)
+        .join(Course, Course.id == CourseMembership.course_id)
+        .where(CourseMembership.id == membership_id, User.deleted_at.is_(None),
+               Course.is_confirmed.is_(True)).with_for_update(of=CourseMembership)).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Course request not found")
+    membership, reviewer = row
+    if membership.state is not MembershipState.PENDING:
+        raise HTTPException(status_code=409, detail="This request is no longer pending")
+    from app.security import utc_now
+    membership.role = role
+    membership.state = MembershipState.APPROVED
+    membership.updated_at = membership.approved_at = utc_now()
+    membership.approved_by_user_id = user.id
+    challenge = db.scalar(select(ReviewerEmailChallenge).where(
+        ReviewerEmailChallenge.course_id == membership.course_id,
+        ReviewerEmailChallenge.email == reviewer.email,
+        ReviewerEmailChallenge.confirmed_at.is_not(None),
+    ).order_by(ReviewerEmailChallenge.confirmed_at.desc()).limit(1))
+    if challenge is not None:
+        if reviewer.approved_at is None:
+            reviewer.approved_at = membership.approved_at
+        challenge.approval_mail_pending = True
+    db.commit()
+    return RedirectResponse(f"/admin/users?course_id={membership.course_id}#pending-requests", status_code=303)
 
 
 @router.post("/memberships/{membership_id}/state")

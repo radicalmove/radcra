@@ -1,5 +1,5 @@
 import { ApiClient, authenticate, findCourseReviewer, lookupReviewCourse, redeemReviewerInvitation, registerCourse as registerCourseApi, renewReviewerDevice, resolveCourse as resolveCourseApi, resumeReviewerMembership, signInExistingReviewer, type SessionToken } from "./api";
-import { ReviewerCourseAccess, validSession } from "./reviewer-course-access.ts";
+import { ReviewerCourseAccess, trustedEmailMatches, validSession } from "./reviewer-course-access.ts";
 import { authorizeAuthenticateSender, authorizeResolveSender, handleCreateCommentBridge, handleCreateEmbeddedCommentBridge, handleDeleteCommentBridge, handleListCourseCommentsBridge, handleListPageCommentsBridge, handleRegisterCourseBridge, handleResolveCourseBridge, normalizeErrorMessage, requirePolicyAcknowledgement, validateAcknowledgePolicyMessage, validateAuthenticateMessage, validateCancelScreenshotMessage, validateGetPolicyStatusMessage, validatePageCommentsResponse, validateUploadScreenshotMessage, validateViewerResponse, type CreateCommentPayload, type RegisterCoursePayload, type ResolveCoursePayload } from "./background-bridge.ts";
 import { EmbeddedCommentNavigation, handleCommentNavigationMessage } from "./embedded-comment-navigation.ts";
 import { EmbeddedAnchorCapabilities, issueEmbeddedAnchorFromWorker } from "./embedded-anchor-capabilities.ts";
@@ -311,13 +311,29 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: ReviewSender & {
       if (course) routing.bind(course.course_handle, candidate.moodle_origin);
       return course;
     })();
-  } else if (message && typeof message === "object" && ["OPEN_REVIEWER_REQUEST", "CHECK_REVIEWER_REQUEST"].includes(String((message as { type?: unknown }).type))) {
+  } else if (message && typeof message === "object" && ["OPEN_REVIEWER_REQUEST", "CHECK_REVIEWER_REQUEST", "SIGN_IN_REVIEWER_EMAIL"].includes(String((message as { type?: unknown }).type))) {
     operation = (async () => {
       await requireCurrentPolicyAcknowledgement();
-      const value = message as { type: string; course_handle?: unknown };
+      const value = message as { type: string; course_handle?: unknown; email?: unknown };
       if (sender.frameId !== 0 || !await authorizeAuthenticateSender(sender, { extensionId: chrome.runtime.id, moodlePatterns: __MOODLE_PATTERNS__, hasPermission: async () => false })) throw new Error("Unauthorized course access request");
       if (typeof value.course_handle !== "string" || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value.course_handle)) throw new Error("Invalid course");
       const origin = await serviceOrigin(value.course_handle, sender.url);
+      if (value.type === "SIGN_IN_REVIEWER_EMAIL") {
+        if (typeof value.email !== "string" || value.email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.email.trim())) throw new Error("Enter your email address");
+        const course = value.course_handle;
+        const matches = await trustedEmailMatches(accessFor(course), course, value.email, async (token) => {
+          const response = await scopedClient(origin, token, course).request(`/api/me?course_id=${encodeURIComponent(course)}`);
+          if (!response.ok) return undefined;
+          const identity = await response.json();
+          return typeof identity?.user?.email === "string" ? identity.user.email : undefined;
+        });
+        if (matches) return { state: "approved" };
+        const destination = new URL(`/reviewer-access/request/${course}`, origin);
+        destination.searchParams.set("mode", "signin");
+        destination.searchParams.set("email", value.email.trim());
+        await chrome.tabs.create({ url: destination.href });
+        return { state: "opened" };
+      }
       if (value.type === "OPEN_REVIEWER_REQUEST") {
         await chrome.tabs.create({ url: new URL(`/reviewer-access/request/${value.course_handle}`, origin).href });
         return { state: "opened" };

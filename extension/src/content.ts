@@ -521,9 +521,9 @@ export function startCourseReview(targetWindow: Window & typeof globalThis = win
       storage: commentListArrivalStorage,
       assign: (destination) => targetWindow.location.assign(destination),
     });
-  }, ...{ onReviewerEmail: async (action: "open" | "check") => {
+  }, ...{ onReviewerEmail: async (action: "open" | "check" | "signin", email?: string) => {
     if (!courseHandle) throw new Error("Course not enabled for review");
-    const result = await send<{ state: string }>({ type: action === "open" ? "OPEN_REVIEWER_REQUEST" : "CHECK_REVIEWER_REQUEST", course_handle: courseHandle });
+    const result = await send<{ state: string }>({ type: action === "open" ? "OPEN_REVIEWER_REQUEST" : action === "signin" ? "SIGN_IN_REVIEWER_EMAIL" : "CHECK_REVIEWER_REQUEST", course_handle: courseHandle, ...(action === "signin" ? { email } : {}) });
     if (result.state !== "approved") return false;
     lastSignature = "";
     refresh();

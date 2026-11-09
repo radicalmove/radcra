@@ -12,6 +12,18 @@ type Renewal = { session?: SessionToken; deviceCredential?: string };
 type Renew = (course: string, credential: string) => Promise<Renewal>;
 const courseKey = (course: string) => course.toLowerCase();
 
+// Email is only a selector: the saved course credential supplies the proof.
+export async function trustedEmailMatches(access: ReviewerCourseAccess, course: string, email: string,
+  readEmail: (token: string) => Promise<string | undefined>): Promise<boolean> {
+  const normalized = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) return false;
+  const generation = access.generation;
+  const token = await access.token(course);
+  if (!token) return false;
+  const actual = await readEmail(token);
+  return generation === access.generation && actual?.trim().toLowerCase() === normalized;
+}
+
 export function validSession(value: unknown): SessionToken | undefined {
   const session = value as Partial<SessionToken> | undefined;
   return session && typeof session.apiToken === "string" && typeof session.expiresAt === "number" && session.expiresAt > Date.now()

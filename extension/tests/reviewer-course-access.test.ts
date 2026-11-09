@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { clearAccessState } from "../src/policy-consent.ts";
-import { ReviewerCourseAccess } from "../src/reviewer-course-access.ts";
+import { ReviewerCourseAccess, trustedEmailMatches } from "../src/reviewer-course-access.ts";
 
 function storage(values: Record<string, unknown> = {}) {
   return {
@@ -14,6 +14,19 @@ function storage(values: Record<string, unknown> = {}) {
 }
 const sessionToken = (apiToken: string) => ({ apiToken, expiresAt: Date.now() + 60_000 });
 const trust = async () => undefined;
+
+test("email reconnect requires this course's remembered credential and authenticated email", async () => {
+  const access = new ReviewerCourseAccess(storage(), storage(), async () => ({}), trust);
+  let reads = 0;
+  const identity = async (token: string) => { reads++; assert.equal(token, "token-a"); return "Reviewer@Example.com"; };
+  assert.equal(await trustedEmailMatches(access, "course-a", "reviewer@example.com", identity), false);
+  assert.equal(reads, 0);
+  await access.save("course-a", sessionToken("token-a"), "device-a");
+  assert.equal(await trustedEmailMatches(access, "course-a", " reviewer@example.com ", identity), true);
+  assert.equal(await trustedEmailMatches(access, "course-a", "someone@example.com", identity), false);
+  assert.equal(await trustedEmailMatches(access, "course-b", "reviewer@example.com", identity), false);
+  assert.equal(await trustedEmailMatches(access, "course-a", "invalid", identity), false);
+});
 
 test("legacy access is renewed only for its saved course and kept alongside a new course", async () => {
   const local = storage({ deviceCourseHandle: "course-a", deviceCredential: "legacy-a" });

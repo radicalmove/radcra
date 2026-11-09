@@ -480,7 +480,7 @@ test("reviewer sign-in offers email access and check without the old reviewer pi
   const actions: string[] = [];
   const options = {
     onAccessSubmit: async () => ({ status: "signed-out" as const }),
-    onReviewerEmail: async (action: "open" | "check") => { actions.push(action); return action === "check"; },
+    onReviewerEmail: async (action: "open" | "check" | "signin") => { actions.push(action); return action === "check"; },
   };
   mountReviewOverlay(document, context, "signed-out", options);
   const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
@@ -492,6 +492,25 @@ test("reviewer sign-in offers email access and check without the old reviewer pi
   dialog.querySelector<HTMLButtonElement>("[data-email-check]")!.click(); await tick();
   assert.deepEqual(actions, ["open", "check"]);
   assert.equal(shadow.querySelector('[role="dialog"]'), null);
+});
+
+test("remembered reviewer can sign in by email without a password or reviewer picker", async () => {
+  const window = new Window(); const document = window.document as unknown as Document;
+  const calls: unknown[] = [];
+  mountReviewOverlay(document, context, "signed-out", {
+    onAccessSubmit: async () => ({ status: "signed-out" as const }),
+    onReviewerEmail: async (action: string, email?: string) => { calls.push([action, email]); return false; },
+  });
+  const shadow = document.getElementById(OVERLAY_HOST_ID)!.shadowRoot!;
+  shadow.querySelector<HTMLElement>('[data-action="authenticate"]')!.click();
+  const dialog = shadow.querySelector('[role="dialog"]')!;
+  const email = dialog.querySelector<HTMLInputElement>('[name="reviewerEmail"]');
+  assert.ok(email);
+  email.value = "reviewer@example.com";
+  dialog.querySelector<HTMLButtonElement>('[data-email-signin]')!.click(); await tick();
+  assert.deepEqual(calls, [["signin", "reviewer@example.com"]]);
+  assert.match(dialog.textContent!, /new.*(?:computer|browser)|email link/i);
+  assert.equal(dialog.querySelector('input[type="password"]'), null);
 });
 
 test("course access form finds an approved reviewer by email and confirms their identity", async () => {

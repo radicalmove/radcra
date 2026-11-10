@@ -100,18 +100,35 @@ def test_inactive_member_cannot_self_restore(db_session, state):
     assert member.state is state
 
 
-def test_admin_first_browser_flow_and_mail(client, monkeypatch):
+@pytest.mark.parametrize("scoped_trial", [False, True])
+def test_admin_first_browser_flow_and_mail(client, monkeypatch, scoped_trial):
     from pydantic import SecretStr
     from app.config import get_settings
     from app.services.accounts import register_account
     from app.services.notification_pilot import deliver_access_mail
     settings = get_settings()
-    for key, value in dict(reviewer_access_enabled=True, reviewer_access_mail_secret=SecretStr("test-only"),
+    for key, value in dict(reviewer_access_enabled=not scoped_trial, reviewer_access_mail_secret=SecretStr("test-only"),
             reviewer_access_admin_email="admin@example.com", reviewer_access_sender="sender@example.com",
             reviewer_access_origin="https://testserver").items():
         monkeypatch.setattr(settings, key, value)
     with client.db_factory() as db:
-        cid = course(db).id
+        cid = (resolve_course(db, moodle_course_id=3598,
+                              course_url="https://learn.canterbury.ac.nz/course/view.php?id=3598",
+                              title="LEARN trial") if scoped_trial else course(db)).id
+        if scoped_trial:
+            from app.services.accounts import create_extension_login_code, exchange_extension_login_code
+            redirect = "https://extension.chromiumapp.org/"
+            monkeypatch.setattr(settings, "extension_redirect_uris", redirect)
+            monkeypatch.setattr(settings, "reviewer_access_learn_trial_email", "reviewer@example.com")
+            other = resolve_course(db, moodle_course_id=3598,
+                                   course_url="https://my.uconline.ac.nz/course/view.php?id=3598",
+                                   title="UCO same number")
+            existing = register_account(db, email="reviewer@example.com", password="long enough password")
+            existing.approved_at = utc_now()
+            db.commit()
+            code = create_extension_login_code(db, existing, redirect)
+            token = exchange_extension_login_code(db, code, redirect)
+            existing_id, other_id = existing.id, other.id
         admin = register_account(db, email="admin@example.com", password="long enough password")
         admin.role, admin.approved_at = UserRole.ADMIN, utc_now()
         db.commit()
@@ -123,6 +140,19 @@ def test_admin_first_browser_flow_and_mail(client, monkeypatch):
     assert 'Send sign-in link' in signin.text and 'name="display_name"' not in signin.text
     assert 'sphere-signin-email' in signin.text and '@example.com' not in signin.text
     csrf = client.cookies['csrf_token']
+    if scoped_trial:
+        headers = {"Authorization": f"Bearer {token}"}
+        assert client.get("/api/comments", params={"course_id": str(other_id)}, headers=headers).status_code == 200
+        assert client.get("/api/comments", params={"course_id": str(cid)}, headers=headers).status_code == 404
+        assert client.post("/api/access/reviewers", json={"course_handle": str(other_id)}).status_code == 200
+        assert client.post("/api/access/reviewers", json={"course_handle": str(cid)}).status_code == 403
+        wrong_course = client.post(f"/reviewer-access/request/{other_id}", data=dict(
+            csrf_token=csrf, email="reviewer@example.com", display_name="Existing reviewer"))
+        assert "not available" in wrong_course.text
+        denied = client.post(path, data=dict(csrf_token=csrf, email="outsider@example.com", display_name="Uninvited"))
+        assert denied.status_code == 200
+        with client.db_factory() as db:
+            assert db.scalar(select(ReviewerEmailChallenge)) is None
     response = client.post(path, data=dict(csrf_token=csrf, email="reviewer@example.com", display_name="Reviewer", requested_role="ld_dcd"))
     assert 'admin approval' in response.text
     messages = []
@@ -149,14 +179,35 @@ def test_admin_first_browser_flow_and_mail(client, monkeypatch):
         assert challenge.proof_expires_at.replace(tzinfo=utc_now().tzinfo) > utc_now() + timedelta(minutes=19)
     drain()
     body = messages[-1][0].get_content()
-    assert 'sme' in body and 'https://learn.example.com/course/view.php?id=456' in body
+    assert 'sme' in body and ("/course/view.php?id=3598" if scoped_trial else "/course/view.php?id=456") in body
     assert 'SME' in body
     proof = body.split('/reviewer-access/verify#')[-1].split()[0]
     assert client.post('/reviewer-access/verify', data=dict(csrf_token=csrf, proof=proof)).status_code == 200
     with client.db_factory() as db:
         assert db.scalar(select(ReviewerEmailChallenge)).confirmed_at is not None
-    assert 'type="password"' not in client.get('/register').text
-    assert client.post('/register', data=dict(csrf_token=csrf)).status_code == 403
+    if scoped_trial:
+        with client.db_factory() as db:
+            assert db.scalar(select(CourseMembership)).user_id == existing_id
+        from urllib.parse import parse_qs, urlsplit
+        finish = client.get(f"/reviewer-access/finish/{cid}", params={"redirect_uri": redirect}, follow_redirects=False)
+        code = parse_qs(urlsplit(finish.headers["location"]).fragment)["reviewer_code"][0]
+        monkeypatch.setattr(settings, "reviewer_access_learn_trial_email", None)
+        assert client.post("/reviewer-access/exchange", json={"course_id": str(cid), "code": code}).status_code == 403
+        monkeypatch.setattr(settings, "reviewer_access_learn_trial_email", "reviewer@example.com")
+        exchanged = client.post("/reviewer-access/exchange", json={"course_id": str(cid), "code": code})
+        assert exchanged.status_code == 200 and exchanged.json()["role"] == "sme"
+        access = exchanged.json()
+        learn_headers = {"Authorization": f"Bearer {access['session_token']}"}
+        assert client.get("/api/comments", params={"course_id": str(cid)}, headers=learn_headers).status_code == 200
+        assert client.get("/api/comments", params={"course_id": str(other_id)}, headers=learn_headers).status_code == 404
+        monkeypatch.setattr(settings, "reviewer_access_learn_trial_email", None)
+        assert client.get("/api/comments", params={"course_id": str(cid)}, headers=learn_headers).status_code == 401
+        assert client.post("/api/access/renew", json={"course_handle": str(cid), "device_credential": access["device_credential"]}).status_code == 403
+        assert client.get("/api/comments", params={"course_id": str(other_id)}, headers=headers).status_code == 200
+        assert 'type="password"' in client.get('/register').text
+    else:
+        assert 'type="password"' not in client.get('/register').text
+        assert client.post('/register', data=dict(csrf_token=csrf)).status_code == 403
 
 
 def test_disabled_flow_keeps_the_email_first_form(client, monkeypatch):
@@ -168,6 +219,44 @@ def test_disabled_flow_keeps_the_email_first_form(client, monkeypatch):
     assert 'Email me a link' in page.text
     assert 'name="requested_role"' not in page.text
     assert 'maxlength="100" required' not in page.text
+
+
+def test_scoped_worker_skips_old_uninvited_and_other_course_mail(db_session, monkeypatch):
+    from pydantic import SecretStr
+    from app.config import get_settings
+    from app.services.notification_pilot import deliver_access_mail
+    settings = get_settings()
+    learn = resolve_course(db_session, moodle_course_id=3598,
+                           course_url="https://learn.canterbury.ac.nz/course/view.php?id=3598", title="LEARN")
+    uco = resolve_course(db_session, moodle_course_id=1170,
+                         course_url="https://my.uconline.ac.nz/course/view.php?id=1170", title="CRJU160")
+    for key, value in dict(reviewer_access_enabled=False, reviewer_access_learn_trial_email="invited@example.com",
+                           reviewer_access_mail_secret=SecretStr("test-only"),
+                           reviewer_access_admin_email="admin@example.com", reviewer_access_sender="sender@example.com",
+                           reviewer_access_origin="https://testserver", notification_pilot_course_id=uco.id,
+                           notification_pilot_recipient="uco@example.com", notification_pilot_sender="uco-sender@example.com",
+                           notification_pilot_url="https://legacy.example.com").items():
+        monkeypatch.setattr(settings, key, value)
+    begin(db_session, learn.id, "outsider@example.com", "Outsider", admin_first=True, mail_secret="test-only")
+    begin(db_session, uco.id, "invited@example.com", "Wrong course", admin_first=True, mail_secret="test-only")
+    begin(db_session, learn.id, "invited@example.com", "Invited", admin_first=True, mail_secret="test-only")
+    begin(db_session, uco.id, "uco@example.com", "Legacy", mail_secret="test-only")
+    sent = []
+    def capture(message, recipient):
+        sent.append((recipient, message["From"].addresses[0].addr_spec, str(message["Subject"])))
+    while deliver_access_mail(db_session, settings, capture):
+        assert len(sent) <= 2
+    assert sorted(sent) == [
+        ("admin@example.com", "sender@example.com", "Sphere: Course access request"),
+        ("uco@example.com", "uco-sender@example.com", "[Sphere test] Confirm your email"),
+    ]
+
+
+def test_scoped_trial_refuses_global_email_access_configuration():
+    from pydantic import ValidationError
+    from app.config import Settings
+    with pytest.raises(ValidationError, match="not both"):
+        Settings(_env_file=None, reviewer_access_enabled=True, reviewer_access_learn_trial_email="invited@example.com")
 
 
 def test_unknown_signin_does_not_echo_a_chosen_cookie(client, monkeypatch):

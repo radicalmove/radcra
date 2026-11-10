@@ -1,7 +1,7 @@
 from functools import lru_cache
 from uuid import UUID
 
-from pydantic import PositiveInt, SecretStr
+from pydantic import EmailStr, PositiveInt, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,9 +27,16 @@ class Settings(BaseSettings):
     notification_pilot_preview_comment_id: UUID | None = None
     reviewer_access_mail_secret: SecretStr | None = None
     reviewer_access_enabled: bool = False
+    reviewer_access_learn_trial_email: EmailStr | None = None
     reviewer_access_admin_email: str | None = None
     reviewer_access_origin: str | None = None
     reviewer_access_sender: str | None = None
+
+    @model_validator(mode="after")
+    def distinct_email_access_modes(self):
+        if self.reviewer_access_enabled and self.reviewer_access_learn_trial_email:
+            raise ValueError("Choose scoped LEARN trial or global reviewer email access, not both")
+        return self
 
 
 @lru_cache

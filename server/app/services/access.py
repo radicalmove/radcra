@@ -9,6 +9,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
 from app.models import AuditEvent, Course, CourseMembership, DeviceCredential, MembershipState, ReconnectCredential, ReviewerInvitation, Session, User, UserRole
+from app.config import get_settings
+from app.services.learn_trial import trial_member_allowed
 from app.security import generate_token, hash_password, token_hash, utc_now, verify_password
 
 
@@ -166,6 +168,8 @@ def renew_device(db: DbSession, *, course_id: uuid.UUID, device_credential: str)
     membership = None if current is None else db.get(CourseMembership, current.membership_id)
     user = None if membership is None else db.get(User, membership.user_id)
     if current is None or membership is None or user is None or user.approved_at is None or user.deleted_at is not None or membership.course_id != course_id or membership.state is not MembershipState.APPROVED:
+        raise AccessDenied("Unable to verify reviewer access")
+    if not trial_member_allowed(get_settings(), db.get(Course, course_id), user.email):
         raise AccessDenied("Unable to verify reviewer access")
     current.rotated_at = now
     session_token = generate_token()

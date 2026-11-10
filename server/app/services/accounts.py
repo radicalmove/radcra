@@ -8,8 +8,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
 from app.config import get_settings
-from app.models import AuditEvent, CourseMembership, DeviceCredential, ExtensionLoginCode, MembershipState, ReconnectCredential, ReviewerInvitation, Session, User, UserRole
+from app.models import AuditEvent, Course, CourseMembership, DeviceCredential, ExtensionLoginCode, MembershipState, ReconnectCredential, ReviewerInvitation, Session, User, UserRole
 from app.security import generate_token, hash_password, token_hash, utc_now, verify_password
+from app.services.learn_trial import trial_course_id, trial_member_allowed
 
 
 class AuthenticationError(Exception):
@@ -39,6 +40,7 @@ class ExtensionAccess:
     role: UserRole
     course_id: uuid.UUID | None
     membership_id: uuid.UUID | None
+    blocked_course_id: uuid.UUID | None = None
 
 
 def register_account(db: DbSession, *, email: str, password: str, display_name: str | None = None) -> User:
@@ -186,10 +188,13 @@ def verify_extension_access(db: DbSession, token: str, *, now=None) -> Extension
     _approved(user)
     if row.membership_id is None:
         _require_legacy_extension_access(user)
-        return ExtensionAccess(user.id, user.email, user.display_name, user.role, None, None)
+        blocked = trial_course_id(db) if user.role is not UserRole.ADMIN else None
+        return ExtensionAccess(user.id, user.email, user.display_name, user.role, None, None, blocked)
     membership = db.get(CourseMembership, row.membership_id)
     if membership is None or membership.user_id != user.id or membership.state is not MembershipState.APPROVED:
         raise AuthenticationError("Course membership approval is required")
+    if not trial_member_allowed(get_settings(), db.get(Course, membership.course_id), user.email):
+        raise AuthenticationError("Course trial is not available")
     return ExtensionAccess(user.id, user.email, user.display_name, membership.role, membership.course_id, membership.id)
 
 

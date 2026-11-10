@@ -7,10 +7,11 @@ from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm import Session as DbSession
 
-from app.models import AnchorType, Attachment, Comment, CommentCategory, CommentReadState, CommentReply, CommentShare, CommentStatus, CommentStatusEvent, CourseMembership, MembershipState, PageLocation, User, UserRole
+from app.models import AnchorType, Attachment, Comment, CommentCategory, CommentReadState, CommentReply, CommentShare, CommentStatus, CommentStatusEvent, Course, CourseMembership, MembershipState, PageLocation, User, UserRole
 from app.url_validation import canonical_https_url
 from app.security import utc_now
 from app.services.notification_pilot import queue_pilot_event
+from app.services.learn_trial import is_trial_course, trial_course_condition
 
 
 class AuthorizationError(Exception):
@@ -161,7 +162,7 @@ def dashboard_comments_for(db: DbSession, user: User) -> list[DashboardComment]:
         .join(author, author.id == Comment.author_user_id)
         .outerjoin(PageLocation, PageLocation.id == Comment.location_id)
         .outerjoin(CommentReadState, and_(CommentReadState.comment_id == Comment.id, CommentReadState.user_id == user.id))
-        .where(_visibility_clause(user))
+        .where(_visibility_clause(user), Comment.course_id.not_in(select(Course.id).where(trial_course_condition())))
         .order_by(Comment.created_at, Comment.id)
     ).all()
     return [DashboardComment(comment, location, author_display, reply_at, reply_by, read_at) for comment, location, author_display, reply_at, reply_by, read_at in rows]
@@ -221,6 +222,9 @@ def visible_page_comments_for(db: DbSession, user: User, course_id: uuid.UUID, p
 def visible_comment_for(db: DbSession, user: User, comment_id: uuid.UUID) -> Comment | None:
     comment = db.get(Comment, comment_id)
     if comment is None:
+        return None
+    if (user.role is not UserRole.ADMIN and getattr(user, "course_id", None) != comment.course_id
+            and is_trial_course(db.get(Course, comment.course_id))):
         return None
     allowed = db.scalar(select(Comment.id).where(
         Comment.id == comment_id,

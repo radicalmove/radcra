@@ -5,6 +5,7 @@ from pathlib import Path
 
 from email_validator import EmailNotValidError, validate_email
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 
@@ -23,11 +24,13 @@ def main():
     from app.services.access import _issue_access
     from app.services.accounts import create_dashboard_session
     from app.services.courses import register_course
+    from app.services.notification_pilot import deliver_access_mail
     from app.services.reviewer_email_access import begin, confirm_email, exchange
 
     uco = "https://my.uconline.ac.nz"
     learn = "https://learn.canterbury.ac.nz"
-    get_settings().reviewer_access_enabled = True
+    settings = get_settings()
+    settings.reviewer_access_enabled = False
     with SessionLocal() as db, TestClient(app, base_url="https://rehearsal.invalid") as client:
         unscoped = db.execute(text("""
             SELECT count(*) FROM sessions s JOIN users u ON s.user_id = u.id
@@ -82,7 +85,18 @@ def main():
         assert eligible, "No copied UCO reviewer with a mail-eligible address"
         original, reviewer = eligible[0]
         prior_user_id, prior_role = reviewer.id, original.role
-        proof, browser = begin(db, learn_course.id, reviewer.email, reviewer.display_name, admin_first=True)
+        settings.reviewer_access_learn_trial_email = reviewer.email
+        settings.reviewer_access_mail_secret = SecretStr("rehearsal-only")
+        settings.reviewer_access_origin = "https://rehearsal.invalid"
+        settings.reviewer_access_sender = "stage-sender@example.com"
+        settings.reviewer_access_admin_email = "stage-admin@example.com"
+        proof, browser = begin(db, learn_course.id, reviewer.email, reviewer.display_name,
+                               admin_first=True, mail_secret="rehearsal-only")
+        captured = []
+        def capture(message, recipient):
+            captured.append((str(message["Subject"]), recipient))
+        assert deliver_access_mail(db, settings, capture)
+        assert captured == [("Sphere: Course access request", settings.reviewer_access_admin_email)]
         pending = db.scalar(select(CourseMembership).where(
             CourseMembership.course_id == learn_course.id, CourseMembership.user_id == prior_user_id))
         assert pending is not None and pending.state is MembershipState.PENDING
@@ -96,6 +110,9 @@ def main():
                                follow_redirects=False)
         assert approval.status_code == 303
         db.expire_all()  # Approval was committed by a different request session.
+        assert deliver_access_mail(db, settings, capture)
+        assert captured[-1] == ("Sphere: Course access approved", reviewer.email)
+        assert not deliver_access_mail(db, settings, capture)
         confirmed, _ = confirm_email(db, proof, browser)
         assert confirmed.user_id == prior_user_id and confirmed.role is UserRole.SME
         access = exchange(db, learn_course.id, browser)
@@ -105,6 +122,8 @@ def main():
         assert client.get("/api/comments", params={"course_id": str(original.course_id)}, headers=headers).status_code == 404
         db.refresh(original)
         assert original.role is prior_role and original.state is MembershipState.APPROVED
+        settings.reviewer_access_learn_trial_email = None
+        assert client.get("/api/me", params={"course_id": str(learn_course.id)}, headers=headers).status_code == 401
         print("An existing UCO reviewer gained separately approved LEARN access on the same user ID; UCO role unchanged.")
 
 

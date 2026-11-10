@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from app.models import Course, CourseMembership, MembershipState, ReviewerEmailChallenge, User, UserRole
 from app.security import generate_token, hash_password, token_hash, utc_now
 from app.services.access import AccessDenied, AccessResult, _issue_access
+from app.services.learn_trial import is_trial_course
 
 ROLE_LABELS = {"beta_tester": "Beta tester", "sme": "SME", "ld_dcd": "Learning Designer / DCD"}
 
@@ -38,8 +39,12 @@ def begin(db, course_id, email, display_name="", *, mail_secret=None, admin_firs
         if db.bind.dialect.name == "postgresql":
             from sqlalchemy import text
             db.execute(text("SELECT pg_advisory_xact_lock(661315270691)"))
-        recent = db.scalars(select(ReviewerEmailChallenge).where(
-            ReviewerEmailChallenge.proof_expires_at > now - timedelta(minutes=40)).limit(30)).all()
+        recent_query = select(ReviewerEmailChallenge).where(
+            ReviewerEmailChallenge.admin_first == admin_first,
+            ReviewerEmailChallenge.proof_expires_at > now - timedelta(minutes=40))
+        if admin_first and is_trial_course(course):
+            recent_query = recent_query.where(ReviewerEmailChallenge.course_id == course_id)
+        recent = db.scalars(recent_query.limit(30)).all()
         if len(recent) >= 30 or sum(row.email == address for row in recent) >= 3:
             raise AccessDenied("Please wait before requesting another email")
     proof = mail_proof(mail_secret, browser_hash) if mail_secret else generate_token()

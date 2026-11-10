@@ -13,13 +13,14 @@ import ssl
 import sys
 from urllib.parse import urlsplit
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Comment, CommentStatus, CommentStatusEvent, Course, CourseMembership, MembershipState, NotificationOutbox, ReviewerEmailChallenge, User, UserRole
 from app.security import token_hash, utc_now
 from app.services.reviewer_email_access import mail_proof
+from app.services.learn_trial import challenge_allowed, mail_configured, trial_course_condition, trial_email
 
 
 PREVIEW_TEXT = "[Sphere automatic notification test] Test comment to check scheduled email delivery. No action needed."
@@ -169,10 +170,7 @@ def main():
 
 
 def _access_release_configured(settings):
-    return settings.reviewer_access_enabled and all((
-        settings.reviewer_access_mail_secret, settings.reviewer_access_admin_email,
-        settings.reviewer_access_origin, settings.reviewer_access_sender,
-    ))
+    return (settings.reviewer_access_enabled or bool(trial_email(settings))) and mail_configured(settings)
 
 
 def deliver_access_mail(db, settings, send):
@@ -185,15 +183,24 @@ def deliver_access_mail(db, settings, send):
             ReviewerEmailChallenge.admin_mail_pending.is_(True),
             ReviewerEmailChallenge.approval_mail_pending.is_(True)),
     )
-    if not release_mail:
-        query = query.where(ReviewerEmailChallenge.course_id == settings.notification_pilot_course_id,
-                            ReviewerEmailChallenge.email == settings.notification_pilot_recipient)
-    challenge = db.scalar(query.order_by(ReviewerEmailChallenge.proof_expires_at).limit(1).with_for_update(skip_locked=True))
+    if not settings.reviewer_access_enabled:
+        eligible = []
+        if _configured(settings):
+            eligible.append(and_(ReviewerEmailChallenge.course_id == settings.notification_pilot_course_id,
+                                 ReviewerEmailChallenge.email == settings.notification_pilot_recipient,
+                                 ReviewerEmailChallenge.admin_first.is_(False)))
+        if release_mail:
+            eligible.append(and_(trial_course_condition(), ReviewerEmailChallenge.admin_first.is_(True),
+                                 ReviewerEmailChallenge.email == trial_email(settings)))
+        query = query.join(Course, Course.id == ReviewerEmailChallenge.course_id).where(or_(*eligible))
+    challenge = db.scalar(query.order_by(ReviewerEmailChallenge.proof_expires_at).limit(1)
+                          .with_for_update(of=ReviewerEmailChallenge, skip_locked=True))
     if challenge is None:
         return False
     course = db.get(Course, challenge.course_id)
-    if not course or not course.is_confirmed:
+    if not course or not course.is_confirmed or not challenge_allowed(settings, course, challenge):
         return False
+    release_mail = release_mail and (settings.reviewer_access_enabled or challenge.admin_first)
     origin = (settings.reviewer_access_origin if release_mail else settings.notification_pilot_url).rstrip("/")
     recipient = challenge.email if release_mail else settings.notification_pilot_recipient
     sender = settings.reviewer_access_sender if release_mail else settings.notification_pilot_sender

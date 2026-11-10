@@ -11,6 +11,7 @@ from app.models import AuditEvent, Course, CourseMembership, MembershipState, Us
 from app.schemas import CourseLookupRequest, CourseReviewerListRequest, DeviceRenewRequest, ExistingReviewerSignInRequest, InvitationCreateRequest, InvitationRedeemRequest, MembershipResumeRequest, MembershipStateRequest
 from app.security import utc_now
 from app.services.access import AccessDenied, create_invitation, find_approved_reviewer, list_approved_reviewers, redeem_invitation, renew_device, resume_membership, sign_in_existing_reviewer
+from app.services.learn_trial import is_trial_course
 
 router = APIRouter(tags=["course access"])
 
@@ -43,7 +44,7 @@ def lookup_course(payload: CourseLookupRequest, db: DbSession = Depends(get_sess
 
 @router.post("/api/access/reviewers")
 def approved_reviewers(payload: CourseReviewerListRequest, db: DbSession = Depends(get_session)) -> dict:
-    if get_settings().reviewer_access_enabled:
+    if get_settings().reviewer_access_enabled or is_trial_course(db.get(Course, payload.course_handle)):
         raise HTTPException(status_code=403, detail="Use email sign-in for course access")
     try:
         if payload.email is None:
@@ -64,7 +65,7 @@ def approved_reviewers(payload: CourseReviewerListRequest, db: DbSession = Depen
 @router.post("/api/access/reviewers/sign-in")
 def sign_in_existing(payload: ExistingReviewerSignInRequest, db: DbSession = Depends(get_session)) -> dict:
     settings = get_settings()
-    if settings.reviewer_access_enabled or (settings.reviewer_access_mail_secret and payload.course_handle == settings.notification_pilot_course_id):
+    if settings.reviewer_access_enabled or is_trial_course(db.get(Course, payload.course_handle)) or (settings.reviewer_access_mail_secret and payload.course_handle == settings.notification_pilot_course_id):
         raise HTTPException(status_code=403, detail="Use email sign-in for this course")
     try:
         return _access_json(sign_in_existing_reviewer(db, course_id=payload.course_handle, membership_id=payload.membership_id))
@@ -75,6 +76,8 @@ def sign_in_existing(payload: ExistingReviewerSignInRequest, db: DbSession = Dep
 @router.post("/api/access/redeem")
 def redeem(payload: InvitationRedeemRequest, db: DbSession = Depends(get_session)) -> dict:
     try:
+        if is_trial_course(db.get(Course, payload.course_handle)) and not get_settings().reviewer_access_enabled:
+            raise AccessDenied("Use trial email access")
         role = UserRole(payload.role)
         return _access_json(redeem_invitation(db, course_id=payload.course_handle, display_name=payload.display_name, email=payload.email, role=role, invitation_code=payload.invitation_code))
     except (AccessDenied, ValueError) as exc:
@@ -84,6 +87,8 @@ def redeem(payload: InvitationRedeemRequest, db: DbSession = Depends(get_session
 @router.post("/api/access/resume")
 def resume(payload: MembershipResumeRequest, db: DbSession = Depends(get_session)) -> dict:
     try:
+        if is_trial_course(db.get(Course, payload.course_handle)) and not get_settings().reviewer_access_enabled:
+            raise AccessDenied("Use trial email access")
         return _access_json(resume_membership(db, course_id=payload.course_handle, email=payload.email, reconnect_code=payload.reconnect_code))
     except AccessDenied as exc:
         raise HTTPException(status_code=403, detail="Unable to verify reviewer access") from exc

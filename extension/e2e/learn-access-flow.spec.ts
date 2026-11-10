@@ -5,11 +5,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { POLICY_VERSION } from "../src/policy-consent.ts";
 
-const service = "https://localhost:48140";
+const scoped = process.env.SPHERE_LEARN_FLOW === "scoped";
+const service = scoped ? "https://localhost:48142" : "https://localhost:48140";
 const sites = ["https://learn.canterbury.ac.nz", "https://my.uconline.ac.nz"];
 const titles = ["Test Course - Richard D - Demo Course", "UCO isolated identity test"];
+const courseNumber = (index: number) => scoped && index === 1 ? 1170 : 3598;
+const courseUrl = (index: number) => `${sites[index]}/course/view.php?id=${courseNumber(index)}`;
 const reviewer = "stage-reviewer@example.com";
 type Mail = { recipient: string; subject: string; body: string };
+const verificationLink = (mail: Mail) => mail.body.split(/\s+/)
+  .find(word => word.startsWith(`${service}/reviewer-access/verify#`));
 
 test("LEARN staging: admin-first access, confirmation and trusted two-host reconnect", async () => {
   test.skip(!process.env.SPHERE_LEARN_FLOW, "Requires disposable LEARN staging and test build");
@@ -33,7 +38,7 @@ test("LEARN staging: admin-first access, confirmation and trusted two-host recon
     });
     context.setDefaultTimeout(12_000);
     for (const [index, site] of sites.entries()) await context.route(`${site}/**`, route => route.fulfill({
-      contentType: "text/html", body: `<html><title>${titles[index]}</title><body class="course-3598"><h1>${titles[index]}</h1><main><p>Dummy staging course content. No live Moodle data.</p></main></body></html>`,
+      contentType: "text/html", body: `<html><title>${titles[index]}</title><body class="course-${courseNumber(index)}"><h1>${titles[index]}</h1><main><p>Dummy staging course content. No live Moodle data.</p></main></body></html>`,
     }));
     return context;
   };
@@ -46,13 +51,40 @@ test("LEARN staging: admin-first access, confirmation and trusted two-host recon
       const admin = await context.newPage();
       const panel = course.locator("#moodle-course-review-overlay");
       for (const [index, role, displayRole] of [[0, "sme", "Subject Matter Expert"], [1, "ld_dcd", "Learning Designer"]] as const) {
-        await course.goto(`${sites[index]}/course/view.php?id=3598`);
+        await course.goto(courseUrl(index));
         await panel.locator('[data-action="authenticate"]').click();
         const opened = context.waitForEvent("page");
         await panel.getByRole("button", { name: "Request access", exact: true }).click();
         const page = await opened;
         await expect(page.getByText(titles[index], { exact: true })).toBeVisible();
         await expect(page.locator('input[type="password"]')).toHaveCount(0);
+        if (scoped && index === 1) {
+          await expect(page.getByLabel("Requested role")).toHaveCount(0);
+          await page.getByLabel("Email address").fill(reviewer);
+          await page.getByRole("button", { name: "Email me a link" }).click();
+          const mail = (await mailbox()).messages;
+          expect(mail).toHaveLength(3);
+          expect(mail[2]).toMatchObject({ recipient: reviewer, subject: "[Sphere test] Confirm your email" });
+          const link = verificationLink(mail[2]);
+          expect(link).toBeTruthy();
+          await page.goto(link!);
+          await page.getByRole("button", { name: "Confirm email", exact: true }).click();
+          await expect(page.getByRole("status")).toContainText("Email verified");
+          await page.close();
+          await panel.getByRole("button", { name: "Check access", exact: true }).click();
+          await expect(panel.locator("[data-viewer-line]")).toContainText(displayRole);
+          await panel.getByRole("button", { name: "Open review panel" }).click();
+          await expect(panel.locator("[data-comment-item]")).toContainText("Existing CRJU160 staging feedback");
+          continue;
+        }
+        if (scoped && index === 0) {
+          await page.getByLabel("Name", { exact: true }).fill("Uninvited Reviewer");
+          await page.getByLabel("Email address").fill("outsider@example.com");
+          await page.getByRole("button", { name: "Request access", exact: true }).click();
+          await expect(page.getByRole("status")).toBeVisible();
+          expect((await mailbox()).messages).toHaveLength(0);
+          await page.goto(page.url());
+        }
         await page.getByLabel("Name", { exact: true }).fill("Staging Reviewer");
         await page.getByLabel("Email address", { exact: true }).fill(reviewer);
         await page.getByLabel("Requested role").selectOption("beta_tester");
@@ -76,21 +108,20 @@ test("LEARN staging: admin-first access, confirmation and trusted two-host recon
         await pending.getByRole("button", { name: "Approve", exact: true }).click();
         const approved = (await mailbox()).messages.at(-1)!;
         expect(approved.recipient).toBe(reviewer);
-        expect(approved.body).toContain(`${sites[index]}/course/view.php?id=3598`);
+        expect(approved.body).toContain(courseUrl(index));
         expect(approved.body).toMatch(role === "sme" ? /SME|subject matter expert/i : /learning designer/i);
-        const link = approved.body.match(/https:\/\/localhost:48140\/reviewer-access\/verify#[a-f0-9]+/)?.[0];
+        const link = verificationLink(approved);
         expect(link).toBeTruthy();
         await page.goto(link!);
         await page.getByRole("button", { name: "Confirm email", exact: true }).click();
         await expect(page.getByRole("status")).toContainText(/verified|confirmed/i);
-        await expect(page.getByRole("link", { name: "Open course in Moodle" })).toHaveAttribute("href", `${sites[index]}/course/view.php?id=3598`);
-        await page.screenshot({ path: `/private/tmp/sphere-learn-confirmed-${index}.png` });
+        await expect(page.getByRole("link", { name: "Open course in Moodle" })).toHaveAttribute("href", courseUrl(index));
         await page.close();
         await panel.getByRole("button", { name: "Check access", exact: true }).click();
         await expect(panel.locator("[data-viewer-line]")).toContainText(displayRole);
       }
       for (const [index, role] of [[0, "Subject Matter Expert"], [1, "Learning Designer"]] as const) {
-        await course.goto(`${sites[index]}/course/view.php?id=3598`);
+        await course.goto(courseUrl(index));
         await expect(panel.locator("[data-viewer-line]")).toContainText(role);
       }
     } finally { await context.close(); }
@@ -98,17 +129,17 @@ test("LEARN staging: admin-first access, confirmation and trusted two-host recon
     try {
       for (const [index, role] of [[0, "Subject Matter Expert"], [1, "Learning Designer"]] as const) {
         const page = await context.newPage();
-        await page.goto(`${sites[index]}/course/view.php?id=3598`);
+        await page.goto(courseUrl(index));
         await expect(page.locator("[data-viewer-line]")).toContainText(role);
       }
-      expect((await mailbox()).messages).toHaveLength(4);
+      expect((await mailbox()).messages).toHaveLength(scoped ? 3 : 4);
     } finally { await context.close(); }
     context = await launch(otherProfile);
     try {
       const worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
       await worker.evaluate(async (version) => (globalThis as any).chrome.storage.local.set({ policyAcknowledgement: { version } }), POLICY_VERSION);
       const course = await context.newPage();
-      await course.goto(`${sites[0]}/course/view.php?id=3598`);
+      await course.goto(courseUrl(0));
       const panel = course.locator("#moodle-course-review-overlay");
       await panel.locator('[data-action="authenticate"]').click();
       await panel.getByLabel("Email address").fill(reviewer);
@@ -121,9 +152,9 @@ test("LEARN staging: admin-first access, confirmation and trusted two-host recon
       await page.getByRole("button", { name: "Send sign-in link" }).click();
       await expect(page.getByRole("status")).toBeVisible();
       const { messages } = await mailbox();
-      expect(messages).toHaveLength(5);
+      expect(messages).toHaveLength(scoped ? 4 : 5);
       expect(messages.at(-1)).toMatchObject({ recipient: reviewer, subject: "Sphere: Confirm your email" });
-      const link = messages.at(-1)!.body.match(/https:\/\/localhost:48140\/reviewer-access\/verify#[a-f0-9]+/)?.[0];
+      const link = verificationLink(messages.at(-1)!);
       expect(link).toBeTruthy();
       await page.goto(link!);
       await page.getByRole("button", { name: "Confirm email", exact: true }).click();

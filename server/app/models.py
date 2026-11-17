@@ -122,6 +122,8 @@ class Course(Base):
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     identity_title: Mapped[str] = mapped_column(String(512), nullable=False)
     is_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    email_onboarding_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    email_onboarding_configured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -155,6 +157,31 @@ class CourseMembership(Base):
     )
 
 
+class CourseMigrationPreview(Base):
+    __tablename__ = "course_migration_previews"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    source_course_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    target_course_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    rows: Mapped[list] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    selection: Mapped[list | None] = mapped_column(JSON)
+    result: Mapped[list | None] = mapped_column(JSON)
+
+
+class CourseMigrationMapping(Base):
+    __tablename__ = "course_migration_mappings"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    source_course_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    target_course_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("courses.id"), nullable=False, unique=True)
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (UniqueConstraint("source_course_id", "target_course_id", name="uq_course_migration_pair"),)
+
+
 class ReviewerEmailChallenge(Base):
     __tablename__ = "reviewer_email_challenges"
 
@@ -173,6 +200,8 @@ class ReviewerEmailChallenge(Base):
     approval_mail_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     admin_first: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     requested_role: Mapped[str] = mapped_column(String(20), nullable=False, default="beta_tester")
+    course_onboarding: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    signin_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
 
 class ReviewerInvitation(Base):

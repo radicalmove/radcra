@@ -20,7 +20,7 @@ def mail_proof(secret, browser_hash):
 
 
 def begin(db, course_id, email, display_name="", *, mail_secret=None, admin_first=False,
-          requested_role="beta_tester", signin=False):
+          requested_role="beta_tester", signin=False, course_onboarding=False):
     course = db.get(Course, course_id)
     name = display_name.strip()
     try:
@@ -42,7 +42,7 @@ def begin(db, course_id, email, display_name="", *, mail_secret=None, admin_firs
         recent_query = select(ReviewerEmailChallenge).where(
             ReviewerEmailChallenge.admin_first == admin_first,
             ReviewerEmailChallenge.proof_expires_at > now - timedelta(minutes=40))
-        if admin_first and is_trial_course(course):
+        if admin_first and (is_trial_course(course) or course_onboarding):
             recent_query = recent_query.where(ReviewerEmailChallenge.course_id == course_id)
         recent = db.scalars(recent_query.limit(30)).all()
         if len(recent) >= 30 or sum(row.email == address for row in recent) >= 3:
@@ -77,6 +77,7 @@ def begin(db, course_id, email, display_name="", *, mail_secret=None, admin_firs
     db.add(ReviewerEmailChallenge(course_id=course_id, email=address, display_name=name,
         proof_hash=token_hash(proof), browser_hash=browser_hash,
         admin_first=admin_first, requested_role=requested_role,
+        course_onboarding=course_onboarding, signin_only=signin,
         admin_mail_pending=pending, verification_mail_pending=bool(mail_secret) and not pending,
         proof_expires_at=now if pending else now + timedelta(minutes=20), browser_expires_at=now + timedelta(days=7)))
     db.commit()

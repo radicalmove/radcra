@@ -34,11 +34,21 @@ def mail_configured(settings):
 
 
 def trial_member_allowed(settings, course, email):
+    from app.services.course_onboarding import managed_course
+    if managed_course(course):
+        return course.is_confirmed  # Membership/session checks still enforce approval.
     return (settings.reviewer_access_enabled or not is_trial_course(course)
             or (email_trial_enabled(settings, course) and email == trial_email(settings) and mail_configured(settings)))
 
 
-def challenge_allowed(settings, course, challenge):
+def challenge_allowed(settings, course, challenge, db=None):
+    from app.services.course_onboarding import approved_email, enrollment_enabled, managed_course
+    if challenge.course_onboarding:
+        if not (managed_course(course) and course.is_confirmed and mail_configured(settings) and challenge.admin_first):
+            return False
+        if challenge.signin_only:
+            return db is not None and approved_email(db, course, challenge.email)
+        return enrollment_enabled(settings, course)
     if settings.reviewer_access_enabled:
         return True
     if is_trial_course(course):

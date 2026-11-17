@@ -41,6 +41,7 @@ class ExtensionAccess:
     course_id: uuid.UUID | None
     membership_id: uuid.UUID | None
     blocked_course_id: uuid.UUID | None = None
+    blocked_course_ids: frozenset[uuid.UUID] = frozenset()
 
 
 def register_account(db: DbSession, *, email: str, password: str, display_name: str | None = None) -> User:
@@ -189,7 +190,10 @@ def verify_extension_access(db: DbSession, token: str, *, now=None) -> Extension
     if row.membership_id is None:
         _require_legacy_extension_access(user)
         blocked = trial_course_id(db) if user.role is not UserRole.ADMIN else None
-        return ExtensionAccess(user.id, user.email, user.display_name, user.role, None, None, blocked)
+        from app.services.course_onboarding import LEARN_ORIGIN
+        blocked_ids = (frozenset(db.scalars(select(Course.id).where(Course.moodle_origin == LEARN_ORIGIN)))
+                       if user.role is not UserRole.ADMIN else frozenset())
+        return ExtensionAccess(user.id, user.email, user.display_name, user.role, None, None, blocked, blocked_ids)
     membership = db.get(CourseMembership, row.membership_id)
     if membership is None or membership.user_id != user.id or membership.state is not MembershipState.APPROVED:
         raise AuthenticationError("Course membership approval is required")

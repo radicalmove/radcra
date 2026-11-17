@@ -170,7 +170,7 @@ def main():
 
 
 def _access_release_configured(settings):
-    return (settings.reviewer_access_enabled or bool(trial_email(settings))) and mail_configured(settings)
+    return mail_configured(settings)
 
 
 def deliver_access_mail(db, settings, send):
@@ -192,13 +192,22 @@ def deliver_access_mail(db, settings, send):
         if release_mail:
             eligible.append(and_(trial_course_condition(), ReviewerEmailChallenge.admin_first.is_(True),
                                  ReviewerEmailChallenge.email == trial_email(settings)))
+            eligible.append(and_(ReviewerEmailChallenge.course_onboarding.is_(True),
+                Course.moodle_origin == "https://learn.canterbury.ac.nz",
+                or_(Course.email_onboarding_enabled.is_(True), ReviewerEmailChallenge.signin_only.is_(True))))
         query = query.join(Course, Course.id == ReviewerEmailChallenge.course_id).where(or_(*eligible))
     challenge = db.scalar(query.order_by(ReviewerEmailChallenge.proof_expires_at).limit(1)
                           .with_for_update(of=ReviewerEmailChallenge, skip_locked=True))
     if challenge is None:
         return False
     course = db.get(Course, challenge.course_id)
-    if not course or not course.is_confirmed or not challenge_allowed(settings, course, challenge):
+    if not course or not course.is_confirmed or not challenge_allowed(settings, course, challenge, db):
+        if challenge.course_onboarding:
+            challenge.verification_mail_pending = False
+            challenge.admin_mail_pending = False
+            challenge.approval_mail_pending = False
+            db.commit()
+            return True  # Discard invalid mail without stalling other courses.
         return False
     release_mail = release_mail and (settings.reviewer_access_enabled or challenge.admin_first)
     origin = (settings.reviewer_access_origin if release_mail else settings.notification_pilot_url).rstrip("/")

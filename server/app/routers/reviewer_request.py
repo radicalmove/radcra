@@ -17,6 +17,7 @@ from app.routers.access import _access_json
 from app.security import generate_token, token_hash, utc_now
 from app.services.access import AccessDenied
 from app.services.learn_trial import challenge_allowed, email_trial_enabled, is_trial_course, mail_configured, trial_email
+from app.services.course_onboarding import approved_email, enrollment_enabled, managed_course
 from app.services.reviewer_email_access import begin, confirm_email, exchange
 from app.url_validation import canonical_https_url
 
@@ -35,7 +36,7 @@ def _browser_cookie(response, name, secret):
 
 def request_mailer():
     settings = get_settings()
-    if settings.reviewer_access_enabled:
+    if settings.reviewer_access_enabled or mail_configured(settings):
         if mail_configured(settings):
             return settings.reviewer_access_mail_secret.get_secret_value()
         raise HTTPException(status_code=503, detail="Course access email is not configured")
@@ -68,10 +69,13 @@ def request_page(request: Request, course_id: uuid.UUID, mode: str = "", db: DbS
     if not course or not course.is_confirmed:
         raise HTTPException(status_code=404, detail="Course not enabled for review")
     settings = get_settings()
-    if is_trial_course(course) and not (settings.reviewer_access_enabled or email_trial_enabled(settings, course)):
+    managed = managed_course(course)
+    if managed and not (mail_configured(settings) and (enrollment_enabled(settings, course) or mode == "signin")):
+        raise HTTPException(status_code=404, detail="New access requests are not enabled for this course")
+    if not managed and is_trial_course(course) and not (settings.reviewer_access_enabled or email_trial_enabled(settings, course)):
         raise HTTPException(status_code=404, detail="Course not enabled for review")
     return _page(request, course=course, signin=mode == "signin",
-                 admin_first=settings.reviewer_access_enabled or email_trial_enabled(settings, course))
+                 admin_first=managed or settings.reviewer_access_enabled or email_trial_enabled(settings, course))
 
 
 @router.post("/request/{course_id}")
@@ -80,9 +84,13 @@ async def submit_request(request: Request, course_id: uuid.UUID, mailer=Depends(
     email = form.get("email", "").strip().lower()
     settings = get_settings()
     course = db.get(Course, course_id)
-    scoped = not settings.reviewer_access_enabled and is_trial_course(course)
-    admin_first = settings.reviewer_access_enabled or scoped
     signin = form.get("mode") == "signin"
+    managed = managed_course(course)
+    scoped = not managed and not settings.reviewer_access_enabled and is_trial_course(course)
+    admin_first = managed or settings.reviewer_access_enabled or scoped
+    if managed and (not mail_configured(settings) or
+            not (enrollment_enabled(settings, course) or (signin and approved_email(db, course, email)))):
+        raise HTTPException(status_code=404, detail="New access requests are not enabled for this course")
     generic = "If this address is eligible, follow the email instructions. New requests need admin approval, then confirm your email in this same Chrome profile. Return to Moodle and choose Check access."
     if scoped and not (trial_email(settings) and mail_configured(settings)):
         raise HTTPException(status_code=404, detail="Course not enabled for review")
@@ -92,7 +100,8 @@ async def submit_request(request: Request, course_id: uuid.UUID, mailer=Depends(
         if scoped and email != trial_email(settings):
             raise AccessDenied("Invalid access request")
         proof, browser_secret = begin(db, course_id, email, form.get("display_name", ""), mail_secret=mailer if isinstance(mailer, str) else None,
-            admin_first=admin_first, requested_role=form.get("requested_role", "beta_tester"), signin=signin)
+            admin_first=admin_first, requested_role=form.get("requested_role", "beta_tester"), signin=signin,
+            course_onboarding=managed)
     except AccessDenied:
         if admin_first:
             response = _page(request, message=generic, request_link=f"/reviewer-access/request/{course_id}")
@@ -128,7 +137,7 @@ async def verify_request(request: Request, mailer=Depends(request_mailer), db: D
     challenge = db.scalar(select(ReviewerEmailChallenge).where(ReviewerEmailChallenge.proof_hash == token_hash(proof)))
     cookie_name = course_cookie(challenge.course_id) if challenge and challenge.admin_first else COOKIE
     try:
-        if challenge and not challenge_allowed(get_settings(), db.get(Course, challenge.course_id), challenge):
+        if challenge and not challenge_allowed(get_settings(), db.get(Course, challenge.course_id), challenge, db):
             raise AccessDenied("Invalid or expired email link")
         membership, created = confirm_email(db, proof, request.cookies.get(cookie_name, ""), queue_mail=isinstance(mailer, str))
     except AccessDenied:
@@ -161,7 +170,7 @@ def finish(request: Request, course_id: uuid.UUID, redirect_uri: str, db: DbSess
         ReviewerEmailChallenge.exchanged_at.is_(None),
         ReviewerEmailChallenge.confirmed_at.is_not(None),
     ))
-    allowed = challenge and challenge_allowed(get_settings(), db.get(Course, course_id), challenge)
+    allowed = challenge and challenge_allowed(get_settings(), db.get(Course, course_id), challenge, db)
     member = None if not allowed else db.scalar(select(CourseMembership).join(User, User.id == CourseMembership.user_id).where(
         CourseMembership.course_id == course_id, CourseMembership.state == MembershipState.APPROVED,
         User.email == challenge.email, User.approved_at.is_not(None), User.deleted_at.is_(None)))
@@ -181,7 +190,7 @@ def exchange_request(payload: ReviewerExchange, db: DbSession = Depends(get_sess
             ReviewerEmailChallenge.course_id == payload.course_id,
             ReviewerEmailChallenge.browser_hash == token_hash(payload.code),
         ))
-        if not challenge or not challenge_allowed(get_settings(), db.get(Course, payload.course_id), challenge):
+        if not challenge or not challenge_allowed(get_settings(), db.get(Course, payload.course_id), challenge, db):
             raise AccessDenied("Course access is not ready")
         return _access_json(exchange(db, payload.course_id, payload.code))
     except AccessDenied as exc:

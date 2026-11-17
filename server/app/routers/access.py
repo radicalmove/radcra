@@ -12,6 +12,7 @@ from app.schemas import CourseLookupRequest, CourseReviewerListRequest, DeviceRe
 from app.security import utc_now
 from app.services.access import AccessDenied, create_invitation, find_approved_reviewer, list_approved_reviewers, redeem_invitation, renew_device, resume_membership, sign_in_existing_reviewer
 from app.services.learn_trial import is_trial_course
+from app.services.course_onboarding import managed_course
 
 router = APIRouter(tags=["course access"])
 
@@ -44,7 +45,8 @@ def lookup_course(payload: CourseLookupRequest, db: DbSession = Depends(get_sess
 
 @router.post("/api/access/reviewers")
 def approved_reviewers(payload: CourseReviewerListRequest, db: DbSession = Depends(get_session)) -> dict:
-    if get_settings().reviewer_access_enabled or is_trial_course(db.get(Course, payload.course_handle)):
+    course = db.get(Course, payload.course_handle)
+    if get_settings().reviewer_access_enabled or is_trial_course(course) or managed_course(course):
         raise HTTPException(status_code=403, detail="Use email sign-in for course access")
     try:
         if payload.email is None:
@@ -65,7 +67,8 @@ def approved_reviewers(payload: CourseReviewerListRequest, db: DbSession = Depen
 @router.post("/api/access/reviewers/sign-in")
 def sign_in_existing(payload: ExistingReviewerSignInRequest, db: DbSession = Depends(get_session)) -> dict:
     settings = get_settings()
-    if settings.reviewer_access_enabled or is_trial_course(db.get(Course, payload.course_handle)) or (settings.reviewer_access_mail_secret and payload.course_handle == settings.notification_pilot_course_id):
+    course = db.get(Course, payload.course_handle)
+    if settings.reviewer_access_enabled or is_trial_course(course) or managed_course(course) or (settings.reviewer_access_mail_secret and payload.course_handle == settings.notification_pilot_course_id):
         raise HTTPException(status_code=403, detail="Use email sign-in for this course")
     try:
         return _access_json(sign_in_existing_reviewer(db, course_id=payload.course_handle, membership_id=payload.membership_id))

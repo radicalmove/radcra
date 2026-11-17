@@ -10,6 +10,10 @@
 
 **Approved design:** `docs/superpowers/specs/2026-11-17-sphere-learn-course-migration-design.md`.
 
+## Execution record — 18 November
+
+Tasks 1–4 are implemented and verified on `codex/learn-course-onboarding`. See `docs/sphere-learn-course-onboarding-staging.md` for commands, actual test outcomes, limitations and the production boundary. The backend and tests are committed together because schema 18 contains both enrollment policy and transfer-audit tables; no partial schema deployment is intended. The original step checkboxes below retain the planning sequence rather than representing a production rollout.
+
 ## Workspace and safety
 
 - [ ] Preserve the existing uncommitted instruction edits in the current checkout. Use a dedicated integration branch in this worktree before new implementation; do not commit unrelated changes.

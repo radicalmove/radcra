@@ -7,10 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 from app.db import get_session
 from app.dependencies import current_dashboard_user
-from app.models import CommentCategory, CommentReadState, CommentReply, CommentStatus, CommentStatusEvent, Course, PageLocation, User, UserRole
+from app.models import CommentCategory, CommentReadState, CommentReply, CommentStatus, CommentStatusEvent, Course, CourseMembership, MembershipState, PageLocation, User, UserRole
 from app.routers.auth import _form_with_csrf
 from app.security import generate_token, utc_now
-from app.services.comments import AuthorizationError, allowed_status_choices, create_reply, dashboard_comments_for, share_comment_with_user, update_comment_status, visible_comment_for
+from app.services.comments import AuthorizationError, allowed_status_choices, create_reply, dashboard_comments_for, share_comment_with_user, update_comment_status, visible_comment_for, course_role_for
+from app.services.course_onboarding import managed_course
 from app.services.courses import confirm_course
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -99,13 +100,21 @@ def thread(request: Request, comment_id: uuid.UUID, user: User = Depends(current
     actor_ids.update(event.actor_user_id for event in events)
     people = dict(db.execute(select(User.id, User.display_name).where(User.id.in_(actor_ids))).all())
     location = db.get(PageLocation, comment.location_id) if comment.location_id else None
-    smes = list(db.execute(select(User.id, User.display_name, User.email).where(User.role == UserRole.SME, User.approved_at.is_not(None), User.deleted_at.is_(None)).order_by(User.display_name))) if user.role is UserRole.LD_DCD else []
+    effective_role=course_role_for(db,user,comment.course_id)
+    if managed_course(db.get(Course,comment.course_id)):
+        sme_query=select(User.id,User.display_name,User.email).join(CourseMembership,CourseMembership.user_id==User.id).where(
+            CourseMembership.course_id==comment.course_id,CourseMembership.state==MembershipState.APPROVED,
+            CourseMembership.role==UserRole.SME,User.approved_at.is_not(None),User.deleted_at.is_(None))
+    else:
+        sme_query=select(User.id,User.display_name,User.email).where(User.role==UserRole.SME,
+            User.approved_at.is_not(None),User.deleted_at.is_(None))
+    smes=list(db.execute(sme_query.order_by(User.display_name))) if effective_role is UserRole.LD_DCD else []
     share_feedback = {
         "invalid_recipient": "Choose a valid SME account before sharing.",
         "not_sme": "Choose a valid SME account before sharing.",
     }.get(request.query_params.get("share_error"))
     status_choices = allowed_status_choices(comment.status)[1:]
-    return rendered(request, "dashboard/thread.html", {"user": user, "comment": comment, "location": location, "replies": replies, "events": events, "people": people, "smes": smes, "status_choices": status_choices, "status_terminal": not bool(status_choices), "share_feedback": share_feedback})
+    return rendered(request, "dashboard/thread.html", {"user": user, "effective_role":effective_role, "comment": comment, "location": location, "replies": replies, "events": events, "people": people, "smes": smes, "status_choices": status_choices, "status_terminal": not bool(status_choices), "share_feedback": share_feedback})
 
 @router.post("/threads/{comment_id}/reply")
 async def reply(request: Request, comment_id: uuid.UUID, user: User = Depends(current_dashboard_user), db: DbSession = Depends(get_session)):
@@ -128,7 +137,7 @@ async def status(request: Request, comment_id: uuid.UUID, user: User = Depends(c
 async def share(request: Request, comment_id: uuid.UUID, user: User = Depends(current_dashboard_user), db: DbSession = Depends(get_session)):
     data = await _form_with_csrf(request); comment = visible_comment_for(db, user, comment_id)
     if comment is None: raise HTTPException(404, "Thread not found")
-    if user.role is not UserRole.LD_DCD: raise HTTPException(403, "Only an LD/DCD can share a thread")
+    if course_role_for(db,user,comment.course_id) is not UserRole.LD_DCD: raise HTTPException(403, "Only an LD/DCD can share a thread")
     try:
         recipient_id = uuid.UUID(str(data.get("user_id", "")))
     except (TypeError, ValueError):

@@ -9,6 +9,7 @@
     <p>Choose a course to invite reviewers and manage who can access it.</p></div>
     <a class="button secondary" href="/dashboard">Review dashboard</a>
   </header>
+  <p><a href="/admin/course-migration">Preview transferring approved UCO reviewers to a copied LEARN course</a></p>
 
   <section class="card" id="pending-requests" aria-labelledby="pending-title">
     <h2 id="pending-title">Pending requests <span class="chip pending">{{ pending|length }}</span></h2>
@@ -34,6 +35,17 @@
 
   {% if selected_course %}
   <h2>2. Manage {{ selected_course.title }}</h2>
+  {% if selected_course.moodle_origin == 'https://learn.canterbury.ac.nz' %}
+  <section class="card">
+    <h3>LEARN email access requests</h3>
+    <p>New enrollment is {{ 'enabled' if selected_course.email_onboarding_enabled else 'disabled' }} for this course. Disabling new enrollment does not revoke existing approved access. No new reviewers are approved automatically.</p>
+    <form class="admin-form" method="post" action="/admin/courses/{{ selected_course.id }}/email-onboarding">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="enabled" value="{{ 'false' if selected_course.email_onboarding_enabled else 'true' }}">
+      <button>{{ 'Disable new enrollment' if selected_course.email_onboarding_enabled else 'Enable admin-approved email requests' }}</button>
+    </form>
+  </section>
+  {% endif %}
   <section class="card">
     <h3>Create reviewer invitation</h3>
     <form class="admin-form" method="post" action="/admin/courses/{{ selected_course.id }}/invitations">

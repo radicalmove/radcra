@@ -12,6 +12,7 @@ from app.url_validation import canonical_https_url
 from app.security import utc_now
 from app.services.notification_pilot import queue_pilot_event
 from app.services.learn_trial import is_trial_course, trial_course_condition
+from app.services.course_onboarding import managed_course
 
 
 class AuthorizationError(Exception):
@@ -130,6 +131,18 @@ def dashboard_comments_for(db: DbSession, user: User) -> list[DashboardComment]:
     """Project all visible dashboard data without loading reply or user records."""
     author = aliased(User)
     reply_author = aliased(User)
+    managed_ids = select(Course.id).where(Course.moodle_origin == "https://learn.canterbury.ac.nz",
+        or_(Course.moodle_course_id != "3598", Course.email_onboarding_configured.is_(True),
+            Course.email_onboarding_enabled.is_(True)))
+    def member_with_role(role):
+        return select(CourseMembership.id).where(CourseMembership.user_id == user.id,
+            CourseMembership.course_id == Comment.course_id,
+            CourseMembership.state == MembershipState.APPROVED,
+            CourseMembership.role == role).exists()
+    managed_visibility = True if user.role is UserRole.ADMIN else or_(
+        member_with_role(UserRole.LD_DCD),
+        and_(member_with_role(UserRole.BETA_TESTER), _visibility_clause(user,UserRole.BETA_TESTER)),
+        and_(member_with_role(UserRole.SME), _visibility_clause(user,UserRole.SME)))
     eligible_reply = and_(
         CommentReply.comment_id == Comment.id,
         CommentReply.author_user_id != user.id,
@@ -162,14 +175,20 @@ def dashboard_comments_for(db: DbSession, user: User) -> list[DashboardComment]:
         .join(author, author.id == Comment.author_user_id)
         .outerjoin(PageLocation, PageLocation.id == Comment.location_id)
         .outerjoin(CommentReadState, and_(CommentReadState.comment_id == Comment.id, CommentReadState.user_id == user.id))
-        .where(_visibility_clause(user), Comment.course_id.not_in(select(Course.id).where(trial_course_condition())))
+        .where(or_(and_(Comment.course_id.not_in(managed_ids), _visibility_clause(user)),
+                   and_(Comment.course_id.in_(managed_ids), managed_visibility)),
+            Comment.course_id.not_in(select(Course.id).where(and_(trial_course_condition(),
+                Course.email_onboarding_configured.is_(False), Course.email_onboarding_enabled.is_(False)))))
         .order_by(Comment.created_at, Comment.id)
     ).all()
-    return [DashboardComment(comment, location, author_display, reply_at, reply_by, read_at) for comment, location, author_display, reply_at, reply_by, read_at in rows]
+    return [DashboardComment(comment, location, author_display, reply_at, reply_by, read_at)
+            for comment, location, author_display, reply_at, reply_by, read_at in rows]
 
 
 def visible_comments_for(db: DbSession, user: User, course_id: uuid.UUID) -> list[Comment]:
     """Return exactly the course threads this user is allowed to discover."""
+    if not _managed_access(db,user,course_id):
+        return []
     query = select(Comment).where(Comment.course_id == course_id)
     query = query.where(_visibility_clause(user, course_role_for(db, user, course_id)))
     return list(db.scalars(query.order_by(Comment.created_at, Comment.id)))
@@ -177,6 +196,8 @@ def visible_comments_for(db: DbSession, user: User, course_id: uuid.UUID) -> lis
 
 def visible_page_comments_for(db: DbSession, user: User, course_id: uuid.UUID, page_url: str | None = None) -> list[PageComment]:
     """Load visible course threads, optionally restricted to one exact page."""
+    if not _managed_access(db,user,course_id):
+        return []
     normalized = normalized_page_url(page_url) if page_url is not None else None
     author = aliased(User)
     query = (
@@ -219,12 +240,27 @@ def visible_page_comments_for(db: DbSession, user: User, course_id: uuid.UUID, p
     return [PageComment(comment, location, thread_author, course_role_for(db, thread_author, comment.course_id), tuple(replies_by_comment[comment.id]), tuple(events_by_comment[comment.id])) for comment, location, thread_author in rows]
 
 
+def _managed_access(db, user, course_id):
+    course=db.get(Course,course_id)
+    if user.role is UserRole.ADMIN or not managed_course(course):
+        return True
+    if not course.is_confirmed:
+        return False
+    return bool(db.scalar(select(CourseMembership.id).join(User,User.id==CourseMembership.user_id).where(
+        CourseMembership.course_id==course_id,CourseMembership.user_id==user.id,
+        CourseMembership.state==MembershipState.APPROVED,User.approved_at.is_not(None),
+        User.deleted_at.is_(None))))
+
+
 def visible_comment_for(db: DbSession, user: User, comment_id: uuid.UUID) -> Comment | None:
     comment = db.get(Comment, comment_id)
     if comment is None:
         return None
+    if not _managed_access(db,user,comment.course_id):
+        return None
     if (user.role is not UserRole.ADMIN and getattr(user, "course_id", None) != comment.course_id
-            and is_trial_course(db.get(Course, comment.course_id))):
+            and is_trial_course(db.get(Course, comment.course_id))
+            and not managed_course(db.get(Course, comment.course_id))):
         return None
     allowed = db.scalar(select(Comment.id).where(
         Comment.id == comment_id,

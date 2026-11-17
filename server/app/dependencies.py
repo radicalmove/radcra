@@ -20,7 +20,9 @@ current_api_user = current_extension_user
 
 
 def require_course_access(user: ExtensionAccess, course_id) -> None:
-    if getattr(user, "blocked_course_id", None) == course_id or (user.course_id is not None and user.course_id != course_id):
+    if (getattr(user, "blocked_course_id", None) == course_id
+            or course_id in getattr(user, "blocked_course_ids", ())
+            or (user.course_id is not None and user.course_id != course_id)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
 
 

@@ -24,8 +24,10 @@ If you were approved but the email link expired, use **Sign in** with your appro
 
 ## Already approved, or moving from an older version
 
+Use ordinary **Sign in** for reviewer access. **Admin sign-in** is a separate all-course administrator mode, not the way to connect an SME.
+
 - **Updating a Store install:** Stay in your usual Chrome profile. Chrome updates the existing listing automatically. If Chrome disables Sphere after an update and you’re comfortable with the new site permission, choose **Accept permissions** to re-enable it. Refresh your Moodle course.
-- **Moving from an unpacked pilot:** Install from the Store link, then disable the unpacked copy at `chrome://extensions` so only one Sphere runs. Your account, approved course roles and comments live on the server, but your browser sign-in may not carry over. Keep the old copy disabled rather than removing it until the Store copy works.
+- **Moving from an unpacked Sphere or RADCRA pilot:** Install from the Store link, then disable the unpacked copy at `chrome://extensions` so only one Sphere runs. Your account, approved course roles and comments live on the server, but your browser sign-in may not carry over. Keep the old copy disabled until the Store copy shows Connected and the expected comments appear; then choose **Remove** on the old copy in Manage Extensions. This removes the old extension and its local state, not your server-held comments or course approvals.
 - **If you’re signed out:** Use the email address you were approved with. Where email sign-in is enabled, sign in with that address; a new Chrome profile may need an email confirmation link. If the course doesn’t offer that flow, ask the course team to reconnect your existing account. Don’t choose **Request access** just because you updated.
 
 ## Add a course for review

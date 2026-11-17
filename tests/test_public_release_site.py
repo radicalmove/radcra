@@ -51,6 +51,7 @@ class PublicReleaseSiteTests(unittest.TestCase):
         self.assertIn('id="getting-started"', support)
         for instruction in ('Request access', 'Check access', 'same Chrome profile', 'requested role'):
             self.assertIn(instruction, support)
+        self.assertIn('remove the old copy', support.lower())
 
     def test_metadata_schema_and_canonical_download(self):
         for relative in ("site/latest.json", "site/legacy/radcra/latest.json"):

@@ -1,6 +1,8 @@
-# Sphere private-beta reviewer guide
+# Sphere beta QA guide
 
 This is a private beta for approved reviewers. Test accounts, invitation codes, and Moodle URLs are supplied out-of-band and must never be committed to this repository.
+
+For everyday installation, access requests and upgrades, use the [getting-started guide](sphere-getting-started.md). The steps below are tests for release operators and authorised test accounts.
 
 ## Access supplied to a reviewer
 

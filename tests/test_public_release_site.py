@@ -2,6 +2,7 @@ import json
 import re
 import unittest
 from pathlib import Path
+from html.parser import HTMLParser
 from urllib.parse import urlparse
 
 import yaml
@@ -12,7 +13,65 @@ LEGACY = "https://radicalmove.github.io/radcra/"
 REPOSITORY = "https://github.com/radicalmove/radcra"
 
 
+class GuideDocument(HTMLParser):
+    def __init__(self, html):
+        super().__init__()
+        self.ids, self.hrefs, self.assets, self.nav_labels = [], [], [], []
+        self.h1s = self.scripts = self.expected = 0
+        self.feed(html)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if attrs.get('id'):
+            self.ids.append(attrs['id'])
+        if tag == 'a' and attrs.get('href'):
+            self.hrefs.append(attrs['href'])
+        if tag == 'link' and attrs.get('rel') == 'stylesheet':
+            self.assets.append(attrs['href'])
+        if tag == 'img':
+            self.assets.append(attrs['src'])
+        if tag == 'nav':
+            self.nav_labels.append(attrs.get('aria-label'))
+        self.h1s += tag == 'h1'
+        self.scripts += tag == 'script'
+        self.expected += 'expected' in attrs.get('class', '').split()
+
+
 class PublicReleaseSiteTests(unittest.TestCase):
+    def test_detailed_guide_has_sections_navigation_and_expected_results(self):
+        guide = GuideDocument((ROOT / 'site/support/index.html').read_text())
+        self.assertIn('Guide sections', guide.nav_labels)
+        for section in ('getting-started', 'before-you-start', 'install', 'request-access', 'confirm-connect',
+                        'returning', 'replace-pilot', 'roles', 'course-teams', 'troubleshooting', 'privacy-support'):
+            self.assertIn(section, guide.ids)
+            self.assertIn('#' + section, guide.hrefs)
+        self.assertGreaterEqual(guide.expected, 6)
+        self.assertEqual(len(guide.ids), len(set(guide.ids)))
+        html = (ROOT / 'site/support/index.html').read_text()
+        self.assertGreaterEqual(html.count('Send sign-in link'), 2)
+
+    def test_guide_pages_use_valid_local_assets_and_fragments_without_scripts(self):
+        for relative in ('index.html', 'download/index.html', 'support/index.html'):
+            path = ROOT / 'site' / relative
+            guide = GuideDocument(path.read_text())
+            self.assertEqual(guide.h1s, 1, relative)
+            self.assertEqual(guide.scripts, 0, relative)
+            self.assertTrue(any(asset.endswith('site.css') for asset in guide.assets), relative)
+            self.assertTrue(any(asset.endswith('sphere-logo.png') for asset in guide.assets), relative)
+            self.assertIn('#main', guide.hrefs)
+            for asset in guide.assets:
+                self.assertFalse(urlparse(asset).scheme, asset)
+                self.assertTrue((path.parent / asset).is_file(), asset)
+            for href in guide.hrefs:
+                parsed = urlparse(href)
+                if not parsed.scheme and not parsed.netloc:
+                    target = path if not parsed.path else path.parent / parsed.path
+                    if target.is_dir():
+                        target = target / 'index.html'
+                    self.assertTrue(target.is_file(), href)
+                    if parsed.fragment:
+                        self.assertIn(parsed.fragment, GuideDocument(target.read_text()).ids, href)
+
     def test_exact_six_unauthenticated_url_contracts_and_migration(self):
         pages = {
             f"{SPHERE}": ROOT / "site/index.html",

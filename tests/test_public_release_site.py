@@ -3,6 +3,7 @@ import re
 import unittest
 from pathlib import Path
 from html.parser import HTMLParser
+from hashlib import sha256
 from urllib.parse import urlparse
 
 import yaml
@@ -38,6 +39,35 @@ class GuideDocument(HTMLParser):
 
 
 class PublicReleaseSiteTests(unittest.TestCase):
+    def test_reviewed_pdf_guides_have_verified_files_and_page_counts(self):
+        manifest_path = ROOT / 'site/guides/manifest.json'
+        self.assertTrue(manifest_path.is_file(), 'Reviewed guide manifest is missing')
+        manifest = json.loads(manifest_path.read_text())
+        self.assertEqual(manifest['schema_version'], 1)
+        self.assertEqual(manifest['extension_version'], '0.6.17')
+        self.assertEqual(manifest['reviewed_on'], '2026-11-18')
+        expected = {'sphere-learning-designer-quick-start.pdf': 2, 'sphere-sme-quick-start.pdf': 2,
+                    'sphere-beta-tester-quick-start.pdf': 2, 'sphere-learning-designer-handbook.pdf': 19}
+        self.assertEqual({d['file']: d['pages'] for d in manifest['documents']}, expected)
+        for document in manifest['documents']:
+            data = (manifest_path.parent / document['file']).read_bytes()
+            self.assertTrue(data.startswith(b'%PDF-'))
+            self.assertTrue(data.rstrip().endswith(b'%%EOF'))
+            self.assertGreater(len(data), 10000)
+            self.assertEqual(len(data), document['bytes'])
+            self.assertEqual(sha256(data).hexdigest(), document['sha256'])
+
+    def test_download_and_support_pages_link_all_four_pdf_guides(self):
+        expected = {'sphere-learning-designer-quick-start.pdf', 'sphere-sme-quick-start.pdf',
+                    'sphere-beta-tester-quick-start.pdf', 'sphere-learning-designer-handbook.pdf'}
+        for relative in ('download/index.html', 'support/index.html'):
+            html = (ROOT / 'site' / relative).read_text()
+            guide = GuideDocument(html)
+            self.assertIn('guides', guide.ids)
+            self.assertEqual({Path(urlparse(href).path).name for href in guide.hrefs if href.endswith('.pdf')}, expected)
+            self.assertIn('2 pages', html)
+            self.assertIn('19 pages', html)
+
     def test_detailed_guide_has_sections_navigation_and_expected_results(self):
         guide = GuideDocument((ROOT / 'site/support/index.html').read_text())
         self.assertIn('Guide sections', guide.nav_labels)

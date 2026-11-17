@@ -1,8 +1,35 @@
 import { expect, test } from "@playwright/test";
+import { createHash } from "node:crypto";
 
 const base = "http://127.0.0.1:48146";
 
 for (const width of [1280, 390]) {
+  test(`role PDF links and downloads at ${width}px`, async ({ page }, testInfo) => {
+    test.skip(!process.env.SPHERE_PUBLIC_GUIDE, "Requires the isolated local static site");
+    await page.setViewportSize({ width, height: 950 });
+    const manifestResponse = await page.request.get(base + "/guides/manifest.json");
+    expect(manifestResponse.ok()).toBeTruthy();
+    const manifest = await manifestResponse.json();
+    for (const path of ["/download/#guides", "/support/#guides"]) {
+      await page.goto(base + path);
+      const section = page.locator("#guides");
+      await expect(section).toBeInViewport();
+      await expect(section.locator('a[type="application/pdf"]')).toHaveCount(4);
+      for (const document of manifest.documents) {
+        const link = section.locator(`a[href="../guides/${document.file}"]`);
+        await expect(link).toBeVisible();
+        const response = await page.request.get(new URL(await link.getAttribute("href") ?? "", page.url()).href);
+        expect(response.ok()).toBeTruthy();
+        expect(response.headers()["content-type"]).toContain("application/pdf");
+        const data = await response.body();
+        expect(data.subarray(0, 5).toString()).toBe("%PDF-");
+        expect(createHash("sha256").update(data).digest("hex")).toBe(document.sha256);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+      await section.screenshot({ path: testInfo.outputPath(`pdf-guides-${path.includes("download") ? "download" : "support"}-${width}.png`) });
+    }
+  });
+
   for (const [path, title] of [["/", "Clear feedback, right where it belongs."], ["/download/", "Install Sphere in Chrome"], ["/support/", "Set up Sphere and start reviewing"]]) {
     test(`public Sphere guide ${path} at ${width}px`, async ({ page }, testInfo) => {
       test.skip(!process.env.SPHERE_PUBLIC_GUIDE, "Requires the isolated local static site");

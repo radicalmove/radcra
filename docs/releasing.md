@@ -25,7 +25,7 @@ The script runs extension/server/package gates, derives the public key, creates 
 2. Configure repository secret `EXTENSION_PRIVATE_KEY_PEM` and variable `REVIEW_SERVICE_ORIGIN`; neither is uploaded or echoed.
 3. Create and push an annotated `vX.Y.Z` tag only after release approval. CI uses the immutable checked-out tag commit as `BUILD_COMMIT`, installs pinned dependencies, and runs extension/typecheck/server/deployment/store/release-artifact/public-site tests.
 4. CI stores pilot and Web Store outputs under `$RUNNER_TEMP`, removes the temporary mode-600 key using an unconditional trap, and uploads ZIPs, checksums, release notes, and metadata to the technical release record.
-5. The independent Pages workflow requires masked `SPHERE_PAGES_REPOSITORY_TOKEN`, stages committed `site/` under `sphere/`, stages only the four compatibility fixtures under `radcra/`, and pushes those paths to `radicalmove/radicalmove.github.io` main.
+5. The independent Pages workflow uses `SPHERE_PAGES_DEPLOY_KEY`, the private half of a dedicated write-enabled deploy key registered only on `radicalmove/radicalmove.github.io`. It verifies GitHub SSH host keys through the HTTPS metadata API, cleans temporary key files on exit, stages committed `site/` under `sphere/` and the four compatibility fixtures under `radcra/`, and pushes only those owned paths. Never put a personal OAuth token in this secret.
 
 The `latest.json` schema is exactly:
 

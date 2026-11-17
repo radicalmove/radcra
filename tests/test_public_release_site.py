@@ -45,8 +45,12 @@ class PublicReleaseSiteTests(unittest.TestCase):
         combined = "\n".join(path.read_text(encoding="utf-8") for path in paths)
         for link in (f"{SPHERE}privacy/", f"{SPHERE}support/", f"{SPHERE}latest.json"):
             self.assertIn(link, combined)
-        self.assertIn("sphere-web-store-v0.6.0.zip", combined)
-        self.assertIn("moodle-review-extension-v0.6.0-chrome-edge.zip", combined)
+        self.assertIn("https://chromewebstore.google.com/detail/sphere-course-review-app/mohajifpffgbmkelnpdibcebmjpjngak", combined)
+        self.assertNotIn("/releases/latest/download/", combined)
+        support = (ROOT / 'site/support/index.html').read_text()
+        self.assertIn('id="getting-started"', support)
+        for instruction in ('Request access', 'Check access', 'same Chrome profile', 'requested role'):
+            self.assertIn(instruction, support)
 
     def test_metadata_schema_and_canonical_download(self):
         for relative in ("site/latest.json", "site/legacy/radcra/latest.json"):
@@ -58,21 +62,23 @@ class PublicReleaseSiteTests(unittest.TestCase):
             self.assertEqual(metadata["release_url"], REPOSITORY + "/releases/tag/v0.6.0")
             self.assertRegex(metadata["published_at"], r"^20\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
 
-    def test_pages_workflow_stages_exact_external_paths_with_masked_token(self):
+    def test_pages_workflow_stages_exact_external_paths_with_scoped_ssh_key(self):
         workflow_path = ROOT / ".github/workflows/pages.yml"
         workflow = workflow_path.read_text(encoding="utf-8")
         self.assertIsInstance(yaml.safe_load(workflow), dict)
         for value in (
-            "SPHERE_PAGES_REPOSITORY_TOKEN",
+            "SPHERE_PAGES_DEPLOY_KEY",
             "set +x",
-            "::add-mask::${SPHERE_PAGES_REPOSITORY_TOKEN}",
-            "git -c \"http.extraheader=AUTHORIZATION: bearer ${SPHERE_PAGES_REPOSITORY_TOKEN}\" clone --branch main --depth 1 https://github.com/radicalmove/radicalmove.github.io.git",
+            "StrictHostKeyChecking=yes",
+            "https://api.github.com/meta",
+            "git clone --branch main --depth 1 git@github.com:radicalmove/radicalmove.github.io.git",
             'cp -R site/. "$pages/sphere/"',
             'cp site/legacy/radcra/index.html "$pages/radcra/index.html"',
             'cp site/legacy/radcra/latest.json "$pages/radcra/latest.json"',
-            'git -c "http.extraheader=AUTHORIZATION: bearer ${SPHERE_PAGES_REPOSITORY_TOKEN}" -C "$pages" push origin main',
+            'git -C "$pages" push origin main',
         ):
             self.assertIn(value, workflow)
+        self.assertNotIn('SPHERE_PAGES_REPOSITORY_TOKEN', workflow)
         self.assertNotIn("actions/deploy-pages", workflow)
         self.assertNotIn("actions/upload-pages-artifact", workflow)
 

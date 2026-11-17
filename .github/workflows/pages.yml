@@ -11,11 +11,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sphere-public-site
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Validate committed Sphere site and legacy fixtures
         run: |
@@ -32,13 +38,21 @@ jobs:
 
       - name: Stage and push external user-site paths
         env:
-          SPHERE_PAGES_REPOSITORY_TOKEN: ${{ secrets.SPHERE_PAGES_REPOSITORY_TOKEN }}
+          SPHERE_PAGES_DEPLOY_KEY: ${{ secrets.SPHERE_PAGES_DEPLOY_KEY }}
         run: |
           set -euo pipefail
           set +x
-          test -n "${SPHERE_PAGES_REPOSITORY_TOKEN:-}" || { echo "SPHERE_PAGES_REPOSITORY_TOKEN is required" >&2; exit 1; }
-          echo "::add-mask::${SPHERE_PAGES_REPOSITORY_TOKEN}"
-          git -c "http.extraheader=AUTHORIZATION: bearer ${SPHERE_PAGES_REPOSITORY_TOKEN}" clone --branch main --depth 1 https://github.com/radicalmove/radicalmove.github.io.git "$RUNNER_TEMP/sphere-pages"
+          test -n "${SPHERE_PAGES_DEPLOY_KEY:-}" || { echo "SPHERE_PAGES_DEPLOY_KEY is required" >&2; exit 1; }
+          umask 077
+          key_dir=$(mktemp -d "$RUNNER_TEMP/sphere-pages-key.XXXXXXXX")
+          cleanup() { rm -f -- "$key_dir/deploy_key" "$key_dir/known_hosts"; rmdir -- "$key_dir"; }
+          trap cleanup EXIT
+          printf '%s\n' "$SPHERE_PAGES_DEPLOY_KEY" > "$key_dir/deploy_key"
+          chmod 600 "$key_dir/deploy_key"
+          curl --fail --silent --show-error --retry 3 https://api.github.com/meta \
+            | jq -er '.ssh_keys[] | "github.com \(.)"' > "$key_dir/known_hosts"
+          export GIT_SSH_COMMAND="ssh -i \"$key_dir/deploy_key\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\"$key_dir/known_hosts\""
+          git clone --branch main --depth 1 git@github.com:radicalmove/radicalmove.github.io.git "$RUNNER_TEMP/sphere-pages"
           pages="$RUNNER_TEMP/sphere-pages"
           test -d "$pages/.git"
           git -C "$pages" config user.name "github-actions[bot]"
@@ -58,5 +72,5 @@ jobs:
             echo "Sphere public site is already current"
           else
             git -C "$pages" commit -m "Publish Sphere public site"
-            git -c "http.extraheader=AUTHORIZATION: bearer ${SPHERE_PAGES_REPOSITORY_TOKEN}" -C "$pages" push origin main
+            git -C "$pages" push origin main
           fi

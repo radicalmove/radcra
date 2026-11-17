@@ -3,33 +3,170 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sphere support</title>
-  <style>body{margin:0;background:#f4f9ff;color:#0c447c;font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}main{box-sizing:border-box;width:min(820px,calc(100% - 32px));margin:32px auto;padding:32px;background:#fff;border:4px solid #378add;border-radius:12px;box-shadow:0 8px 24px #0c447c22}h1,h2{color:#0c447c}h1{margin-top:0}a{color:#378add}.notice{padding:12px 16px;border-left:5px solid #378add;background:#e6f1fb;font-weight:650}</style>
+  <meta name="description" content="Step-by-step Sphere installation, course approval, email confirmation, sign-in and troubleshooting for UCO Moodle and LEARN reviewers.">
+  <title>Sphere setup and support guide</title>
+  <link rel="icon" href="../assets/sphere-logo.png" type="image/png">
+  <link rel="stylesheet" href="../assets/site.css">
 </head>
-<body><main>
-  <h1>Sphere support</h1>
-  <p class="notice">THIS EXTENSION IS FOR BETA TESTING</p>
-  <h2 id="getting-started">Get started</h2>
-  <ol>
-    <li>In the Chrome profile you use for Moodle, <a href="https://chromewebstore.google.com/detail/sphere-course-review-app/mohajifpffgbmkelnpdibcebmjpjngak">install Sphere from the Chrome Web Store</a>. Skip this if the Store copy is already installed.</li>
-    <li>Open the course link from your course team and sign in to Moodle. Refresh if the page was open before installation. Read Sphere’s first-run notice and choose <strong>Continue</strong> if you agree.</li>
-    <li>If you haven’t been approved for that course and it uses email approval, choose <strong>Sign in → Request access</strong>. Enter your name, email and requested role. No Sphere password is needed. Wait for admin approval, then open the approval email and confirm your email in the same Chrome profile within 20 minutes. Your administrator assigns the actual course role.</li>
-    <li>Return to the course, choose <strong>Sign in → Check access</strong> and look for <strong>Connected</strong>. If the course isn’t enabled or email access isn’t available, ask your course team for help. Installing the extension does not grant Moodle or Sphere course access.</li>
-  </ol>
-  <p>If an approved email link expires, use <strong>Sign in</strong> with your approved email address to request a fresh link. Do not create another account. Access emails are sent by a scheduled worker and can take a few minutes; check spam as well as your inbox.</p>
-  <h2>If the Sphere panel is missing</h2>
-  <p>In Chrome, open the puzzle-piece menu and choose <strong>Manage Extensions</strong>. Check that Sphere is installed and enabled, and that site access permits the Moodle or LEARN site you are reviewing. Review any new permission request after an update, then refresh the course page. If an old unpacked Sphere is installed, disable that copy once the Store version is working.</p>
-  <h2>Already approved or switching versions?</h2>
-  <p>Reviewers should use ordinary <strong>Sign in</strong> with their approved email address. <strong>Admin sign-in</strong> is for administrators and switches Sphere into all-course administrator mode; it is not needed to connect an SME.</p>
-  <p>Use your usual Chrome profile and the email address you were approved with. Chrome updates Store installs automatically. If Chrome disables Sphere after an update, review the new permission and choose <strong>Accept permissions</strong> if you agree, then refresh Moodle.</p>
-  <p>If you used an unpacked Sphere or RADCRA pilot, install the Store copy and disable the old copy under <code>chrome://extensions</code>. Your existing course approval and comments stay in Sphere, but you may need to reconnect. Once the Store copy shows <strong>Connected</strong> and your expected course comments are available, <strong>remove the old copy</strong> using its <strong>Remove</strong> button in Manage Extensions. Removing the old extension does not delete server-held comments or course approvals. Where email sign-in is available, use the approved address and open any confirmation link in the same Chrome profile. Otherwise, ask your course team to help you reconnect rather than creating another account.</p>
-  <h2>Request review on another course</h2>
-  <p>Send the course link and intended reviewer role privately to your course team. An authorised administrator or learning designer registers the course, and access is approved separately. Registering a course does not automatically turn on email onboarding.</p>
-  <h2>Privacy and support</h2>
-  <p>Sphere handles reviewer name, email, role, and approval status; authentication, session, reconnect, and device credentials; course/page URLs and activity/SCORM identifiers, titles, and current location; comments, replies, statuses, timestamps, selected text, visual anchors, and optional screenshots and attachments submitted only at the reviewer's request; and browser/build, navigation, reliability, and error diagnostics. Authorised course-team members may read course-review content. Service operator staff do not routinely read it and may access specific data only on explicit user request about that data, for security or abuse, or legal obligation. Internal operational or improvement use is limited to aggregated and anonymised data.</p>
-  <p>GitHub Pages receives ordinary request metadata: IP address, user agent, request time, and requested path. Sphere sends it no Moodle content, review content, credentials, or tokens.</p>
-  <p>Read the <a href="https://radicalmove.github.io/sphere/privacy/">privacy policy</a>. Contact <a href="mailto:rcadavies@gmail.com">rcadavies@gmail.com</a> or use <a href="https://github.com/radicalmove/radcra/issues">GitHub issues</a>.</p>
-  <h2>Keep reports safe</h2>
-  <p>Never email or post credentials, tokens, invitation codes, private course links, real student data, or unnecessary course content.</p>
-</main></body>
+<body>
+  <a class="skip-link" href="#main">Skip to instructions</a>
+  <header class="site-header">
+    <a class="brand" href="../"><img src="../assets/sphere-logo.png" alt="" width="48" height="48"><span class="wordmark">Sphere<small>Course review, in context.</small></span></a>
+    <nav class="site-nav" aria-label="Sphere website"><a href="../">Overview</a><a href="../download/">Install</a><a href="./" aria-current="page">Setup guide</a><a href="../privacy/">Privacy</a></nav>
+  </header>
+  <div class="hero">
+    <h1>Set up Sphere and start reviewing</h1>
+    <p class="lead">Follow the steps for your situation. Installing Sphere, getting course approval and connecting your browser are separate parts of setup.</p>
+    <p class="notice">THIS EXTENSION IS FOR BETA TESTING</p>
+  </div>
+  <div class="page guide-layout">
+    <nav class="guide-toc" aria-label="Guide sections">
+      <h2>On this page</h2>
+      <div class="toc-links">
+        <a href="#getting-started">Choose where to start</a>
+        <a href="#before-you-start">Before you start</a>
+        <a href="#install">Install and open Sphere</a>
+        <a href="#request-access">Request course access</a>
+        <a href="#confirm-connect">Confirm and connect</a>
+        <a href="#returning">Returning or new computer</a>
+        <a href="#replace-pilot">Replace an old pilot</a>
+        <a href="#roles">Your course role</a>
+        <a href="#course-teams">For course teams</a>
+        <a href="#troubleshooting">Troubleshooting</a>
+        <a href="#privacy-support">Privacy and help</a>
+      </div>
+    </nav>
+    <main class="guide-body" id="main" tabindex="-1">
+      <section class="card" id="getting-started">
+        <h2>Choose where to start</h2>
+        <ul class="checklist">
+          <li><strong>First time using Sphere?</strong> Start with <a href="#before-you-start">what you need</a>, then follow installation, access request and confirmation in order.</li>
+          <li><strong>Already approved for this course?</strong> Go to <a href="#returning">returning reviewers</a>. Do not create another account just because you updated or changed computers.</li>
+          <li><strong>Used an old Sphere or RADCRA pilot?</strong> Follow <a href="#replace-pilot">the old-copy replacement steps</a> so you do not run both extensions.</li>
+          <li><strong>Something is not working?</strong> Find your symptom under <a href="#troubleshooting">troubleshooting</a>.</li>
+        </ul>
+      </section>
+
+      <section class="card" id="before-you-start">
+        <h2>Before you start</h2>
+        <ul class="checklist">
+          <li>Use <strong>Google Chrome on your computer</strong>, in the profile you normally use for reviewing courses. A Chrome profile is the separate browser workspace selected through the profile picture at the top right.</li>
+          <li>Have the <strong>course link from your course team</strong> and permission to open that course in UCO Moodle or LEARN. Your normal university/Moodle login is separate from Sphere.</li>
+          <li>Use an <strong>email inbox you can access</strong>. Use the same email address each time you sign in to Sphere.</li>
+          <li>The course team must have enabled Sphere for your course. If they have not, installing the extension alone will not enable it.</li>
+        </ul>
+        <div class="callout"><strong>Two kinds of access</strong><p>Moodle access lets you open the course. Sphere approval lets you review it with a particular role. Neither replaces the other.</p></div>
+      </section>
+
+      <section class="card" id="install">
+        <h2>1. Install and open Sphere</h2>
+        <ol class="steps">
+          <li><strong>Open the official listing in Chrome.</strong><p>Use the link below in your usual course-reviewing Chrome profile. Sphere is unlisted, so use this link rather than searching for a similarly named extension.</p><p><a class="button" href="https://chromewebstore.google.com/detail/sphere-course-review-app/mohajifpffgbmkelnpdibcebmjpjngak" target="_blank" rel="noopener noreferrer">Open Sphere in the Chrome Web Store</a></p></li>
+          <li><strong>Choose Add to Chrome.</strong><p>Read the permission prompt and choose <strong>Add extension</strong> if you agree. If the Store copy is already installed, do not add an unpacked ZIP as well.</p><p class="expected"><strong>What you should see:</strong> Sphere appears in Chrome’s Extensions menu. A work-managed browser may require your IT team to allow installation.</p></li>
+          <li><strong>Optionally pin Sphere to the toolbar.</strong><p>Open Chrome’s puzzle-piece <strong>Extensions</strong> menu and use the pin beside Sphere. This makes its controls easier to find; pinning is not the same as signing in.</p></li>
+          <li><strong>Open your course and refresh the page.</strong><p>Sign in to UCO Moodle or LEARN using your usual course login. If the course was open during installation, refresh it. Read Sphere’s first-use notice and select <strong>Continue</strong> only if you understand and accept the described data use.</p><p class="expected"><strong>What you should see:</strong> a Sphere strip or panel at the bottom right. For a first-time reviewer it normally says <strong>Signed out</strong>. The chevron expands a compact strip.</p></li>
+        </ol>
+        <p class="hint">If you cannot see the panel, use <a href="#panel-missing">the missing-panel checklist</a> before creating any accounts.</p>
+      </section>
+
+      <section class="card" id="request-access">
+        <h2>2. Request access to your course</h2>
+        <p>Use these steps if your course uses Sphere’s email approval flow and you have not yet been approved for that course.</p>
+        <ol class="steps">
+          <li><strong>In Sphere, choose Sign in, then Request access.</strong><p>Use the panel on the course you actually need to review. Approval is course-specific.</p></li>
+          <li><strong>Enter your name, email address and requested role.</strong><p>Choose the role agreed with your course team, such as <strong>SME</strong> for a subject matter expert. No Sphere password is needed. Your administrator assigns the actual role; selecting a requested role does not grant it.</p></li>
+          <li><strong>Choose Request access to submit.</strong><p>Sphere sends your request to the administrator’s pending list and queues an admin notification email.</p><p class="expected"><strong>What you should see:</strong> a message explaining approval and email confirmation. This is not yet a Connected state, and it does not mean your request has been approved.</p></li>
+          <li><strong>Wait for the administrator to approve it.</strong><p>The administrator reviews the course and requested role. Human approval is required. You will receive an approval email when access is granted.</p><p class="expected"><strong>What happens next:</strong> look for a <strong>Course access approved</strong> email from <strong>Sphere Notifications</strong>. It states the assigned course role.</p></li>
+        </ol>
+        <div class="callout"><strong>Not seeing this form?</strong><p>Some older UCO courses use an invitation or another approved sign-in route. If Sphere asks for a code, or says the course is not enabled, ask your course team which route to use. Do not create a duplicate account.</p></div>
+      </section>
+
+      <section class="card" id="confirm-connect">
+        <h2>3. Confirm your email and connect</h2>
+        <ol class="steps">
+          <li><strong>Check the approval email.</strong><p>Check the course title and assigned role. Access emails are sent by a scheduled worker and can take a few minutes; check spam as well as your inbox. Waiting for admin approval is separate from that delivery delay.</p></li>
+          <li><strong>Open the confirmation link in the same Chrome profile.</strong><p>Use the profile where you submitted the request, not another browser or an Incognito window. Follow the email’s instruction to confirm within <strong>20 minutes</strong>.</p><p>If your email app opens another browser, copy the confirmation link and paste it into the address bar of the correct Chrome profile. Do not forward that private link or include it in a support screenshot.</p></li>
+          <li><strong>On the Sphere page, choose Confirm email.</strong><p>This proves you can access the approved email address.</p><p class="expected"><strong>What you should see:</strong> an <strong>Email verified</strong> message and a link back to the course. Verification alone has not yet connected the extension.</p></li>
+          <li><strong>Return to Moodle and choose Check access.</strong><p>Open the course link, then use <strong>Sign in → Check access</strong> in the Sphere panel. A short browser authentication window may open and close.</p><p class="expected"><strong>Setup is complete when:</strong> Sphere shows <strong>Connected</strong>, your reviewer name and the assigned course role. Expand the panel if those details are hidden in its compact view.</p></li>
+        </ol>
+        <p>If the link expired or opened in the wrong profile, follow <a href="#email-link">the email-link recovery steps</a>; do not delete your account.</p>
+      </section>
+
+      <section class="card" id="returning">
+        <h2>Already approved, or using another computer?</h2>
+        <h3>Your usual Chrome profile</h3>
+        <p>Open the course and refresh it if needed. Sphere normally remembers approved course access. If it says Connected, you do not need to request access again.</p>
+        <h3>Signed out, a new computer or a different profile</h3>
+        <ol class="steps">
+          <li><strong>Open the approved course and choose Sign in.</strong><p>Use the ordinary reviewer sign-in, not <strong>Admin sign-in</strong>. Enter the email address already approved for that course and select <strong>Sign in</strong>.</p></li>
+          <li><strong>Send and follow the email sign-in link.</strong><p>If a new Sphere sign-in tab opens, check your email address and choose <strong>Send sign-in link</strong>. Opening that tab does not send the email automatically. A new computer or browser profile needs email confirmation. Open the emailed link in that same profile and choose Confirm email. Use <a href="#confirm-connect">the confirmation steps above</a>.</p></li>
+          <li><strong>Return to the course and choose Check access.</strong><p>You do not need a new account or a new role request for a course where you are already approved.</p><p class="expected"><strong>What you should see:</strong> Connected with the existing course role and the comments that role is allowed to see.</p></li>
+        </ol>
+        <p class="hint">Signing out, clearing browser data or using another profile may require a new email link. Course approval does not automatically approve you for a different course. If your older course uses a different access route, contact the course team.</p>
+        <div class="callout"><strong>Administrator mode is different</strong><p>Admin sign-in uses the administrator account and activates all-course administrator mode. It is not needed for an SME. To return to reviewer mode, sign out of Sphere and use ordinary Sign in with the reviewer’s approved email; a fresh link may be needed.</p></div>
+      </section>
+
+      <section class="card" id="replace-pilot">
+        <h2>Replace an old Sphere or RADCRA pilot</h2>
+        <p>Chrome treats the manually loaded pilot and the Store copy as different extensions. Installing the Store copy does not automatically remove the pilot.</p>
+        <ol class="steps">
+          <li><strong>Save any unfinished comment first.</strong><p>Saved comments and course approvals live on the server. An unsaved draft or an old extension’s local preferences may not survive disabling or removal.</p></li>
+          <li><strong>Install the official Store copy.</strong><p>Use the <a href="https://chromewebstore.google.com/detail/sphere-course-review-app/mohajifpffgbmkelnpdibcebmjpjngak" target="_blank" rel="noopener noreferrer">Sphere Store listing</a>. Do not download another old ZIP.</p></li>
+          <li><strong>Disable the old copy, without removing it yet.</strong><p>Open Chrome’s puzzle-piece menu and choose <strong>Manage Extensions</strong>, or use Chrome’s menu → Extensions → Manage Extensions. Find the manually loaded Sphere/RADCRA card and switch it off. Keep the Store copy on. An <strong>Unpacked extension</strong> badge can help identify the old pilot; do not rely on version number alone.</p></li>
+          <li><strong>Connect the Store copy and check the expected comments.</strong><p>Refresh the course and <a href="#returning">sign in using your existing approved email</a>. Your old extension’s browser sign-in may not transfer automatically.</p><p class="expected"><strong>Before removal:</strong> the Store copy says Connected, shows the correct role and loads the expected course feedback. Only one Sphere copy should be running.</p></li>
+          <li><strong>Now remove the old copy.</strong><p>Back in Manage Extensions, choose <strong>Remove</strong> on the <em>old manually loaded</em> Sphere/RADCRA card and confirm Chrome’s removal prompt. Leave the Store copy installed.</p><p class="expected"><strong>What stays:</strong> server-held comments, saved review history and approved course roles. Removing an extension does not delete your Sphere account. The old copy’s local state is removed.</p></li>
+        </ol>
+        <p class="hint">There is no automatic old-copy remover in the current release. If you cannot identify which card is the old pilot, ask for help before removing anything.</p>
+      </section>
+
+      <section class="card" id="roles">
+        <h2>What your course role means</h2>
+        <p>The administrator chooses the role for each course. Two reviewers may legitimately see different comment lists.</p>
+        <dl class="role-list">
+          <dt>Beta tester</dt><dd>Sees their own comment threads and the replies available to them.</dd>
+          <dt>SME (subject matter expert)</dt><dd>Sees their own comments, SME-authored comments and threads explicitly shared with them. This does not grant access to every reviewer’s private feedback.</dd>
+          <dt>Learning Designer / DCD</dt><dd>Manages course feedback, including comment status and sharing feedback with an SME.</dd>
+          <dt>Administrator</dt><dd>Approves access and assigned roles. Admin sign-in is a separate all-course mode, not a role new reviewers can grant themselves.</dd>
+        </dl>
+        <p class="hint">Copying a Moodle course to LEARN does not automatically copy its Sphere comments or reviewer approvals. Ask the course team how review access is being arranged for the copied course.</p>
+      </section>
+
+      <section class="card" id="course-teams">
+        <h2>For course teams: invite your reviewers</h2>
+        <ol class="steps">
+          <li><strong>Arrange course registration first.</strong><p>Send the exact course link privately to your Sphere administrator or authorised course lead. UCO Moodle and LEARN are separate course locations, even if the course titles match.</p></li>
+          <li><strong>Confirm the access route.</strong><p>A registered LEARN course needs new email access requests explicitly enabled in its administration settings. Registration alone does not turn them on. Existing UCO pilots may use a different route.</p></li>
+          <li><strong>Send each reviewer the setup guide and course link.</strong><p>Tell them which role to request. They still need access to the underlying Moodle/LEARN course. Do not share your administrator login.</p></li>
+          <li><strong>Review Pending requests.</strong><p>The administrator receives an access-request email and sees pending requests at the top of the admin page. Check the person and course, select their actual course role and approve. Sphere then emails the reviewer to confirm and connect.</p></li>
+        </ol>
+        <p class="hint">Disabling new enrollment does not revoke an already-approved reviewer. Contact your administrator if existing access needs to be revoked. Ask which comment-notification features are enabled for your course; access-approval emails do not imply every type of comment email is enabled.</p>
+      </section>
+
+      <section class="card" id="troubleshooting">
+        <h2>Troubleshooting</h2>
+        <p>Choose the symptom below. Avoid repeated requests or duplicate accounts while troubleshooting.</p>
+        <details class="faq" id="panel-missing"><summary>I cannot see the Sphere panel</summary><div><ol class="checklist"><li>Check the correct Chrome profile. The extension may be installed in another profile.</li><li>Open Manage Extensions and check that the Store copy of Sphere is enabled.</li><li>In Sphere’s Details, check site access for the relevant UCO Moodle or LEARN site. Review any new permission request after an update.</li><li>Open Sphere’s toolbar controls and check whether review has been paused. Resume it if needed.</li><li>Refresh the course and complete the first-use notice if it appears. Look for a compact strip at the bottom right and expand its chevron.</li><li>If two old/new copies are present, follow <a href="#replace-pilot">the pilot replacement steps</a>.</li></ol></div></details>
+        <details class="faq"><summary>I requested access but no email arrived</summary><div><p>New access requests need human approval first. The initial request notifies the administrator; it is not an immediate approval email to you. After approval, allow a few minutes for scheduled delivery and check spam for Sphere Notifications. Check the spelling of the email you submitted. If necessary, contact your course administrator instead of creating another account.</p></div></details>
+        <details class="faq" id="email-link"><summary>My email link expired or says “different Chrome profile”</summary><div><p>For an already-approved course, return to Sphere’s ordinary Sign in, enter the approved email and request a fresh sign-in link. In the new Sphere sign-in tab, check the email address and choose <strong>Send sign-in link</strong>; simply opening the tab does not send an email. Open the emailed link in the same Chrome profile and confirm promptly, then return to the course and choose Check access. If the email app opens Safari, Brave or another Chrome profile, copy the link into the correct profile instead. Do not forward the link to another person.</p></div></details>
+        <details class="faq"><summary>Email verified, but Sphere still says Signed out</summary><div><p>Email verification and connecting the extension are separate. Return to the original course and use <strong>Sign in → Check access</strong> in the same Chrome profile. If another browser handled the confirmation, follow the email-link recovery steps above.</p></div></details>
+        <details class="faq"><summary>The course is not enabled, or Sphere asks for an invitation code</summary><div><p>The course may not be registered, may not accept new email requests, or may use an older invitation route. Ask your course team to check the exact course link and access method. Installing Sphere or submitting a different email does not enable the course.</p></div></details>
+        <details class="faq"><summary>My name, role or comments do not look right</summary><div><p>Check the signed-in email and course. An existing account can retain its earlier display name. Ask your administrator to correct the account name or course role if needed. Admin sign-in activates administrator mode; use normal reviewer Sign in for SME access.</p><p>For missing comments, check Whole course versus This page, and Open versus Resolved. Your role controls which threads you can see. A copied LEARN course is not the same Sphere workspace as its original UCO course.</p></div></details>
+        <details class="faq"><summary>I see two panels, or an older version keeps appearing</summary><div><p>Check for an unpacked Sphere or RADCRA copy as well as the Store copy. Save unfinished work, disable the old copy and refresh. Only remove it after the Store copy connects and loads the expected comments. Follow <a href="#replace-pilot">the full replacement steps</a>.</p></div></details>
+        <details class="faq"><summary>My work computer will not allow installation</summary><div><p>Your organisation may manage Chrome extensions. Ask your IT team whether the official Sphere Store item can be allowed. Do not bypass the organisation’s security controls. Google also provides <a href="https://support.google.com/chrome_webstore/answer/2664769?hl=en">official installation and extension-management help</a>.</p></div></details>
+      </section>
+
+      <section class="card" id="privacy-support">
+        <h2>Privacy and help</h2>
+        <p>For access or account questions, contact your course administrator first. For Sphere support, email <a href="mailto:rcadavies@gmail.com">rcadavies@gmail.com</a>.</p>
+        <p>Describe the step that failed, the visible error and whether you use a Store or unpacked copy. Never send passwords, confirmation links, tokens, invitation codes or real student data. Remove private course content and browser/account details from screenshots. Course links should be shared privately with your authorised course team, not posted in a public issue.</p>
+        <details class="faq"><summary>What data does Sphere handle?</summary><div>
+          <p>Sphere handles reviewer name, email, role, and approval status; authentication, session, reconnect, and device credentials; course/page URLs and activity/SCORM identifiers, titles, and current location; comments, replies, statuses, timestamps, selected text, visual anchors, and optional screenshots and attachments submitted only at the reviewer's request; and browser/build, navigation, reliability, and error diagnostics. Authorised course-team members may read course-review content. Service operator staff do not routinely read it and may access specific data only on explicit user request about that data, for security or abuse, or legal obligation. Internal operational or improvement use is limited to aggregated and anonymised data.</p>
+          <p>GitHub Pages receives ordinary request metadata: IP address, user agent, request time, and requested path. Sphere sends it no Moodle content, review content, credentials, or tokens.</p>
+          <p>Read the <a href="https://radicalmove.github.io/sphere/privacy/">privacy policy</a> for the full statement.</p>
+        </div></details>
+      </section>
+    </main>
+  </div>
+  <footer class="site-footer"><span>Sphere · Course Review App (BETA)</span><span class="footer-links"><a href="../">Overview</a><a href="../download/">Install</a><a href="https://radicalmove.github.io/sphere/privacy/">Privacy</a><a href="mailto:rcadavies@gmail.com">Get help</a></span></footer>
+</body>
 </html>

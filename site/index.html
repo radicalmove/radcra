@@ -3,41 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Install Sphere for approved UCO Moodle and LEARN course reviews">
+  <meta name="description" content="Sphere helps approved reviewers give contextual feedback on UCO Moodle and LEARN courses. Install Sphere and follow the setup guide.">
   <title>Sphere - Course Review App (BETA)</title>
-  <style>
-    :root { color-scheme: light; --ink: #0c447c; --muted: #4a78a8; --blue: #185fa5; --action: #378add; --line: #b9d8f2; --wash: #f4f9ff; }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: var(--wash); color: var(--ink); font: 1rem/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    main { width: min(820px, calc(100% - 32px)); margin: 5vh auto; padding: clamp(24px, 5vw, 48px); background: #fff; border: 3px solid var(--line); border-radius: 16px; box-shadow: 0 10px 30px #0c447c1f; }
-    h1, h2 { color: var(--ink); line-height: 1.2; }
-    h1 { margin-top: 0; font-size: clamp(1.8rem, 5vw, 2.7rem); }
-    h2 { margin-top: 2rem; font-size: 1.25rem; }
-    a { color: var(--action); text-underline-offset: 2px; }
-    .notice { padding: 12px 16px; border-left: 5px solid var(--action); background: #e6f1fb; font-weight: 650; }
-    .downloads { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; padding: 0; list-style: none; }
-    .downloads li { padding: 18px; border: 1px solid var(--line); border-radius: 10px; }
-    .downloads a { display: inline-block; margin-bottom: 6px; font-weight: 700; }
-    .meta { color: var(--muted); font-size: .92rem; }
-    footer { margin-top: 2rem; color: var(--muted); font-size: .92rem; }
-  </style>
+  <link rel="icon" href="assets/sphere-logo.png" type="image/png">
+  <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
-  <main>
-    <h1>Sphere - Course Review App (BETA)</h1>
-    <p class="notice">THIS EXTENSION IS FOR BETA TESTING</p>
-    <p>Sphere lets authorised reviewers add comments, highlights, and review markers to configured Moodle course pages and embedded learning content.</p>
-    <h2>Install Sphere</h2>
-    <p><a href="https://chromewebstore.google.com/detail/sphere-course-review-app/mohajifpffgbmkelnpdibcebmjpjngak">Add Sphere from the Chrome Web Store</a>. Then open the Moodle course link your course team gave you. The listing is unlisted; installing does not grant course access.</p>
-    <p>Use the <a href="https://radicalmove.github.io/sphere/support/#getting-started">step-by-step installation and course-access guide</a>. Sphere supports configured courses on UCO Moodle and LEARN; each course needs to be enabled by its team.</p>
-    <h2>Developer and pilot builds</h2>
-    <p class="meta">Ordinary reviewers should use the Chrome Web Store link above. Unpacked pilot builds are supplied privately by the release operator; do not install an old ZIP or run two copies of Sphere.</p>
-    <h2>Install and update</h2>
-    <p>Chrome updates Store installs automatically. Unpacked pilot installs update manually. See <a href="https://radicalmove.github.io/sphere/support/#getting-started">how to request access or switch from an older install</a>.</p>
-    <h2>Privacy and support</h2>
-    <p>Read the <a href="https://radicalmove.github.io/sphere/privacy/">privacy policy</a>. For access, data, or release questions, use <a href="https://radicalmove.github.io/sphere/support/">support</a>.</p>
-    <p class="meta">Legacy pilot metadata: <a href="https://radicalmove.github.io/sphere/latest.json">latest.json</a>. Chrome manages Store updates separately.</p>
-    <footer>Sphere beta for approved reviewers · <a href="mailto:rcadavies@gmail.com">rcadavies@gmail.com</a></footer>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header"><a class="brand" href="./"><img src="assets/sphere-logo.png" alt="" width="48" height="48"><span class="wordmark">Sphere<small>Course review, in context.</small></span></a><nav class="site-nav" aria-label="Sphere website"><a href="./" aria-current="page">Overview</a><a href="download/">Install</a><a href="support/">Setup guide</a><a href="privacy/">Privacy</a></nav></header>
+  <div class="hero"><h1>Clear feedback, right where it belongs.</h1><p class="lead">Sphere helps approved reviewers add comments, highlights and markers to configured courses on UCO Moodle and LEARN. It does not change Moodle content.</p><div class="actions"><a class="button" href="download/">Install Sphere</a><a class="button secondary" href="support/#getting-started">Read the setup guide</a></div><p class="notice">THIS EXTENSION IS FOR BETA TESTING</p></div>
+  <main class="page" id="main" tabindex="-1">
+    <section class="card"><h2>One installation. Approval for each course.</h2><p>Install the official Chrome Store copy, open your course, then connect using your approved Sphere account. New reviewers request a course role and wait for administrator approval before confirming their email.</p><p class="hint">Installing the extension does not give you access to Moodle or approve you for a Sphere course. Your course team supplies the course link and access arrangements.</p></section>
+    <div class="route-grid">
+      <section class="card"><h2>I’m new to Sphere</h2><p>Follow installation, access request and email confirmation in order. Each step explains what you should see next.</p><a href="support/#before-you-start">Start the step-by-step guide →</a></section>
+      <section class="card"><h2>I’m already approved</h2><p>Use your existing email and Chrome profile. A different computer or profile may need a sign-in email, not a new account.</p><a href="support/#returning">Reconnect to your course →</a></section>
+      <section class="card"><h2>I used an old pilot</h2><p>The Store copy does not replace a manually loaded Sphere or RADCRA extension automatically.</p><a href="support/#replace-pilot">Disable, verify, then remove the old copy →</a></section>
+      <section class="card"><h2>I’m arranging a course review</h2><p>Register the correct course, agree reviewer roles and confirm its access route before inviting colleagues.</p><a href="support/#course-teams">Read the course-team checklist →</a></section>
+    </div>
+    <section class="card"><h2>Need a hand?</h2><p>Find help for a missing panel, delayed email, an expired confirmation link or unexpected comments.</p><p><a href="https://radicalmove.github.io/sphere/support/#troubleshooting">Open troubleshooting</a> or email <a href="mailto:rcadavies@gmail.com">rcadavies@gmail.com</a>.</p><details class="faq"><summary>Updates and developer builds</summary><div><p>Chrome manages updates for the Store copy. Unpacked pilots update manually and are supplied privately by the release operator. Ordinary reviewers should not install a ZIP or run both copies.</p><p>Legacy pilot metadata is at <a href="https://radicalmove.github.io/sphere/latest.json">latest.json</a>; it is separate from Chrome Store updates.</p></div></details></section>
   </main>
+  <footer class="site-footer"><span>Sphere · Course Review App (BETA)</span><span class="footer-links"><a href="download/">Install</a><a href="https://radicalmove.github.io/sphere/support/">Setup and support</a><a href="https://radicalmove.github.io/sphere/privacy/">Privacy</a></span></footer>
 </body>
 </html>

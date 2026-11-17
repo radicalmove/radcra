@@ -2,6 +2,8 @@
 
 18 November 2026. Implemented on `codex/learn-course-onboarding`, not deployed.
 
+Subsequent status: the user approved the controlled server rollout. See [the production rollout record](sphere-course-onboarding-rollout-2026-11-18.md). The statements below describe the earlier staging verification and its original boundary.
+
 ## What is implemented
 
 - Default-off enrollment for each registered LEARN course. An approved administrator explicitly enables or disables new email access requests in course administration.

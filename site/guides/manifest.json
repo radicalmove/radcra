@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "extension_version": "0.6.17",
+  "reviewed_on": "2026-11-18",
+  "documents": [
+    {
+      "file": "sphere-learning-designer-quick-start.pdf",
+      "title": "Learning Designer quick start",
+      "pages": 2,
+      "bytes": 78713,
+      "sha256": "9a02750a1793d3a8d884fd9222bafe3fe63bdc1a7b54dad10c79ef2e20bc9a41"
+    },
+    {
+      "file": "sphere-sme-quick-start.pdf",
+      "title": "SME quick start",
+      "pages": 2,
+      "bytes": 80817,
+      "sha256": "dd5ffd8f9ba3c4a39b539d5649adba384b8b7987f9d76525496cb97db9fa7417"
+    },
+    {
+      "file": "sphere-beta-tester-quick-start.pdf",
+      "title": "Beta tester quick start",
+      "pages": 2,
+      "bytes": 79783,
+      "sha256": "71494d45e0dd500609bc09fdc4e2f85f43275a10aa14c95322bd4b57b08276fc"
+    },
+    {
+      "file": "sphere-learning-designer-handbook.pdf",
+      "title": "Learning Designer handbook",
+      "pages": 19,
+      "bytes": 637116,
+      "sha256": "25763f13371323ec665623465263bb92b9c0f091b1233420d29772e435224032"
+    }
+  ]
+}

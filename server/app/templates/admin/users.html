@@ -1,28 +1,19 @@
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sphere administration</title><link rel="stylesheet" href="/static/app.css"><link rel="stylesheet" href="/static/admin.css"></head>
-<body>
-<a class="skip-link" href="#sphere-admin">Skip to administration</a>
-<main class="page sphere-admin" id="sphere-admin">
-  <header class="admin-heading">
-    <div><p class="eyebrow">Sphere · Administration</p><h1>Course review access</h1>
-    <p>Choose a course to invite reviewers and manage who can access it.</p></div>
-    <a class="button secondary" href="/dashboard">Review dashboard</a>
-  </header>
-  <p><a href="/admin/course-migration">Preview transferring approved UCO reviewers to a copied LEARN course</a></p>
+{% extends "admin/shell.html" %}
+{% block title %}Sphere · Course access{% endblock %}
+{% block content %}
 
   <section class="card" id="pending-requests" aria-labelledby="pending-title">
-    <h2 id="pending-title">Pending requests <span class="chip pending">{{ pending|length }}</span></h2>
+    <div class="admin-section-heading"><h2 id="pending-title">Pending requests <span class="chip pending">{{ pending|length }}</span></h2><span class="admin-hint">Choose the course role before approving</span></div>
     {% for membership, member, course in pending %}
-    <form class="admin-form" method="post" action="/admin/memberships/{{ membership.id }}/approve-request">
+    <form class="admin-form admin-request" method="post" action="/admin/memberships/{{ membership.id }}/approve-request">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <p><strong>{{ member.display_name }}</strong><br>{{ member.email }} · {{ course.title }}</p>
+      <div class="admin-request-person"><p><strong>{{ member.display_name }}</strong><br>{{ member.email }}<br>{{ course.title }}</p>
       {% set detail = request_details.get(membership.id) %}
-      {% if detail %}<p>Requested role: {{ detail.requested_role }} (advisory only) · {{ 'Email verified' if detail.confirmed_at else 'Email unverified' }}</p>{% endif %}
+      {% if detail %}<p class="admin-hint">Requested role: {{ role_labels.get(detail.requested_role, detail.requested_role) }} (advisory only) · {{ 'Email verified' if detail.confirmed_at else 'Email unverified' }}</p>{% endif %}</div>
       <label>Course role <select name="role" required><option value="">Choose role…</option><option value="beta_tester">Beta tester</option><option value="sme">SME</option><option value="ld_dcd">Learning Designer / DCD</option></select></label>
       <button>Approve</button>
     </form>
-    {% else %}<p>No course access requests waiting for approval.</p>{% endfor %}
+    {% else %}<p class="admin-empty">No course access requests waiting for approval.</p>{% endfor %}
   </section>
 
   <section class="card">
@@ -34,7 +25,7 @@
   </section>
 
   {% if selected_course %}
-  <h2>2. Manage {{ selected_course.title }}</h2>
+  <section class="card" aria-labelledby="manage-title"><h2 id="manage-title">2. Manage {{ selected_course.title }}</h2><p class="admin-hint">Invitations and role changes apply only to this course.</p></section>
   {% if selected_course.moodle_origin == 'https://learn.canterbury.ac.nz' %}
   <section class="card">
     <h3>LEARN email access requests</h3>
@@ -55,27 +46,27 @@
       <button>Create one-time code</button>
     </form>
   </section>
-  <h3>Reviewers for this course</h3>
-  <div class="admin-table" tabindex="0" role="region" aria-label="Course reviewers"><table><thead><tr><th>Reviewer</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-  {% for membership, member in memberships %}<tr><td>{{ member.display_name }}<br><small>{{ member.email }}</small></td><td>{{ membership.role.value }}</td><td>{{ membership.state.value }}</td><td><form class="inline" method="post" action="/admin/memberships/{{ membership.id }}/state"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><select name="state"><option value="approved" {% if membership.state.value == 'approved' %}selected{% endif %}>Approved</option><option value="rejected" {% if membership.state.value == 'rejected' %}selected{% endif %}>Rejected</option><option value="revoked" {% if membership.state.value == 'revoked' %}selected{% endif %}>Revoked</option></select><button>Update</button></form></td></tr>{% else %}<tr><td colspan="4">No reviewers for this course yet.</td></tr>{% endfor %}
-  </tbody></table></div>
-  {% else %}<p>Select a course above to create invitations and manage its reviewers.</p>{% endif %}
+  <section class="card"><h3>Reviewers for this course</h3>
+  <div class="admin-table" tabindex="0" role="region" aria-label="Course reviewers"><table><thead><tr><th scope="col">Reviewer</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>
+  {% for membership, member in memberships %}<tr><td><strong>{{ member.display_name }}</strong><br><small>{{ member.email }}</small></td><td class="admin-role">{{ role_labels.get(membership.role.value, membership.role.value) }}</td><td><span class="chip {{ membership.state.value }}">{{ membership.state.value }}</span></td><td><form class="inline" method="post" action="/admin/memberships/{{ membership.id }}/state"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><select name="state" aria-label="Access status for {{ member.display_name }}"><option value="approved" {% if membership.state.value == 'approved' %}selected{% endif %}>Approved</option><option value="rejected" {% if membership.state.value == 'rejected' %}selected{% endif %}>Rejected</option><option value="revoked" {% if membership.state.value == 'revoked' %}selected{% endif %}>Revoked</option></select><button>Update</button></form></td></tr>{% else %}<tr><td colspan="4">No reviewers for this course yet.</td></tr>{% endfor %}
+  </tbody></table></div></section>
+  {% else %}<p class="admin-hint">Select a course above to create invitations and manage its reviewers.</p>{% endif %}
 
   <details class="admin-account-section">
     <summary>Active account administration</summary>
+    <div class="admin-disclosure-body">
     <p class="archive-warning">Deleting an account archives it rather than destroying it. The user will be signed out and lose access; the deleted-account area lists and restores archived accounts, while course comments and review history remain available in course review.</p>
-    <table><thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Role</th><th>Actions</th></tr></thead><tbody>
-    {% for member in users %}<tr><td>{{ member.display_name }}</td><td>{{ member.email }}</td><td><span class="chip {{ 'approved' if member.approved_at else 'pending' }}">{{ 'Approved' if member.approved_at else 'Pending' }}</span></td><td>{{ member.role.value }}</td><td>{% if not member.approved_at %}<form class="inline" method="post" action="/admin/users/{{ member.id }}/approve"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Approve</button></form>{% endif %}<form class="inline" method="post" action="/admin/users/{{ member.id }}/role"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><select name="role">{% for role in roles %}<option value="{{ role.value }}" {% if member.role == role %}selected{% endif %}>{{ role.value }}</option>{% endfor %}</select><button>Save</button></form><form class="inline" method="post" action="/admin/users/{{ member.id }}/archive" onsubmit="return confirm('Archive this account? It will be signed out and lose access. Comments and review history will be retained.');"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger">Delete account</button></form></td></tr>{% else %}<tr><td colspan="5">No active accounts.</td></tr>{% endfor %}
-    </tbody></table>
+    <div class="admin-table" tabindex="0" role="region" aria-label="Active accounts"><table><thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Status</th><th scope="col">Role</th><th scope="col">Actions</th></tr></thead><tbody>
+    {% for member in users %}<tr><td>{{ member.display_name }}</td><td>{{ member.email }}</td><td><span class="chip {{ 'approved' if member.approved_at else 'pending' }}">{{ 'Approved' if member.approved_at else 'Pending' }}</span></td><td class="admin-role">{{ role_labels.get(member.role.value, member.role.value) }}</td><td>{% if not member.approved_at %}<form class="inline" method="post" action="/admin/users/{{ member.id }}/approve"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Approve</button></form>{% endif %}<form class="inline" method="post" action="/admin/users/{{ member.id }}/role"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><select name="role" aria-label="Account role for {{ member.display_name }}">{% for role in roles %}<option value="{{ role.value }}" {% if member.role == role %}selected{% endif %}>{{ role_labels.get(role.value, role.value) }}</option>{% endfor %}</select><button>Save</button></form><form class="inline" method="post" action="/admin/users/{{ member.id }}/archive" onsubmit="return confirm('Archive this account? It will be signed out and lose access. Comments and review history will be retained.');"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger">Delete account</button></form></td></tr>{% else %}<tr><td colspan="5">No active accounts.</td></tr>{% endfor %}
+    </tbody></table></div></div>
   </details>
 
   <details class="admin-account-section deleted-accounts">
     <summary>Deleted accounts ({{ deleted_users|length }})</summary>
+    <div class="admin-disclosure-body">
     <p>These accounts are archived and cannot sign in. Their comments and review history remain available.</p>
-    <table><thead><tr><th>Name</th><th>Email</th><th>Deleted</th><th>Role</th><th>Actions</th></tr></thead><tbody>
-    {% for member in deleted_users %}<tr><td>{{ member.display_name }}</td><td>{{ member.email }}</td><td>{{ member.deleted_at.strftime('%Y-%m-%d %H:%M UTC') if member.deleted_at else '' }}</td><td>{{ member.role.value }}</td><td><form class="inline" method="post" action="/admin/users/{{ member.id }}/restore"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Restore account</button></form></td></tr>{% else %}<tr><td colspan="5">No deleted accounts.</td></tr>{% endfor %}
-    </tbody></table>
+    <div class="admin-table" tabindex="0" role="region" aria-label="Deleted accounts"><table><thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Deleted</th><th scope="col">Role</th><th scope="col">Actions</th></tr></thead><tbody>
+    {% for member in deleted_users %}<tr><td>{{ member.display_name }}</td><td>{{ member.email }}</td><td>{{ member.deleted_at.strftime('%Y-%m-%d %H:%M UTC') if member.deleted_at else '' }}</td><td class="admin-role">{{ role_labels.get(member.role.value, member.role.value) }}</td><td><form class="inline" method="post" action="/admin/users/{{ member.id }}/restore"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Restore account</button></form></td></tr>{% else %}<tr><td colspan="5">No deleted accounts.</td></tr>{% endfor %}
+    </tbody></table></div></div>
   </details>
-</main>
-</body>
-</html>
+{% endblock %}

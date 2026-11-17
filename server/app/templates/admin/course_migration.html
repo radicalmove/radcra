@@ -1,31 +1,31 @@
-{% extends "auth/shell.html" %}
+{% extends "admin/shell.html" %}
 {% block title %}Sphere · Move course reviewers{% endblock %}
+{% block heading %}Move course reviewers to LEARN{% endblock %}
 {% block content %}
-<h1>Move course reviewers to LEARN</h1>
-<p><a href="/admin/users">Back to course administration</a></p>
+<section class="card">
 {% if completed is defined %}
-<p role="status">{{ completed }} reviewer membership(s) transferred. Existing UCO roles and comments have not moved or changed.</p>
+<p role="status" class="admin-status">{{ completed }} reviewer membership(s) transferred. Existing UCO roles and comments have not moved or changed.</p>
 <p>No notification emails were sent. Email enrollment on the LEARN course is a separate setting.</p>
 {% elif preview %}
 <h2>Review before granting access</h2>
-<p><strong>From:</strong> {{ source.title }}<br>{{ source.normalized_url }}</p>
-<p><strong>To:</strong> {{ target.title }}<br>{{ target.normalized_url }}</p>
+<div class="admin-transfer-grid"><div class="admin-transfer-course"><strong>Original UCO course</strong>{{ source.title }}<br><small>{{ source.normalized_url }}</small></div><div class="admin-transfer-course"><strong>Copied LEARN course</strong>{{ target.title }}<br><small>{{ target.normalized_url }}</small></div></div>
 <p>Select each reviewer to grant the displayed course role on LEARN. No comments, files, passwords or browser sign-ins will be copied. This preview expires in 20 minutes. If access changes, create a new preview.</p>
-<form method="post" action="/admin/course-migration/{{ preview.id }}/apply">
+<form class="admin-transfer-form" method="post" action="/admin/course-migration/{{ preview.id }}/apply">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 {% for row in preview.rows %}
-<p>{% if row.eligible %}<label><input type="checkbox" name="membership_id" value="{{ row.membership_id }}"> {{ row.name }} · {{ row.email }} · {{ row.role }}</label>{% else %}{{ row.name }} · {{ row.email }} · {{ row.role }} — {{ row.reason }}{% endif %}</p>
+<div class="admin-reviewer-choice">{% if row.eligible %}<label class="admin-check"><input type="checkbox" name="membership_id" value="{{ row.membership_id }}"><span>{{ row.name }} · {{ row.email }} · {{ row.role }}</span></label>{% else %}<p>{{ row.name }} · {{ row.email }} · {{ row.role }} ({{ row.reason }})</p>{% endif %}</div>
 {% else %}<p>No source reviewer memberships found.</p>{% endfor %}
-<label><input type="checkbox" name="confirm" value="yes" required> I confirm this is the copied LEARN course and approve access for the selected reviewers.</label>
+<label class="admin-check"><input type="checkbox" name="confirm" value="yes" required><span>I confirm this is the copied LEARN course and approve access for the selected reviewers.</span></label>
 <button>Grant selected LEARN course roles</button>
 </form>
 {% else %}
 <p>Register both courses first. Paste their exact course links below; Sphere will never guess a match from their names or course numbers.</p>
-<form method="post" action="/admin/course-migration/preview">
+<form class="admin-transfer-form" method="post" action="/admin/course-migration/preview">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <label>Original UCO course URL<input type="url" name="source_url" required placeholder="https://my.uconline.ac.nz/course/view.php?id=…"></label>
 <label>Copied LEARN course URL<input type="url" name="target_url" required placeholder="https://learn.canterbury.ac.nz/course/view.php?id=…"></label>
-<button>Preview reviewers — no access changes</button>
+<button>Preview reviewers (no access changes)</button>
 </form>
 {% endif %}
+</section>
 {% endblock %}

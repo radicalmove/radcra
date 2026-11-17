@@ -1,0 +1,33 @@
+{% set role_labels = {'beta_tester': 'Beta tester', 'sme': 'SME', 'ld_dcd': 'Learning Designer / DCD', 'admin': 'Administrator'} %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Sphere · Administration{% endblock %}</title>
+  <link rel="icon" href="/static/sphere-logo.png" type="image/png">
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/admin.css?v=20261118">
+</head>
+<body class="sphere-admin-app">
+  <a class="skip-link" href="#sphere-admin">Skip to administration</a>
+  <header class="admin-banner">
+    <div class="admin-brand-row">
+      <a class="admin-brand" href="/admin" aria-label="Sphere administration">
+        <img src="/static/sphere-logo.png" alt="" width="56" height="56">
+        <span><span class="admin-wordmark">Sphere</span><span class="admin-tagline">Course review administration</span></span>
+      </a>
+      <a class="button admin-dashboard-link" href="/dashboard">Review dashboard <span aria-hidden="true">↗</span></a>
+    </div>
+    <nav class="admin-nav" aria-label="Administration">
+      <a href="/admin/users"{% if not request.url.path.startswith('/admin/course-migration') %} aria-current="page"{% endif %}>Course access</a>
+      <a href="/admin/course-migration"{% if request.url.path.startswith('/admin/course-migration') %} aria-current="page"{% endif %}>Reviewer transfers</a>
+    </nav>
+  </header>
+  <main class="sphere-admin" id="sphere-admin" tabindex="-1">
+    <div class="admin-heading"><p class="eyebrow">Administration</p><h1>{% block heading %}Course review access{% endblock %}</h1></div>
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="admin-footer"><span>Sphere · Course Review App <span class="admin-beta">BETA</span></span><span><a href="https://radicalmove.github.io/sphere/privacy/">Privacy</a><a href="mailto:rcadavies@gmail.com">Get help</a></span></footer>
+</body>
+</html>
